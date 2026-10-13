@@ -1,0 +1,212 @@
+#file crates/orbital-game/src/lobby.rs
+#header v1 @multiplayer "Prototype lockstep multiplayer"
+//! The lobby: the players waiting to start a networked game, and whether they are all ready.
+
+#const MAX_PEERS v1 @multiplayer "Prototype lockstep multiplayer"
+/// The most players one lobby holds.
+pub const MAX_PEERS: usize = 4;
+#const MAX_PEERS v2 @multiplayer "Cap the prototype lobby at two players"
+/// The most players one lobby holds.
+pub const MAX_PEERS: usize = 2;
+#const MIN_PEERS v1 @multiplayer "Start only when two players are ready"
+/// The fewest players a game can start with.
+pub const MIN_PEERS: usize = 2;
+#const MIN_PEERS v2 @multiplayer "Let a single player start a practice game"
+/// The fewest players a game can start with.
+pub const MIN_PEERS: usize = 1;
+#item Peer v1 @multiplayer "Keep each player's name and ready flag in the lobby"
+/// A player in the lobby.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Peer {
+    pub name: String,
+    pub ready: bool,
+}
+#item Lobby v1 @multiplayer "Keep each player's name and ready flag in the lobby"
+/// The players waiting in the lobby, in the order they joined.
+#[derive(Debug, Default)]
+pub struct Lobby {
+    peers: Vec<Peer>,
+}
+#item Lobby v2 @multiplayer "Name the host so only it can start the game"
+/// The players waiting in the lobby, in the order they joined, and the host who may start it.
+#[derive(Debug, Default)]
+pub struct Lobby {
+    peers: Vec<Peer>,
+    host: Option<String>,
+}
+#item new v1 @multiplayer "Keep each player's name and ready flag in the lobby"
+impl Lobby {
+    /// An empty lobby.
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+#item join v1 @multiplayer "Keep each player's name and ready flag in the lobby"
+impl Lobby {
+    /// Adds a player who isn't ready yet. Returns false when the lobby is full.
+    pub fn join(&mut self, name: &str) -> bool {
+        if self.peers.len() >= MAX_PEERS {
+            return false;
+        }
+        self.peers.push(Peer {
+            name: name.to_string(),
+            ready: false,
+        });
+        true
+    }
+}
+#item join v2 @multiplayer "Refuse a second player with the same name"
+impl Lobby {
+    /// Adds a player who isn't ready yet. Returns false when the lobby is full, or a player of that
+    /// name is already in it.
+    pub fn join(&mut self, name: &str) -> bool {
+        if self.peers.len() >= MAX_PEERS || self.peers.iter().any(|p| p.name == name) {
+            return false;
+        }
+        self.peers.push(Peer {
+            name: name.to_string(),
+            ready: false,
+        });
+        true
+    }
+}
+#item join v3 @multiplayer "Cap player names at twelve characters"
+impl Lobby {
+    /// Adds a player who isn't ready yet. Returns false when the lobby is full, or a player of that
+    /// name is already in it. Names are cut to twelve characters.
+    pub fn join(&mut self, name: &str) -> bool {
+        let name: String = name.chars().take(12).collect();
+        if self.peers.len() >= MAX_PEERS || self.peers.iter().any(|p| p.name == name) {
+            return false;
+        }
+        self.peers.push(Peer { name, ready: false });
+        true
+    }
+}
+#item join v4 @multiplayer "Make the first player to join the host"
+impl Lobby {
+    /// Adds a player who isn't ready yet; the first to join hosts the lobby. Returns false when the
+    /// lobby is full, or a player of that name is already in it. Names are cut to twelve characters.
+    pub fn join(&mut self, name: &str) -> bool {
+        let name: String = name.chars().take(12).collect();
+        if self.peers.len() >= MAX_PEERS || self.peers.iter().any(|p| p.name == name) {
+            return false;
+        }
+        if self.host.is_none() {
+            self.host = Some(name.clone());
+        }
+        self.peers.push(Peer { name, ready: false });
+        true
+    }
+}
+#item leave v1 @multiplayer "Remove a player who leaves the lobby"
+impl Lobby {
+    /// Removes the named player, if they are in the lobby.
+    pub fn leave(&mut self, name: &str) {
+        self.peers.retain(|p| p.name != name);
+    }
+}
+#item leave v2 @multiplayer "Hand the lobby on when its host leaves"
+impl Lobby {
+    /// Removes the named player, if they are in the lobby. A host who leaves hands the lobby to the
+    /// player who has waited longest.
+    pub fn leave(&mut self, name: &str) {
+        self.peers.retain(|p| p.name != name);
+        if self.host.as_deref() == Some(name) {
+            self.host = self.peers.first().map(|p| p.name.clone());
+        }
+    }
+}
+#item set_ready v1 @multiplayer "Keep each player's name and ready flag in the lobby"
+impl Lobby {
+    /// Marks the named player ready or not.
+    pub fn set_ready(&mut self, name: &str, ready: bool) {
+        if let Some(peer) = self.peers.iter_mut().find(|p| p.name == name) {
+            peer.ready = ready;
+        }
+    }
+}
+#item can_start v1 @multiplayer "Start only when two players are ready"
+impl Lobby {
+    /// Whether enough players are in the lobby, and every one of them is ready.
+    pub fn can_start(&self) -> bool {
+        self.peers.len() >= 2 && self.peers.iter().all(|p| p.ready)
+    }
+}
+#item can_start v2 @multiplayer "Start from the lobby's own minimum of players"
+impl Lobby {
+    /// Whether enough players are in the lobby, and every one of them is ready.
+    pub fn can_start(&self) -> bool {
+        self.peers.len() >= MIN_PEERS && self.peers.iter().all(|p| p.ready)
+    }
+}
+#item start v1 @multiplayer "Let only the host start the game"
+impl Lobby {
+    /// Starts the game for `by`, if they host the lobby and it can start. Returns whether it started.
+    pub fn start(&self, by: &str) -> bool {
+        self.host.as_deref() == Some(by) && self.can_start()
+    }
+}
+#item names v1 @multiplayer "Keep each player's name and ready flag in the lobby"
+impl Lobby {
+    /// The names of the players, in the order they joined.
+    pub fn names(&self) -> Vec<&str> {
+        self.peers.iter().map(|p| p.name.as_str()).collect()
+    }
+}
+#test a_full_lobby_refuses_more v1 @multiplayer "Test that a full lobby refuses another player"
+#[test]
+fn a_full_lobby_refuses_more() {
+    let mut lobby = Lobby::new();
+    assert!(lobby.join("ada"));
+    assert!(lobby.join("bo"));
+    assert!(!lobby.join("cy"));
+}
+#test the_game_waits_for_everyone v1 @multiplayer "Test that the game waits until every player is ready"
+#[test]
+fn the_game_waits_for_everyone() {
+    let mut lobby = Lobby::new();
+    lobby.join("ada");
+    lobby.join("bo");
+    lobby.set_ready("ada", true);
+    assert!(!lobby.can_start());
+    lobby.set_ready("bo", true);
+    assert!(lobby.can_start());
+}
+#test a_leaving_player_is_removed v1 @multiplayer "Test that a player who leaves is removed"
+#[test]
+fn a_leaving_player_is_removed() {
+    let mut lobby = Lobby::new();
+    lobby.join("ada");
+    lobby.join("bo");
+    lobby.leave("ada");
+    assert_eq!(lobby.names(), vec!["bo"]);
+}
+#test duplicate_names_are_refused v1 @multiplayer "Test that a second player with the same name is refused"
+#[test]
+fn duplicate_names_are_refused() {
+    let mut lobby = Lobby::new();
+    assert!(lobby.join("ada"));
+    assert!(!lobby.join("ada"));
+}
+#test a_practice_game_starts_alone v1 @multiplayer "Test that one ready player can start a practice game"
+#[test]
+fn a_practice_game_starts_alone() {
+    let mut lobby = Lobby::new();
+    lobby.join("ada");
+    lobby.set_ready("ada", true);
+    assert!(lobby.can_start());
+}
+#test only_the_host_starts_the_game v1 @multiplayer "Test that only the host can start, and the host passes on"
+#[test]
+fn only_the_host_starts_the_game() {
+    let mut lobby = Lobby::new();
+    lobby.join("ada");
+    lobby.join("bo");
+    lobby.set_ready("ada", true);
+    lobby.set_ready("bo", true);
+    assert!(!lobby.start("bo"));
+    assert!(lobby.start("ada"));
+    lobby.leave("ada");
+    assert!(lobby.start("bo"));
+}

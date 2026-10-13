@@ -1,0 +1,65 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "from": "4f624c760503f39b11585ee6ce2f2fe87c15fbf7",
+        "kind": "worktree",
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 3,
+    "deleted": 1,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/basic"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+        },
+        "oldPath": null,
+        "path": "file_1.txt",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "4d4bc1c77f63bd5429cb0ab4d74cb8729570d293"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "file_2.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "f1f36270ff97895ac0f75837c262cfcb3c21cc2f"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "file_3.txt",
+        "status": "A",
+        "submodule": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "file_0.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt:wt-hotfix"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "cbd03493c413b61eb5ab8a5a4eb17712286e5d8b",
+      "index": "cbd03493c413b61eb5ab8a5a4eb17712286e5d8b",
+      "worktree": "6cab6d75e2dcb575c4e41666858628a44b250089"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          1
+        ],
+        "del": [
+          1
+        ],
+        "newLines": 1,
+        "newStart": 1,
+        "oldLines": 1,
+        "oldStart": 1
+      }
+    ],
+    "refused": null
+  }
+}

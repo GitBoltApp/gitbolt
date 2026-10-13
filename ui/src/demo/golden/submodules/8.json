@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "worktreeFiles",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    ".gitmodules",
+    "README.md"
+  ]
+}

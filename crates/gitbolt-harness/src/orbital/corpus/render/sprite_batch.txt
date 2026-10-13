@@ -1,0 +1,385 @@
+#file crates/orbital-render/src/sprite_batch.rs
+#header v1 @verdant-art "Show the verdant planet in the orbit view"
+//! Sprite batching: every sprite of a frame collected into one list and drawn in one call.
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use orbital_core::body::Body;
+
+use crate::atlas::{ATLAS_SIZE, Region};
+#header v2 @thruster-art "Show the thruster flame under thrust"
+//! Sprite batching: every sprite of a frame collected into one list and drawn in one call.
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use orbital_core::body::Body;
+use orbital_core::ship::Ship;
+
+use crate::atlas::{ATLAS_SIZE, Region};
+#header v3 @scout-faction-tint "Tint the scout hull for the faction colours"
+//! Sprite batching: every sprite of a frame collected into one list and drawn in one call.
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use orbital_core::body::Body;
+use orbital_core::ship::Ship;
+
+use crate::atlas::{ATLAS_SIZE, Region};
+use crate::painter::Color;
+#item Sprite v1 @verdant-art "Show the verdant planet in the orbit view"
+/// One textured quad: where it sits in the world, how big it is, and which atlas region it shows.
+#[derive(Clone, Copy, Debug)]
+pub struct Sprite {
+    pub centre: Vec2,
+    pub size: Vec2,
+    pub region: Region,
+}
+#item Sprite v2 @sprite-batch "Fix sprite order flicker in the batch"
+/// One textured quad: where it sits in the world, how big it is, which atlas region it shows, and
+/// the layer it is drawn on.
+#[derive(Clone, Copy, Debug)]
+pub struct Sprite {
+    pub centre: Vec2,
+    pub size: Vec2,
+    pub region: Region,
+    pub layer: u8,
+}
+#item Sprite v3 @scout-faction-tint "Tint the scout hull for the faction colours"
+/// One textured quad: where it sits in the world, how big it is, which atlas region it shows, the
+/// layer it is drawn on, and the colour it is multiplied by.
+#[derive(Clone, Copy, Debug)]
+pub struct Sprite {
+    pub centre: Vec2,
+    pub size: Vec2,
+    pub region: Region,
+    pub layer: u8,
+    pub tint: Color,
+}
+#item new v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Sprite {
+    /// A sprite of `size` kilometres centred on `centre`, showing `region` of the atlas.
+    #[must_use]
+    pub fn new(centre: Vec2, size: Vec2, region: Region) -> Self {
+        Self {
+            centre,
+            size,
+            region,
+        }
+    }
+}
+#item new v2 @sprite-batch "Fix sprite order flicker in the batch"
+impl Sprite {
+    /// A sprite of `size` kilometres centred on `centre`, showing `region` of the atlas, on layer 0.
+    #[must_use]
+    pub fn new(centre: Vec2, size: Vec2, region: Region) -> Self {
+        Self {
+            centre,
+            size,
+            region,
+            layer: 0,
+        }
+    }
+}
+#item new v3 @scout-faction-tint "Tint the scout hull for the faction colours"
+impl Sprite {
+    /// A sprite of `size` kilometres centred on `centre`, showing `region` of the atlas, on layer 0
+    /// and untinted.
+    #[must_use]
+    pub fn new(centre: Vec2, size: Vec2, region: Region) -> Self {
+        Self {
+            centre,
+            size,
+            region,
+            layer: 0,
+            tint: Color::rgb(0xff, 0xff, 0xff),
+        }
+    }
+}
+#item SpriteBatch v1 @verdant-art "Show the verdant planet in the orbit view"
+/// The sprites queued for one frame, drawn together by the renderer.
+#[derive(Debug, Default)]
+pub struct SpriteBatch {
+    sprites: Vec<Sprite>,
+}
+#item push v1 @verdant-art "Show the verdant planet in the orbit view"
+impl SpriteBatch {
+    /// Queues a sprite for this frame.
+    pub fn push(&mut self, sprite: Sprite) {
+        self.sprites.push(sprite);
+    }
+}
+#item sprites v1 @verdant-art "Show the verdant planet in the orbit view"
+impl SpriteBatch {
+    /// The queued sprites, in the order they were pushed.
+    #[must_use]
+    pub fn sprites(&self) -> &[Sprite] {
+        &self.sprites
+    }
+}
+#item clear v1 @verdant-art "Show the verdant planet in the orbit view"
+impl SpriteBatch {
+    /// Empties the batch once the frame has been drawn.
+    pub fn clear(&mut self) {
+        self.sprites.clear();
+    }
+}
+#item push_body v1 @verdant-art "Show the verdant planet in the orbit view"
+impl SpriteBatch {
+    /// Queues a body as a square sprite as wide as the body is across.
+    pub fn push_body(&mut self, body: &Body, region: Region) {
+        self.push(Sprite::new(
+            body.position,
+            Vec2::splat(body.radius * 2.0),
+            region,
+        ));
+    }
+}
+#item sorted v1 @sprite-batch "Fix sprite order flicker in the batch\n\nSprites on one layer were drawn in an order that changed from frame to frame. A stable sort keeps the push order within a layer."
+impl SpriteBatch {
+    /// The queued sprites sorted by layer, keeping the push order within a layer.
+    pub fn sorted(&mut self) -> &[Sprite] {
+        self.sprites.sort_by_key(|s| s.layer);
+        &self.sprites
+    }
+}
+#const FLAME_LENGTH v1 @thruster-art
+/// How far a full-throttle flame reaches behind the ship, in kilometres.
+pub const FLAME_LENGTH: f32 = 0.4;
+#const FLAME_LENGTH v2 @thruster-art-2 "Redraw the thruster flame"
+/// How far a full-throttle flame reaches behind the ship, in kilometres.
+pub const FLAME_LENGTH: f32 = 0.55;
+#const FLAME_WIDTH v1 @thruster-art
+/// How wide the flame is, in kilometres.
+pub const FLAME_WIDTH: f32 = 0.12;
+#item push_flame v1 @thruster-art "Show the thruster flame under thrust"
+impl SpriteBatch {
+    /// Queues a thruster flame behind `ship`, its length scaled by `throttle` from 0 to 1.
+    pub fn push_flame(&mut self, ship: &Ship, throttle: f32, region: Region) {
+        let throttle = throttle.clamp(0.0, 1.0);
+        if throttle == 0.0 {
+            return;
+        }
+        let back = -ship.body.velocity.normalize_or_zero();
+        let centre = ship.body.position + back * (ship.body.radius + FLAME_LENGTH * throttle * 0.5);
+        let size = Vec2::new(FLAME_WIDTH, FLAME_LENGTH * throttle);
+        self.push(Sprite::new(centre, size, region));
+    }
+}
+#item push_flame v2 @thruster-art-2 "Redraw the thruster flame"
+impl SpriteBatch {
+    /// Queues a thruster flame behind `ship`: longer with more throttle, and fatter when it burns hot.
+    pub fn push_flame(&mut self, ship: &Ship, throttle: f32, region: Region) {
+        let throttle = throttle.clamp(0.0, 1.0);
+        if throttle == 0.0 {
+            return;
+        }
+        let back = -ship.body.velocity.normalize_or_zero();
+        let centre = ship.body.position + back * (ship.body.radius + FLAME_LENGTH * throttle * 0.5);
+        let width = FLAME_WIDTH * (0.6 + 0.4 * throttle);
+        let size = Vec2::new(width, FLAME_LENGTH * throttle);
+        self.push(Sprite::new(centre, size, region));
+    }
+}
+#item push_flame v3 @thruster-flicker "Stop the thruster flame flickering at low fuel"
+impl SpriteBatch {
+    /// Queues a thruster flame behind `ship`: longer with more throttle, and fatter when it burns hot.
+    /// Near empty the flame holds a steady throttle, so it doesn't flicker as the tank runs dry.
+    pub fn push_flame(&mut self, ship: &Ship, throttle: f32, region: Region) {
+        let throttle = throttle.clamp(0.0, 1.0);
+        if throttle == 0.0 {
+            return;
+        }
+        let throttle = if ship.fuel < LOW_FUEL {
+            throttle.min(LOW_FUEL_THROTTLE)
+        } else {
+            throttle
+        };
+        let back = -ship.body.velocity.normalize_or_zero();
+        let centre = ship.body.position + back * (ship.body.radius + FLAME_LENGTH * throttle * 0.5);
+        let width = FLAME_WIDTH * (0.6 + 0.4 * throttle);
+        let size = Vec2::new(width, FLAME_LENGTH * throttle);
+        self.push(Sprite::new(centre, size, region));
+    }
+}
+#item extend v1 @asteroid-batch "Batch the asteroid sprites into the main draw"
+impl SpriteBatch {
+    /// Queues every sprite in `sprites` in turn, so a whole field draws in the one batch.
+    pub fn extend(&mut self, sprites: impl IntoIterator<Item = Sprite>) {
+        self.sprites.extend(sprites);
+    }
+}
+#const LOW_FUEL v1 @thruster-flicker "Stop the thruster flame flickering at low fuel"
+/// Below this many tonnes of fuel the flame holds a steady throttle instead of following the stick.
+pub const LOW_FUEL: f32 = 5.0;
+#const LOW_FUEL_THROTTLE v1 @thruster-flicker "Stop the thruster flame flickering at low fuel"
+/// The steady throttle the flame holds when the tank is nearly empty.
+pub const LOW_FUEL_THROTTLE: f32 = 0.5;
+#item tinted v1 @scout-faction-tint "Tint the scout hull for the faction colours"
+impl Sprite {
+    /// The sprite multiplied by `tint`, for the faction colours.
+    #[must_use]
+    pub fn tinted(self, tint: Color) -> Self {
+        Self { tint, ..self }
+    }
+}
+#item GpuSprite v1 @verdant-art "Show the verdant planet in the orbit view"
+/// One sprite as the GPU reads it: its quad, its atlas coordinates and its tint, in a 48-byte row.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct GpuSprite {
+    pub centre: [f32; 2],
+    pub size: [f32; 2],
+    pub uv_min: [f32; 2],
+    pub uv_max: [f32; 2],
+    pub tint: [f32; 4],
+}
+#item from_sprite v1 @verdant-art "Show the verdant planet in the orbit view"
+impl GpuSprite {
+    /// The GPU's copy of a sprite: its quad, the atlas coordinates of its region, and untinted.
+    #[must_use]
+    pub fn from_sprite(sprite: &Sprite) -> Self {
+        let size = ATLAS_SIZE as f32;
+        let r = sprite.region;
+        Self {
+            centre: sprite.centre.to_array(),
+            size: sprite.size.to_array(),
+            uv_min: [r.x as f32 / size, r.y as f32 / size],
+            uv_max: [(r.x + r.w) as f32 / size, (r.y + r.h) as f32 / size],
+            tint: [1.0; 4],
+        }
+    }
+}
+#item from_sprite v2 @scout-faction-tint "Tint the scout hull for the faction colours"
+impl GpuSprite {
+    /// The GPU's copy of a sprite: its quad, the atlas coordinates of its region, and its tint.
+    #[must_use]
+    pub fn from_sprite(sprite: &Sprite) -> Self {
+        let size = ATLAS_SIZE as f32;
+        let r = sprite.region;
+        let t = sprite.tint;
+        Self {
+            centre: sprite.centre.to_array(),
+            size: sprite.size.to_array(),
+            uv_min: [r.x as f32 / size, r.y as f32 / size],
+            uv_max: [(r.x + r.w) as f32 / size, (r.y + r.h) as f32 / size],
+            tint: [t.r, t.g, t.b, t.a].map(|c| f32::from(c) / 255.0),
+        }
+    }
+}
+#test push_keeps_order v1 @verdant-art "Test that sprites come back in the order they were pushed"
+#[test]
+fn push_keeps_order() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let mut batch = SpriteBatch::default();
+    batch.push(Sprite::new(Vec2::new(1.0, 0.0), Vec2::ONE, region));
+    batch.push(Sprite::new(Vec2::new(2.0, 0.0), Vec2::ONE, region));
+    assert_eq!(batch.sprites()[0].centre.x, 1.0);
+    assert_eq!(batch.sprites().len(), 2);
+}
+#test clear_empties_the_batch v1 @verdant-art "Test that clearing the batch leaves nothing to draw"
+#[test]
+fn clear_empties_the_batch() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let mut batch = SpriteBatch::default();
+    batch.push(Sprite::new(Vec2::ZERO, Vec2::ONE, region));
+    batch.clear();
+    assert!(batch.sprites().is_empty());
+}
+#test sorted_keeps_equal_layers_in_push_order v1 @sprite-batch "Test that a layer sort keeps push order"
+#[test]
+fn sorted_keeps_equal_layers_in_push_order() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let mut batch = SpriteBatch::default();
+    let mut top = Sprite::new(Vec2::new(1.0, 0.0), Vec2::ONE, region);
+    top.layer = 1;
+    let mut behind = Sprite::new(Vec2::new(2.0, 0.0), Vec2::ONE, region);
+    behind.layer = 0;
+    let mut last = Sprite::new(Vec2::new(3.0, 0.0), Vec2::ONE, region);
+    last.layer = 1;
+    batch.push(top);
+    batch.push(behind);
+    batch.push(last);
+    let order: Vec<f32> = batch.sorted().iter().map(|s| s.centre.x).collect();
+    assert_eq!(order, [2.0, 1.0, 3.0]);
+}
+#test flame_is_off_when_idle v1 @thruster-art "Test that an idle drive draws no flame"
+#[test]
+fn flame_is_off_when_idle() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let ship = Ship::new(Body::ship("probe", Vec2::ZERO, Vec2::new(1.0, 0.0), 1.0));
+    let mut batch = SpriteBatch::default();
+    batch.push_flame(&ship, 0.0, region);
+    assert!(batch.sprites().is_empty());
+}
+#test low_fuel_keeps_the_flame_steady v1 @thruster-flicker "Test that a nearly empty tank holds the flame steady"
+#[test]
+fn low_fuel_keeps_the_flame_steady() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let mut ship = Ship::new(Body::ship("probe", Vec2::ZERO, Vec2::new(1.0, 0.0), 1.0));
+    ship.fuel = 2.0;
+    let mut batch = SpriteBatch::default();
+    batch.push_flame(&ship, 0.9, region);
+    let flame = batch.sprites()[0];
+    assert!((flame.size.y - FLAME_LENGTH * LOW_FUEL_THROTTLE).abs() < 1e-6);
+}
+#test tint_defaults_to_white v1 @scout-faction-tint "Test that a sprite is untinted until it is given a faction colour"
+#[test]
+fn tint_defaults_to_white() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let sprite = Sprite::new(Vec2::ZERO, Vec2::ONE, region);
+    assert_eq!(sprite.tint, Color::rgb(0xff, 0xff, 0xff));
+    assert_eq!(sprite.tinted(Color::GOLD).tint, Color::GOLD);
+}
+#test extend_keeps_order v1 @asteroid-batch "Test that a whole field keeps its order when it is queued"
+#[test]
+fn extend_keeps_order() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 4,
+        h: 4,
+    };
+    let field = (0..3).map(|i| Sprite::new(Vec2::new(i as f32, 0.0), Vec2::ONE, region));
+    let mut batch = SpriteBatch::default();
+    batch.extend(field);
+    let xs: Vec<f32> = batch.sprites().iter().map(|s| s.centre.x).collect();
+    assert_eq!(xs, [0.0, 1.0, 2.0]);
+}
+#test gpu_sprite_is_48_bytes v1 @verdant-art "Test that the GPU copy of a sprite is 48 bytes, as the shader expects"
+#[test]
+fn gpu_sprite_is_48_bytes() {
+    assert_eq!(std::mem::size_of::<GpuSprite>(), 48);
+}

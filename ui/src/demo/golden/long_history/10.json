@@ -1,0 +1,71 @@
+{
+  "request": {
+    "method": "searchHistory",
+    "params": {
+      "query": "commit 0",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "author": "Ada Lovelace",
+      "id": "09ac29d9ecf34bb502bd52d20ab408987091283b",
+      "summary": "Commit 09",
+      "time": 1767227340
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "8d1fc9306a21387fd4446c86c3ec2c5dd524899f",
+      "summary": "Commit 08",
+      "time": 1767227160
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "aa34aa93d026eb3879b1219abbed10dd655c6530",
+      "summary": "Commit 07",
+      "time": 1767226980
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "8e988f31b4252233a930cebcb84a02d271458277",
+      "summary": "Commit 06",
+      "time": 1767226800
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "aa0d0b2288f87294e3ce8be997a63268b6893244",
+      "summary": "Commit 05",
+      "time": 1767226620
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "d571c948f6ac37f599e8cf0e144165ef388fda3f",
+      "summary": "Commit 04",
+      "time": 1767226440
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "bc44c324b646922c6ecbe611347f009cefc8147b",
+      "summary": "Commit 03",
+      "time": 1767226260
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "96f139d1018875ae9714c5f4454cc7c181dcf115",
+      "summary": "Commit 02",
+      "time": 1767226080
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "2edce2656d6c220ae6d336541d9166be7e9fc7d2",
+      "summary": "Commit 01",
+      "time": 1767225900
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "3078c68a430dfda2d75fd4761bd771f0bc86b0af",
+      "summary": "Commit 00",
+      "time": 1767225720
+    }
+  ]
+}

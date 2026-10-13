@@ -1,0 +1,259 @@
+#file crates/orbital-render/src/bloom.rs
+#header v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+//! Bloom: a glow over the bright parts of the frame, so thruster flames and the sun look hot.
+#header v2 @shader-reload "Read the bloom threshold from a uniform"
+//! Bloom: a glow over the bright parts of the frame, so thruster flames and the sun look hot.
+
+use bytemuck::{Pod, Zeroable};
+#const BLOOM_THRESHOLD v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+/// The brightness, from 0 to 1, above which a pixel starts to glow.
+pub const BLOOM_THRESHOLD: f32 = 0.8;
+#const BLOOM_THRESHOLD v2 @bloom-pass "Dim the bloom on the thruster glow"
+/// The brightness, from 0 to 1, above which a pixel starts to glow.
+pub const BLOOM_THRESHOLD: f32 = 0.9;
+#const MAX_PASSES v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+/// The most times a frame's glow may be composited.
+pub const MAX_PASSES: u32 = 4;
+#const MAX_PASSES v2 @bloom-cost-doc "Cap bloom passes at two per frame"
+/// The most times a frame's glow may be composited.
+pub const MAX_PASSES: u32 = 2;
+#item Bloom v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+/// The bloom pass: it composites the offscreen scene onto the window, glowing over the bright parts.
+pub struct Bloom {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+}
+#item Bloom v2 @shader-reload "Read the bloom threshold from a uniform"
+/// The bloom pass: it composites the offscreen scene onto the window, glowing over the bright parts.
+/// The threshold lives in a uniform the shader reads, so a reloaded shader can be tuned without a rebuild.
+pub struct Bloom {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+    params: wgpu::Buffer,
+}
+#item new v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+impl Bloom {
+    /// Builds the bloom pass that composites `scene` onto a surface of `format`.
+    #[must_use]
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        scene: &wgpu::TextureView,
+    ) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("bloom"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/bloom.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("bloom"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bloom"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(scene),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+            ],
+        });
+        Self { pipeline, group }
+    }
+}
+#item new v2 @shader-reload "Read the bloom threshold from a uniform"
+impl Bloom {
+    /// Builds the bloom pass that composites `scene` onto a surface of `format`, with its threshold
+    /// uniform.
+    #[must_use]
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        scene: &wgpu::TextureView,
+    ) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("bloom"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/bloom.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("bloom"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let params = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("bloom params"),
+            size: std::mem::size_of::<BloomParams>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("bloom"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(scene),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: params.as_entire_binding(),
+                },
+            ],
+        });
+        Self {
+            pipeline,
+            group,
+            params,
+        }
+    }
+}
+#item run v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+impl Bloom {
+    /// Composites the scene and its glow onto `target`. Each pass re-composites the frame, so the cost
+    /// of the glow is bounded by how many passes run.
+    pub fn run(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        for _ in 0..MAX_PASSES {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("bloom"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+    }
+}
+#item run v2 @bloom-cost-doc "Cap bloom passes at two per frame"
+impl Bloom {
+    /// Composites the scene and its glow onto `target` `passes` times, capped at [`MAX_PASSES`], since
+    /// each pass is a full-screen draw.
+    pub fn run(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView, passes: u32) {
+        for _ in 0..passes.min(MAX_PASSES) {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("bloom"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: target,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Load,
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            pass.set_pipeline(&self.pipeline);
+            pass.set_bind_group(0, &self.group, &[]);
+            pass.draw(0..3, 0..1);
+        }
+    }
+}
+#item BloomParams v1 @shader-reload "Read the bloom threshold from a uniform"
+/// The uniform block the bloom shader reads: the threshold, padded out to a 16-byte row.
+#[repr(C)]
+#[derive(Clone, Copy, Pod, Zeroable)]
+pub struct BloomParams {
+    pub threshold: f32,
+    pub pad: [f32; 3],
+}
+#item current v1 @shader-reload "Read the bloom threshold from a uniform"
+impl BloomParams {
+    /// The parameters for this build, with the threshold from [`BLOOM_THRESHOLD`].
+    #[must_use]
+    pub fn current() -> Self {
+        Self {
+            threshold: BLOOM_THRESHOLD,
+            pad: [0.0; 3],
+        }
+    }
+}
+#item upload v1 @shader-reload "Read the bloom threshold from a uniform"
+impl Bloom {
+    /// Writes the current threshold into the uniform the shader reads, before a frame's passes.
+    pub fn upload(&self, queue: &wgpu::Queue) {
+        queue.write_buffer(&self.params, 0, bytemuck::bytes_of(&BloomParams::current()));
+    }
+}
+#test threshold_is_a_fraction v1 @bloom-pass "Test that the glow threshold is a brightness between 0 and 1"
+#[test]
+fn threshold_is_a_fraction() {
+    const { assert!(BLOOM_THRESHOLD > 0.0 && BLOOM_THRESHOLD < 1.0) };
+}
+#test at_most_two_passes v1 @bloom-cost-doc "Test that bloom never runs more than two passes"
+#[test]
+fn at_most_two_passes() {
+    const { assert!(MAX_PASSES <= 2) };
+}
+#test params_carry_the_threshold v1 @shader-reload "Test that the uniform carries the glow threshold"
+#[test]
+fn params_carry_the_threshold() {
+    assert_eq!(BloomParams::current().threshold, BLOOM_THRESHOLD);
+}

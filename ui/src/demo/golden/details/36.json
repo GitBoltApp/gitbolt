@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "fileHistory",
+    "params": {
+      "limit": 200,
+      "path": "docs/manual.txt",
+      "repo": "$repo",
+      "skip": 0,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "more": false,
+    "rows": [
+      {
+        "author": "Grace Hopper",
+        "email": "grace@example.com",
+        "oldPath": "docs/guide.txt",
+        "parents": [
+          "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e"
+        ],
+        "path": "docs/manual.txt",
+        "sha": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+        "status": "R",
+        "summary": "Rename guide and update assets",
+        "time": 1767226320
+      },
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [],
+        "path": "docs/guide.txt",
+        "sha": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "status": "A",
+        "summary": "Initial commit",
+        "time": 1767225720
+      }
+    ]
+  }
+}

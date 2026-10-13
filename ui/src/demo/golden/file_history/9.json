@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "findText",
+    "params": {
+      "query": "story",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "8420d622fdbb3162dfa75f89852f96b1e97ec121"
+  ]
+}

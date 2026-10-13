@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "commitDetails",
+    "params": {
+      "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "author": {
+      "email": "ada@example.com",
+      "name": "Ada Lovelace",
+      "time": 1767227040
+    },
+    "coAuthors": [],
+    "committer": {
+      "email": "ada@example.com",
+      "name": "Ada Lovelace",
+      "time": 1767227040
+    },
+    "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+    "parents": [
+      "4f624c760503f39b11585ee6ce2f2fe87c15fbf7",
+      "e4c6d940a4965218a12ccdb06eb44eac2ad6a747"
+    ],
+    "signed": false
+  }
+}

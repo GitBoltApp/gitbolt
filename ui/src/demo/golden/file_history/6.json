@@ -1,0 +1,79 @@
+{
+  "request": {
+    "method": "blame",
+    "params": {
+      "path": "src/story.txt",
+      "repo": "$repo",
+      "rev": "eb6b614353968fa16e788878d26d1844a85bbc45",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "commits": [
+      {
+        "author": "Ada Lovelace",
+        "boundary": false,
+        "email": "ada@example.com",
+        "sha": "eb6b614353968fa16e788878d26d1844a85bbc45",
+        "summary": "Sharpen the opening",
+        "time": 1767226500
+      },
+      {
+        "author": "Ada Lovelace",
+        "boundary": true,
+        "email": "ada@example.com",
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "summary": "Start the story",
+        "time": 1767225720
+      },
+      {
+        "author": "Grace Hopper",
+        "boundary": false,
+        "email": "grace@example.com",
+        "sha": "4d1b598ac56effafb61997357633a9c69495ffc3",
+        "summary": "Add the middle",
+        "time": 1767226080
+      },
+      {
+        "author": "Lars Tidemann",
+        "boundary": false,
+        "email": "lars@example.com",
+        "sha": "8420d622fdbb3162dfa75f89852f96b1e97ec121",
+        "summary": "Move the story under src",
+        "time": 1767226320
+      }
+    ],
+    "hunks": [
+      {
+        "lines": 1,
+        "sha": "eb6b614353968fa16e788878d26d1844a85bbc45",
+        "start": 1
+      },
+      {
+        "lines": 1,
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "start": 2
+      },
+      {
+        "lines": 2,
+        "sha": "4d1b598ac56effafb61997357633a9c69495ffc3",
+        "start": 3
+      },
+      {
+        "lines": 1,
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "start": 5
+      },
+      {
+        "lines": 1,
+        "sha": "8420d622fdbb3162dfa75f89852f96b1e97ec121",
+        "start": 6
+      },
+      {
+        "lines": 2,
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "start": 7
+      }
+    ]
+  }
+}

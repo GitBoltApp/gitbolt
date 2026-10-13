@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": true,
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 1,
+    "deleted": 1,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "object",
+          "oid": "f7f85885ad66b414e127cc856fe7c24ca87d39ac"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "fc42bf5b23d23f8d2b26255f41a07f3f8c6eec6e"
+        },
+        "oldPath": null,
+        "path": "notes.txt",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

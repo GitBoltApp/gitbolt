@@ -1,0 +1,373 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD^"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "treeFiles",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "HEAD"
+   }
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "images/scout.png",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:images/scout.png"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:images/scout.png"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "images/title.png",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:images/title.png"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:images/title.png"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "images/thruster.gif",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:images/thruster.gif"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:images/thruster.gif"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "images/orbital.ico",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:images/orbital.ico"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:images/orbital.ico"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "images/fuel.svg",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:images/fuel.svg"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:images/fuel.svg"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "audio/laser.wav",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:audio/laser.wav"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:audio/laser.wav"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "audio/docking-chime.opus",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "atCommit",
+    "commit": {
+     "$rev": "HEAD"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "media/trailer.webm",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:media/trailer.webm"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:media/trailer.webm"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "fonts/OrbitalHud.ttf",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:fonts/OrbitalHud.ttf"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:fonts/OrbitalHud.ttf"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "docs/design.pdf",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:docs/design.pdf"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:docs/design.pdf"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "site/leaderboard.html",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "atCommit",
+    "commit": {
+     "$rev": "HEAD"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "data/commodities.csv",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:data/commodities.csv"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:data/commodities.csv"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "data/stations.tsv",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:data/stations.tsv"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:data/stations.tsv"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "notes/devlog.md",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:notes/devlog.md"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:notes/devlog.md"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "saves/slot1.orbsave",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:saves/slot1.orbsave"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:saves/slot1.orbsave"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "scripts/pack-assets.sh",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "atCommit",
+    "commit": {
+     "$rev": "HEAD"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "hexDump",
+  "params": {
+   "repo": "$repo",
+   "path": "audio/laser.wav",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:audio/laser.wav"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:audio/laser.wav"
+    }
+   }
+  }
+ }
+]

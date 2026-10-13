@@ -1,0 +1,83 @@
+{
+  "request": {
+    "method": "blame",
+    "params": {
+      "path": "mixed.txt",
+      "repo": "$repo",
+      "rev": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "commits": [
+      {
+        "author": "Ada Lovelace",
+        "boundary": true,
+        "email": "ada@example.com",
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "summary": "Add long file",
+        "time": 1767225720
+      },
+      {
+        "author": "Grace Hopper",
+        "boundary": false,
+        "email": "grace@example.com",
+        "sha": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "summary": "Edit far down",
+        "time": 1767225900
+      }
+    ],
+    "hunks": [
+      {
+        "lines": 49,
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "start": 1
+      },
+      {
+        "lines": 67,
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "start": 50
+      },
+      {
+        "lines": 8,
+        "sha": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "start": 117
+      },
+      {
+        "lines": 7,
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "start": 125
+      },
+      {
+        "lines": 1,
+        "sha": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "start": 132
+      },
+      {
+        "lines": 14,
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "start": 133
+      },
+      {
+        "lines": 4,
+        "sha": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "start": 147
+      },
+      {
+        "lines": 21,
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "start": 151
+      },
+      {
+        "lines": 1,
+        "sha": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "start": 172
+      },
+      {
+        "lines": 25,
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "start": 173
+      }
+    ]
+  }
+}

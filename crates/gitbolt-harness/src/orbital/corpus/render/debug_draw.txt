@@ -1,0 +1,85 @@
+#file crates/orbital-render/src/debug_draw.rs
+#header v1 @debug-draw "Draw the debug overlay on F3"
+//! The debug overlay: a frame-time bar the developer can toggle on F3.
+
+use crate::painter::{Color, Painter, Rect};
+#const FRAME_BUDGET_MS v1 @debug-draw "Draw the debug overlay on F3"
+/// The frame budget at 60 frames a second, in milliseconds.
+pub const FRAME_BUDGET_MS: f32 = 16.7;
+#item DebugOverlay v1 @debug-draw "Draw the debug overlay on F3"
+/// The overlay's state: whether it is showing, and how long the last frame took.
+#[derive(Debug, Default)]
+pub struct DebugOverlay {
+    visible: bool,
+    frame_ms: f32,
+}
+#item toggle v1 @debug-draw "Draw the debug overlay on F3"
+impl DebugOverlay {
+    /// Shows the overlay if it is hidden, and hides it if it is showing.
+    pub fn toggle(&mut self) {
+        self.visible = !self.visible;
+    }
+}
+#item record v1 @debug-draw "Draw the debug overlay on F3"
+impl DebugOverlay {
+    /// Notes how long the last frame took.
+    pub fn record(&mut self, frame_ms: f32) {
+        self.frame_ms = frame_ms;
+    }
+}
+#item draw v1 @debug-draw "Draw the debug overlay on F3"
+impl DebugOverlay {
+    /// Draws the frame-time bar into `area`: a grey panel, with the bar green up to the budget and
+    /// red past it.
+    pub fn draw(&self, painter: &mut Painter, area: Rect) {
+        if !self.visible {
+            return;
+        }
+        painter.fill_rect(area, Color::FRAME);
+        let fill = self.frame_ms / FRAME_BUDGET_MS;
+        let colour = if fill > 1.0 { Color::RED } else { Color::GREEN };
+        painter.fill_rect(area.inset(2).with_width_frac(fill), colour);
+    }
+}
+#item draw v2 @debug-menu-clip "Stop the debug overlay drawing over the menu\n\nThe overlay drew across the menu strip at the bottom of the window."
+impl DebugOverlay {
+    /// Draws the frame-time bar into `area`: a grey panel, with the bar green up to the budget and
+    /// red past it. Panels that reach below the painter's area are left out.
+    pub fn draw(&self, painter: &mut Painter, area: Rect) {
+        if !self.visible || area.bottom() > painter.bounds().bottom() {
+            return;
+        }
+        painter.fill_rect(area, Color::FRAME);
+        let fill = self.frame_ms / FRAME_BUDGET_MS;
+        let colour = if fill > 1.0 { Color::RED } else { Color::GREEN };
+        painter.fill_rect(area.inset(2).with_width_frac(fill), colour);
+    }
+}
+#test toggle_flips_the_overlay v1 @debug-draw "Test that F3 toggles the overlay"
+#[test]
+fn toggle_flips_the_overlay() {
+    let mut overlay = DebugOverlay::default();
+    overlay.toggle();
+    assert!(overlay.visible);
+    overlay.toggle();
+    assert!(!overlay.visible);
+}
+#test draw_fills_the_budget_bar v1 @debug-draw "Test that the overlay draws a panel and a bar"
+#[test]
+fn draw_fills_the_budget_bar() {
+    let mut overlay = DebugOverlay::default();
+    overlay.toggle();
+    overlay.record(8.0);
+    let mut painter = Painter::recording(200, 100);
+    overlay.draw(&mut painter, Rect::new(0, 0, 100, 20));
+    assert_eq!(painter.commands().len(), 2);
+}
+#test skips_panels_below_the_bounds v1 @debug-menu-clip "Test that the overlay stays out of the menu strip"
+#[test]
+fn skips_panels_below_the_bounds() {
+    let mut overlay = DebugOverlay::default();
+    overlay.toggle();
+    let mut painter = Painter::recording(100, 100);
+    overlay.draw(&mut painter, Rect::new(0, 90, 50, 20));
+    assert!(painter.commands().is_empty());
+}

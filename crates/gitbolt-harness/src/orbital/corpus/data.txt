@@ -1,0 +1,167 @@
+#; The data tables: commodities, stations, ships, the sector levels and the loot table. The game reads
+#; the commodity, ship and sector tables; their numbers are in the code's units (km, tonnes, kN).
+#file assets/data/economy/commodities.csv
+#whole v1 @market "Add the commodity table with twelve goods"
+id,name,base_price,volatility
+ore,Ore,12,0.04
+ice,Ice,9,0.03
+alloy,Alloy,40,0.05
+food,Food,18,0.06
+medicine,Medicine,55,0.08
+fuel_cells,Fuel cells,34,0.05
+water,Water,6,0.02
+polymers,Polymers,28,0.04
+electronics,Electronics,90,0.07
+textiles,Textiles,22,0.05
+seeds,Seeds,15,0.09
+luxuries,Luxuries,120,0.10
+#whole v2 @economy-drift "Add machine parts and retune the medicine and water swings"
+id,name,base_price,volatility
+ore,Ore,12,0.04
+ice,Ice,9,0.03
+alloy,Alloy,40,0.05
+food,Food,18,0.06
+medicine,Medicine,55,0.06
+fuel_cells,Fuel cells,34,0.05
+water,Water,6,0.03
+polymers,Polymers,28,0.04
+electronics,Electronics,90,0.07
+textiles,Textiles,22,0.05
+seeds,Seeds,15,0.09
+luxuries,Luxuries,120,0.10
+machine_parts,Machine parts,48,0.04
+#whole v3 @contracts "Mark which goods are legal to trade at a station"
+id,name,base_price,volatility,legal
+ore,Ore,12,0.04,yes
+ice,Ice,9,0.03,yes
+alloy,Alloy,40,0.05,yes
+food,Food,18,0.06,yes
+medicine,Medicine,55,0.06,yes
+fuel_cells,Fuel cells,34,0.05,yes
+water,Water,6,0.03,yes
+polymers,Polymers,28,0.04,yes
+electronics,Electronics,90,0.07,yes
+textiles,Textiles,22,0.05,yes
+seeds,Seeds,15,0.09,no
+luxuries,Luxuries,120,0.10,yes
+machine_parts,Machine parts,48,0.04,yes
+#whole v4 @station-services "Raise the fuel cell price and add rare earths"
+id,name,base_price,volatility,legal
+ore,Ore,12,0.04,yes
+ice,Ice,9,0.03,yes
+alloy,Alloy,40,0.05,yes
+food,Food,18,0.06,yes
+medicine,Medicine,55,0.06,yes
+fuel_cells,Fuel cells,40,0.05,yes
+water,Water,6,0.03,yes
+polymers,Polymers,28,0.04,yes
+electronics,Electronics,90,0.07,yes
+textiles,Textiles,22,0.05,yes
+seeds,Seeds,15,0.09,no
+luxuries,Luxuries,120,0.10,yes
+machine_parts,Machine parts,48,0.04,yes
+rare_earths,Rare earths,70,0.06,yes
+#whole v5 @repair-price "Raise the medicine price to 60 and calm its swings"
+id,name,base_price,volatility,legal
+ore,Ore,12,0.04,yes
+ice,Ice,9,0.03,yes
+alloy,Alloy,40,0.05,yes
+food,Food,18,0.06,yes
+medicine,Medicine,60,0.05,yes
+fuel_cells,Fuel cells,40,0.05,yes
+water,Water,6,0.03,yes
+polymers,Polymers,28,0.04,yes
+electronics,Electronics,90,0.07,yes
+textiles,Textiles,22,0.05,yes
+seeds,Seeds,15,0.09,no
+luxuries,Luxuries,120,0.10,yes
+machine_parts,Machine parts,48,0.04,yes
+rare_earths,Rare earths,70,0.06,yes
+#file assets/data/economy/stations.tsv
+#whole v1 @ring-station "Add the ring station to the station table"
+id	name	body	orbit_km	services
+ring	Ring Station	verdant	1400	dock
+#whole v2 @depot-art "Add the depot station to the table"
+id	name	body	orbit_km	services
+ring	Ring Station	verdant	1400	dock;trade
+depot	Depot	verdant	3200	dock;trade
+#whole v3 @outpost-art "Add the outpost station to the table"
+id	name	body	orbit_km	services
+ring	Ring Station	verdant	1400	dock;trade
+depot	Depot	verdant	3200	dock;trade
+outpost	Outpost	verdant	4200	dock;trade
+#whole v4 @scout-faction-tint "Give each station its faction"
+id	name	body	orbit_km	services	faction
+ring	Ring Station	verdant	1400	dock;trade	Free Miners
+depot	Depot	verdant	3200	dock;trade	Halden Combine
+outpost	Outpost	verdant	4200	dock;trade	Outer Guild
+#whole v5 @station-services "Add refuelling and repairs to every station's services"
+id	name	body	orbit_km	services	faction
+ring	Ring Station	verdant	1400	dock;trade;refuel;repair	Free Miners
+depot	Depot	verdant	3200	dock;trade;refuel;repair	Halden Combine
+outpost	Outpost	verdant	4200	dock;trade;refuel;repair	Outer Guild
+#file assets/data/ships.csv
+#whole v1 @scout-art "Add the scout to the ship table"
+class,mass_t,cargo_t,thrust_kn,fuel_t
+scout,2.0,120,600,60
+#whole v2 @tanker-art "Add the hauler, prospector and tanker to the table"
+class,mass_t,cargo_t,thrust_kn,fuel_t
+scout,2.0,120,600,60
+hauler,4.5,480,700,80
+prospector,3.0,240,650,60
+tanker,7.0,600,800,120
+#whole v3 @courier-art "Add the interceptor and courier, and the price column"
+class,mass_t,cargo_t,thrust_kn,fuel_t,price
+scout,2.0,120,600,60,1200
+hauler,4.5,480,700,80,4200
+prospector,3.0,240,650,60,3100
+tanker,7.0,600,800,120,8600
+interceptor,2.5,60,1100,45,6400
+courier,3.5,200,900,70,5200
+#file assets/data/levels/sector-01.csv
+#whole v1 @tempest-art "Place the home system's four planets in sector 1"
+kind,name,x_km,y_km,radius_km,mass_t
+planet,Verdant,0,0,60,100
+planet,Cinder,5600,0,40,20
+planet,Glacier,-7800,0,80,60
+planet,Tempest,0,-9600,70,45
+#whole v2 @dustball-art "Place the dustball planet on the cinder planet's orbit"
+kind,name,x_km,y_km,radius_km,mass_t
+planet,Verdant,0,0,60,100
+planet,Cinder,5600,0,40,20
+planet,Glacier,-7800,0,80,60
+planet,Tempest,0,-9600,70,45
+planet,Dustball,3960,3960,30,8
+#file assets/data/levels/sector-02.csv
+#whole v1 @asteroids "Add the inner asteroid belt to sector 2"
+kind,name,x_km,y_km,radius_km,mass_t
+belt,Inner belt,0,0,2400,0
+#whole v2 @outpost-art "Add the outer belt that the outpost sits on"
+kind,name,x_km,y_km,radius_km,mass_t
+belt,Inner belt,0,0,2400,0
+belt,Outer belt,0,0,4200,0
+#file assets/data/levels/sector-03.csv
+#whole v1 @depot-art "Place the depot on the outer orbit in sector 3"
+kind,name,x_km,y_km,radius_km,mass_t
+station,Depot,-3200,0,15,0.5
+#whole v2 @outpost-art "Place the outpost on the outer belt in sector 3"
+kind,name,x_km,y_km,radius_km,mass_t
+station,Depot,-3200,0,15,0.5
+station,Outpost,0,4200,15,0.5
+#file assets/data/levels/sector-04.csv
+#whole v1 @ring-station "Place the ring station on the inner orbit in sector 4"
+kind,name,x_km,y_km,radius_km,mass_t
+station,Ring,1400,0,15,0.5
+#whole v2 @ring-art-2 "Give the ring station the new hull's radius"
+kind,name,x_km,y_km,radius_km,mass_t
+station,Ring,1400,0,20,0.5
+#file assets/data/loot.tsv
+#whole v1 @asteroids "Add the asteroid loot table"
+source	item	chance	min	max
+asteroid	ore	0.9	1	4
+asteroid	ice	0.3	1	2
+#whole v2 @mining-yield "Raise the ore yield and add the wreck loot"
+source	item	chance	min	max
+asteroid	ore	0.9	2	6
+asteroid	ice	0.3	1	3
+wreck	alloy	0.2	1	2

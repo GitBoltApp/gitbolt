@@ -1,0 +1,4028 @@
+#file crates/orbital-game/src/app.rs
+#header v1 @first-window
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+
+use orbital_render::renderer::Renderer;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::ActiveEventLoop;
+use winit::window::{Window, WindowId};
+
+#header v2 @camera-follow
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use orbital_core::time::Clock;
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::starfield::Starfield;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::ActiveEventLoop;
+use winit::window::{Window, WindowId};
+
+use crate::flight::Flight;
+
+#header v3 @verdant-art
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use winit::application::ApplicationHandler;
+use winit::event::WindowEvent;
+use winit::event_loop::ActiveEventLoop;
+use winit::window::{Window, WindowId};
+
+use crate::flight::Flight;
+
+#header v4 @camera-zoom
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use winit::application::ApplicationHandler;
+use winit::event::{MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::window::{Window, WindowId};
+
+use crate::flight::Flight;
+
+#header v5 @thrust-fuel
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::flight::Flight;
+use crate::input;
+
+#header v6 @hud-font
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::flight::Flight;
+use crate::input;
+
+#header v7 @engine-hum
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::flight::Flight;
+use crate::input;
+
+#header v8 @docking
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::input::{self, Action};
+
+#header v9 @title-screen
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::input::{self, Action};
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+
+#header v10 @orbit-map
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::input::{self, Action};
+use crate::map_view::MapView;
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+
+#header v11 @settings-menu
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::input::{Action, Bindings};
+use crate::map_view::MapView;
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v12 @debug-draw
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::input::{Action, Bindings};
+use crate::map_view::MapView;
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v13 @hud-cargo
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::painter::Painter;
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::hud;
+use crate::input::{Action, Bindings};
+use crate::map_view::MapView;
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v14 @overlay-wire
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::painter::{Painter, Rect};
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::hud;
+use crate::input::{Action, Bindings};
+use crate::map_view::MapView;
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v15 @chime-2
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::ship::Dock;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::painter::{Painter, Rect};
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::hud;
+use crate::input::{Action, Bindings};
+use crate::map_view::MapView;
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v16 @map-legend
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::ship::Dock;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::painter::{Painter, Rect};
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::hud;
+use crate::input::{Action, Bindings};
+use crate::map_view::{self, MapView};
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v17 @gamepad-thrust
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::ship::Dock;
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::painter::{Painter, Rect};
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::Flight;
+use crate::hud;
+use crate::input::{self, Action, Bindings, Pad};
+use crate::map_view::{self, MapView};
+use crate::menu::{Choice, Menu};
+use crate::save_slots;
+use crate::settings::Settings;
+
+#header v18 @mod-loader
+//! The game loop: the window, the renderer, and the screens the player moves between.
+
+use std::path::Path;
+use std::sync::Arc;
+use std::time::Instant;
+
+use glam::Vec2;
+use orbital_core::ship::{Dock, ShipClass, parse_classes};
+use orbital_core::time::Clock;
+use orbital_render::atlas::{ATLAS_SIZE, Atlas};
+use orbital_render::camera::Camera;
+use orbital_render::debug_draw::DebugOverlay;
+use orbital_render::painter::{Painter, Rect};
+use orbital_render::renderer::{Renderer, Scene};
+use orbital_render::sprite_batch::SpriteBatch;
+use orbital_render::starfield::Starfield;
+use orbital_render::text::Font;
+use winit::application::ApplicationHandler;
+use winit::event::{ElementState, KeyEvent, MouseScrollDelta, WindowEvent};
+use winit::event_loop::ActiveEventLoop;
+use winit::keyboard::PhysicalKey;
+use winit::window::{Window, WindowId};
+
+use crate::audio::{self, Mixer, Sound};
+use crate::docked::Docked;
+use crate::flight::{self, Flight};
+use crate::hud;
+use crate::input::{self, Action, Bindings, Pad};
+use crate::map_view::{self, MapView};
+use crate::menu::{Choice, Menu};
+use crate::mods;
+use crate::save_slots;
+use crate::settings::Settings;
+
+#const STAR_SEED v1 @camera-follow
+/// The seed the starfield is drawn from, so the sky is the same every time the game starts.
+pub const STAR_SEED: u32 = 7;
+
+#const SHAKE_PER_SPEED v1 @explosion-shake
+/// How hard a hit shakes the camera: kilometres of shake for each km/s the ship was doing.
+pub const SHAKE_PER_SPEED: f32 = 0.4;
+
+#item ATLAS_PATH v1 @verdant-art "Upload the sprite atlas to the GPU"
+/// The packed sprite atlas, as RGBA pixels, built by the art tool: read from the game's directory
+/// when the window opens.
+pub const ATLAS_PATH: &str = "assets/atlas.rgba";
+
+#item GLYPHS v1 @hud-font "Draw the HUD font from the atlas"
+/// The characters the HUD font has glyphs for.
+pub const GLYPHS: &str = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ .:%/-";
+
+#item Screen v1 @docking "Dock with a station to stop the ship"
+/// A screen the player is on top of. The flight stays underneath, and is paused while a screen is
+/// open.
+#[derive(Debug)]
+pub enum Screen {
+    Docked(Docked),
+}
+
+#item Screen v2 @title-screen "Show a title screen on launch"
+/// A screen the player is on top of. The flight stays underneath, and is paused while a screen is
+/// open.
+#[derive(Debug)]
+pub enum Screen {
+    Title(Menu),
+    Docked(Docked),
+}
+
+#item Screen v3 @orbit-map "Show the orbit map for the whole system"
+/// A screen the player is on top of. The flight stays underneath, and is paused while a screen is
+/// open.
+#[derive(Debug)]
+pub enum Screen {
+    Title(Menu),
+    Docked(Docked),
+    Map(MapView),
+}
+
+#item Screen v4 @settings-menu "Add a settings menu for volume and keys"
+/// A screen the player is on top of. The flight stays underneath, and is paused while a screen is
+/// open.
+#[derive(Debug)]
+pub enum Screen {
+    Title(Menu),
+    Docked(Docked),
+    Map(MapView),
+    Settings,
+}
+
+#item pauses v1 @orbit-map "Keep the ship flying while the orbit map is open"
+impl Screen {
+    /// Whether the flight stops while this screen is open. The orbit map lets the ship fly on, so
+    /// the map shows where it is going.
+    fn pauses(&self) -> bool {
+        !matches!(self, Screen::Map(_))
+    }
+}
+
+#item Step v1 @docking "Dock with a station to stop the ship"
+/// What a screen asks the app to do after an action.
+#[derive(Debug)]
+pub enum Step {
+    Stay,
+    Pop,
+    Push(Screen),
+}
+
+#item Step v2 @title-screen "Show a title screen on launch"
+/// What a screen asks the app to do after an action.
+#[derive(Debug)]
+pub enum Step {
+    Stay,
+    Pop,
+    Push(Screen),
+    Quit,
+}
+
+#item Step v3 @settings-menu "Add a settings menu for volume and keys"
+/// What a screen asks the app to do after an action.
+#[derive(Debug)]
+pub enum Step {
+    Stay,
+    Pop,
+    Push(Screen),
+    Quit,
+    Capture(Action),
+}
+
+#item App v1 @first-window "Open a window and clear it every frame"
+/// The running game: the window and the renderer, made once the event loop resumes.
+#[derive(Default)]
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+}
+
+#item App v2 @camera-follow "Add a parallax starfield behind the orbit view"
+/// The running game: the window, the renderer, the camera, the clock and the flight it draws.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+}
+
+#item App v3 @verdant-art "Show the verdant planet in the orbit view"
+/// The running game: the window, the renderer, the camera, the clock and the flight it draws.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+}
+
+#item App v4 @hud-font "Draw the HUD font from the atlas"
+/// The running game: the window, the renderer, the camera, the clock and the flight it draws.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+}
+
+#item App v5 @engine-hum "Give the game a mixer for its sounds"
+/// The running game: the window, the renderer, the camera, the clock and the flight it draws.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+}
+
+#item App v6 @docking "Dock with a station to stop the ship"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+}
+
+#item App v7 @orbit-map "Show the orbit map for the whole system"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, the
+/// screens stacked over the flight, and where the cursor and the window are, for the map's zoom.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+}
+
+#item App v8 @settings-menu "Add a settings menu for volume and keys"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+    bindings: Bindings,
+    settings: Settings,
+    capturing: Option<Action>,
+}
+
+#item App v9 @autosave "Autosave every five minutes"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+    bindings: Bindings,
+    settings: Settings,
+    capturing: Option<Action>,
+    autosave_elapsed: f32,
+}
+
+#item App v10 @debug-draw "Draw the debug overlay on F3"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+    bindings: Bindings,
+    settings: Settings,
+    capturing: Option<Action>,
+    autosave_elapsed: f32,
+    overlay: DebugOverlay,
+}
+
+#item App v11 @gamepad-thrust "Fly with the gamepad stick as well as the keys"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+    bindings: Bindings,
+    settings: Settings,
+    capturing: Option<Action>,
+    autosave_elapsed: f32,
+    overlay: DebugOverlay,
+    pad: Pad,
+}
+
+#item App v12 @mod-loader "Load ship classes from the mod folders"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight, and the ship classes of the game and its mods.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+    bindings: Bindings,
+    settings: Settings,
+    capturing: Option<Action>,
+    autosave_elapsed: f32,
+    overlay: DebugOverlay,
+    pad: Pad,
+    classes: Vec<ShipClass>,
+}
+
+#item App v13 @rc-trade-scroll "Open the trade screen on the good last traded"
+/// The running game: the window, the renderer, the camera, the clock, the flight it draws, and
+/// the screens stacked over the flight.
+pub struct App {
+    window: Option<Arc<Window>>,
+    renderer: Option<Renderer>,
+    atlas: Atlas,
+    font: Font,
+    camera: Camera,
+    clock: Clock,
+    flight: Flight,
+    mixer: Mixer,
+    stars: Starfield,
+    last_frame: Option<Instant>,
+    screens: Vec<Screen>,
+    cursor: Vec2,
+    screen: Vec2,
+    bindings: Bindings,
+    settings: Settings,
+    capturing: Option<Action>,
+    autosave_elapsed: f32,
+    overlay: DebugOverlay,
+    pad: Pad,
+    classes: Vec<ShipClass>,
+    trade_row: usize,
+}
+
+#item new v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl App {
+    /// The game as it starts: the camera on the ship, the clock at rest and the starfield.
+    pub fn new() -> Self {
+        Self {
+            window: None,
+            renderer: None,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+        }
+    }
+}
+
+#item new v2 @verdant-art "Show the verdant planet in the orbit view"
+impl App {
+    /// The game as it starts: the camera on the ship, the clock at rest, and the sprites packed
+    /// into the atlas.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+        }
+    }
+}
+
+#item new v3 @hud-font "Draw the HUD font from the atlas"
+impl App {
+    /// The game as it starts: the camera on the ship, the clock at rest, the sprites packed into
+    /// the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+        }
+    }
+}
+
+#item new v4 @engine-hum "Give the game a mixer for its sounds"
+impl App {
+    /// The game as it starts: the camera on the ship, the clock at rest, the sprites packed into
+    /// the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+        }
+    }
+}
+
+#item new v5 @docking "Dock with a station to stop the ship"
+impl App {
+    /// The game as it starts: the camera on the ship, the clock at rest, the sprites packed into
+    /// the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: Vec::new(),
+        }
+    }
+}
+
+#item new v6 @title-screen "Show a title screen on launch"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+        }
+    }
+}
+
+#item new v7 @orbit-map "Show the orbit map for the whole system"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+        }
+    }
+}
+
+#item new v8 @settings-menu "Add a settings menu for volume and keys"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings: Settings::load(),
+            capturing: None,
+        }
+    }
+}
+
+#item new v9 @autosave "Autosave every five minutes"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings: Settings::load(),
+            capturing: None,
+            autosave_elapsed: 0.0,
+        }
+    }
+}
+
+#item new v10 @debug-draw "Draw the debug overlay on F3"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let font = hud_font(&atlas);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings: Settings::load(),
+            capturing: None,
+            autosave_elapsed: 0.0,
+            overlay: DebugOverlay::default(),
+        }
+    }
+}
+
+#item new v11 @text-scale "Scale the interface text from the settings menu"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it at the player's text scale.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let settings = Settings::load();
+        let font = hud_font(&atlas, settings.text_scale);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings,
+            capturing: None,
+            autosave_elapsed: 0.0,
+            overlay: DebugOverlay::default(),
+        }
+    }
+}
+
+#item new v12 @gamepad-thrust "Fly with the gamepad stick as well as the keys"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, and the HUD font cut from it at the player's text scale.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let settings = Settings::load();
+        let font = hud_font(&atlas, settings.text_scale);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings,
+            capturing: None,
+            autosave_elapsed: 0.0,
+            overlay: DebugOverlay::default(),
+            pad: Pad::open(),
+        }
+    }
+}
+
+#item new v13 @mod-loader "Load ship classes from the mod folders"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, the HUD font cut from it at the player's text scale, and the ship
+    /// classes, the game's and its mods'.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let settings = Settings::load();
+        let font = hud_font(&atlas, settings.text_scale);
+        let mut classes = parse_classes(flight::SHIPS);
+        mods::load_mods(Path::new(mods::MODS_DIR), &mut classes);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings,
+            capturing: None,
+            autosave_elapsed: 0.0,
+            overlay: DebugOverlay::default(),
+            pad: Pad::open(),
+            classes,
+        }
+    }
+}
+
+#item new v14 @rc-trade-scroll "Open the trade screen on the good last traded"
+impl App {
+    /// The game as it starts: the title screen over the flight, the clock at rest, the sprites
+    /// packed into the atlas, the HUD font cut from it at the player's text scale, and the ship
+    /// classes, the game's and its mods'.
+    pub fn new() -> Self {
+        let mut atlas = Atlas::new(ATLAS_SIZE);
+        pack_sprites(&mut atlas);
+        let settings = Settings::load();
+        let font = hud_font(&atlas, settings.text_scale);
+        let mut classes = parse_classes(flight::SHIPS);
+        mods::load_mods(Path::new(mods::MODS_DIR), &mut classes);
+        Self {
+            window: None,
+            renderer: None,
+            atlas,
+            font,
+            camera: Camera::default(),
+            clock: Clock::new(),
+            flight: Flight::new(),
+            mixer: Mixer::default(),
+            stars: Starfield::new(STAR_SEED),
+            last_frame: None,
+            screens: vec![Screen::Title(Menu::title())],
+            cursor: Vec2::ZERO,
+            screen: Vec2::ZERO,
+            bindings: Bindings::default(),
+            settings,
+            capturing: None,
+            autosave_elapsed: 0.0,
+            overlay: DebugOverlay::default(),
+            pad: Pad::open(),
+            classes,
+            trade_row: 0,
+        }
+    }
+}
+
+#item default v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl Default for App {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#item ApplicationHandler v1 @first-window "Open a window and clear it every frame"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        self.renderer = Some(Renderer::new(Arc::clone(&window)));
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+            }
+            WindowEvent::RedrawRequested => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.frame();
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v2 @camera-follow "Add a parallax starfield behind the orbit view"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        self.renderer = Some(Renderer::new(Arc::clone(&window)));
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v3 @verdant-art "Show the verdant planet in the orbit view"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v4 @camera-zoom "Zoom the camera with the scroll wheel"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, lines),
+                ..
+            } => self.zoom(lines),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v5 @thrust-fuel "Burn fuel to thrust the ship"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::KeyboardInput { event, .. } => self.key(&event),
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, lines),
+                ..
+            } => self.zoom(lines),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v6 @docking "Dock with a station to stop the ship"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                let step = self.key(&event);
+                self.apply(step);
+            }
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, lines),
+                ..
+            } => self.zoom(lines),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v7 @title-screen "Show a title screen on launch"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+                // Lay the title menu out again for the new size.
+                if let Some(Screen::Title(menu)) = self.screens.last_mut() {
+                    *menu = Menu::title();
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                let step = self.key(&event);
+                self.apply(step, event_loop);
+            }
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, lines),
+                ..
+            } => self.zoom(lines),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v8 @menus "Keep the title menu's focus when the window is resized\n\nThe resize handler built a new title menu, so the focus went back to the first entry."
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+                if let Some(Screen::Title(menu)) = self.screens.last_mut() {
+                    menu.resync();
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                let step = self.key(&event);
+                self.apply(step, event_loop);
+            }
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, lines),
+                ..
+            } => self.zoom(lines),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item ApplicationHandler v9 @orbit-map "Show the orbit map for the whole system"
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.window.is_some() {
+            return;
+        }
+        let attrs = Window::default_attributes().with_title("Orbital");
+        let window = Arc::new(event_loop.create_window(attrs).expect("the window opens"));
+        let renderer = Renderer::new(Arc::clone(&window));
+        let pixels = std::fs::read(ATLAS_PATH).expect("the art tool has built the sprite atlas");
+        renderer.upload_atlas(&pixels);
+        self.renderer = Some(renderer);
+        self.window = Some(window);
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
+        match event {
+            WindowEvent::CloseRequested => event_loop.exit(),
+            WindowEvent::Resized(size) => {
+                self.screen = Vec2::new(size.width as f32, size.height as f32);
+                if let Some(renderer) = &mut self.renderer {
+                    renderer.resize(size.width, size.height);
+                }
+                if let Some(Screen::Title(menu)) = self.screens.last_mut() {
+                    menu.resync();
+                }
+            }
+            WindowEvent::RedrawRequested => self.draw(),
+            WindowEvent::KeyboardInput { event, .. } => {
+                let step = self.key(&event);
+                self.apply(step, event_loop);
+            }
+            WindowEvent::CursorMoved { position, .. } => {
+                self.cursor = Vec2::new(position.x as f32, position.y as f32);
+            }
+            WindowEvent::MouseWheel {
+                delta: MouseScrollDelta::LineDelta(_, lines),
+                ..
+            } => self.zoom(lines),
+            _ => {}
+        }
+    }
+
+    fn about_to_wait(&mut self, _event_loop: &ActiveEventLoop) {
+        self.step(Instant::now());
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+}
+
+#item key v1 @thrust-fuel "Burn fuel to thrust the ship"
+impl App {
+    /// Passes a key to the flight, if the key is bound to one of the ship's controls.
+    fn key(&mut self, event: &KeyEvent) {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return;
+        };
+        if let Some(action) = input::action_for(code) {
+            self.flight
+                .press(action, event.state == ElementState::Pressed);
+        }
+    }
+}
+
+#item key v2 @docking "Dock with a station to stop the ship"
+impl App {
+    /// Passes a key to the top screen, or to the flight when no screen is open. Returns what the
+    /// screen asks for.
+    fn key(&mut self, event: &KeyEvent) -> Step {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return Step::Stay;
+        };
+        let down = event.state == ElementState::Pressed;
+        let Some(action) = input::action_for(code) else {
+            return Step::Stay;
+        };
+        if let Some(screen) = self.screens.last_mut() {
+            return if down {
+                screen.handle(action, &mut self.flight)
+            } else {
+                Step::Stay
+            };
+        }
+        self.flight.press(action, down);
+        Step::Stay
+    }
+}
+
+#item key v3 @ui-click "Click when a menu entry is picked"
+impl App {
+    /// Passes a key to the top screen, or to the flight when no screen is open. Returns what the
+    /// screen asks for.
+    fn key(&mut self, event: &KeyEvent) -> Step {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return Step::Stay;
+        };
+        let down = event.state == ElementState::Pressed;
+        let Some(action) = input::action_for(code) else {
+            return Step::Stay;
+        };
+        if let Some(screen) = self.screens.last_mut() {
+            return if down {
+                screen.handle(action, &mut self.flight, &mut self.mixer)
+            } else {
+                Step::Stay
+            };
+        }
+        self.flight.press(action, down);
+        Step::Stay
+    }
+}
+
+#item key v4 @orbit-map "Show the orbit map for the whole system"
+impl App {
+    /// Passes a key to the top screen, or to the flight when no screen is open. A key coming up
+    /// always reaches the flight, so a control held as a screen opens doesn't stick. Returns what
+    /// the screen asks for.
+    fn key(&mut self, event: &KeyEvent) -> Step {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return Step::Stay;
+        };
+        let down = event.state == ElementState::Pressed;
+        let Some(action) = input::action_for(code) else {
+            return Step::Stay;
+        };
+        if down && action == Action::Map && self.screens.is_empty() {
+            return Step::Push(Screen::Map(MapView::new()));
+        }
+        if !down {
+            self.flight.press(action, false);
+            return Step::Stay;
+        }
+        if let Some(screen) = self.screens.last_mut() {
+            return screen.handle(action, &mut self.flight, &mut self.mixer);
+        }
+        self.flight.press(action, true);
+        Step::Stay
+    }
+}
+
+#item key v5 @settings-menu "Add a settings menu for volume and keys"
+impl App {
+    /// Passes a key to the top screen, or to the flight when no screen is open. A key coming up
+    /// always reaches the flight, so a control held as a screen opens doesn't stick. A key pressed
+    /// while a control is being rebound becomes that control's new key.
+    fn key(&mut self, event: &KeyEvent) -> Step {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return Step::Stay;
+        };
+        let down = event.state == ElementState::Pressed;
+        if let Some(action) = self.capturing.filter(|_| down) {
+            self.capturing = None;
+            self.bindings.rebind(action, code);
+            return Step::Stay;
+        }
+        let Some(action) = self.bindings.action_for(code) else {
+            return Step::Stay;
+        };
+        if down && action == Action::Map && self.screens.is_empty() {
+            return Step::Push(Screen::Map(MapView::new()));
+        }
+        if !down {
+            self.flight.press(action, false);
+            return Step::Stay;
+        }
+        if let Some(screen) = self.screens.last_mut() {
+            return screen.handle(
+                action,
+                &mut self.flight,
+                &mut self.settings,
+                &mut self.mixer,
+            );
+        }
+        self.flight.press(action, true);
+        Step::Stay
+    }
+}
+
+#item key v6 @shader-reload "Reload the shaders without restarting the game"
+impl App {
+    /// Passes a key to the top screen, or to the flight when no screen is open. A key coming up
+    /// always reaches the flight, so a control held as a screen opens doesn't stick. A key pressed
+    /// while a control is being rebound becomes that control's new key.
+    fn key(&mut self, event: &KeyEvent) -> Step {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return Step::Stay;
+        };
+        let down = event.state == ElementState::Pressed;
+        if let Some(action) = self.capturing.filter(|_| down) {
+            self.capturing = None;
+            self.bindings.rebind(action, code);
+            return Step::Stay;
+        }
+        let Some(action) = self.bindings.action_for(code) else {
+            return Step::Stay;
+        };
+        if down && action == Action::ReloadShaders {
+            if let Some(renderer) = &mut self.renderer {
+                renderer.reload_shaders();
+            }
+            return Step::Stay;
+        }
+        if down && action == Action::Map && self.screens.is_empty() {
+            return Step::Push(Screen::Map(MapView::new()));
+        }
+        if !down {
+            self.flight.press(action, false);
+            return Step::Stay;
+        }
+        if let Some(screen) = self.screens.last_mut() {
+            return screen.handle(
+                action,
+                &mut self.flight,
+                &mut self.settings,
+                &mut self.mixer,
+            );
+        }
+        self.flight.press(action, true);
+        Step::Stay
+    }
+}
+
+#item key v7 @debug-draw "Draw the debug overlay on F3"
+impl App {
+    /// Passes a key to the top screen, or to the flight when no screen is open. A key coming up
+    /// always reaches the flight, so a control held as a screen opens doesn't stick. A key pressed
+    /// while a control is being rebound becomes that control's new key.
+    fn key(&mut self, event: &KeyEvent) -> Step {
+        let PhysicalKey::Code(code) = event.physical_key else {
+            return Step::Stay;
+        };
+        let down = event.state == ElementState::Pressed;
+        if let Some(action) = self.capturing.filter(|_| down) {
+            self.capturing = None;
+            self.bindings.rebind(action, code);
+            return Step::Stay;
+        }
+        let Some(action) = self.bindings.action_for(code) else {
+            return Step::Stay;
+        };
+        if down && action == Action::Debug {
+            self.overlay.toggle();
+            return Step::Stay;
+        }
+        if down && action == Action::ReloadShaders {
+            if let Some(renderer) = &mut self.renderer {
+                renderer.reload_shaders();
+            }
+            return Step::Stay;
+        }
+        if down && action == Action::Map && self.screens.is_empty() {
+            return Step::Push(Screen::Map(MapView::new()));
+        }
+        if !down {
+            self.flight.press(action, false);
+            return Step::Stay;
+        }
+        if let Some(screen) = self.screens.last_mut() {
+            return screen.handle(
+                action,
+                &mut self.flight,
+                &mut self.settings,
+                &mut self.mixer,
+            );
+        }
+        self.flight.press(action, true);
+        Step::Stay
+    }
+}
+
+#item apply v1 @docking "Dock with a station to stop the ship"
+impl App {
+    /// Does what a screen asked for: stays, leaves the top screen, or opens another.
+    fn apply(&mut self, step: Step) {
+        match step {
+            Step::Stay => {}
+            Step::Pop => {
+                self.screens.pop();
+            }
+            Step::Push(screen) => self.screens.push(screen),
+        }
+    }
+}
+
+#item apply v2 @title-screen "Show a title screen on launch"
+impl App {
+    /// Does what a screen asked for: stays, leaves the top screen, opens another, or quits.
+    fn apply(&mut self, step: Step, event_loop: &ActiveEventLoop) {
+        match step {
+            Step::Stay => {}
+            Step::Pop => {
+                self.screens.pop();
+            }
+            Step::Push(screen) => self.screens.push(screen),
+            Step::Quit => event_loop.exit(),
+        }
+    }
+}
+
+#item apply v3 @settings-menu "Add a settings menu for volume and keys"
+impl App {
+    /// Does what a screen asked for: stays, leaves the top screen, opens another, quits, or waits
+    /// for the next key to rebind a control.
+    fn apply(&mut self, step: Step, event_loop: &ActiveEventLoop) {
+        match step {
+            Step::Stay => {}
+            Step::Pop => {
+                self.screens.pop();
+            }
+            Step::Push(screen) => self.screens.push(screen),
+            Step::Quit => event_loop.exit(),
+            Step::Capture(action) => self.capturing = Some(action),
+        }
+    }
+}
+
+#item apply v4 @rc-trade-scroll "Open the trade screen on the good last traded"
+impl App {
+    /// Does what a screen asked for: stays, leaves the top screen, opens another, quits, or waits
+    /// for the next key to rebind a control. Leaving the docked screen remembers the good selected.
+    fn apply(&mut self, step: Step, event_loop: &ActiveEventLoop) {
+        match step {
+            Step::Stay => {}
+            Step::Pop => {
+                if let Some(Screen::Docked(docked)) = self.screens.pop() {
+                    self.trade_row = docked.selected();
+                }
+            }
+            Step::Push(screen) => self.screens.push(screen),
+            Step::Quit => event_loop.exit(),
+            Step::Capture(action) => self.capturing = Some(action),
+        }
+    }
+}
+
+#item pack_sprites v1 @verdant-art "Show the verdant planet in the orbit view"
+/// Packs the sprites the game draws by name into the atlas.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+}
+
+#item pack_sprites v2 @orbit-prediction "Predict a ship's orbit a few hundred ticks ahead"
+/// Packs the sprites the game draws by name into the atlas.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+}
+
+#item pack_sprites v3 @scout-art "Add the scout to the shipyard list"
+/// Packs the sprites the game draws by name into the atlas.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+}
+
+#item pack_sprites v4 @thruster-art "Show the thruster flame under thrust"
+/// Packs the sprites the game draws by name into the atlas.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+}
+
+#item pack_sprites v5 @asteroid-art "Draw the asteroid field sprite"
+/// Packs the sprites the game draws by name into the atlas.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+}
+
+#item pack_sprites v6 @hud-font "Draw the HUD font from the atlas"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v7 @ring-art "Draw the ring station sprite"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v8 @explosion-art "Pack the explosion sprite"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    atlas.pack("explosion", 32, 32);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v9 @depot-art "Place depot stations on the outer orbits"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    atlas.pack("explosion", 32, 32);
+    atlas.pack("depot", 40, 40);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v10 @tempest-art "Pack the planets the sector tables place"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    atlas.pack("explosion", 32, 32);
+    atlas.pack("depot", 40, 40);
+    atlas.pack("cinder", 48, 48);
+    atlas.pack("glacier", 64, 64);
+    atlas.pack("tempest", 64, 64);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v11 @outpost-art "Pack the outpost station sprite"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    atlas.pack("explosion", 32, 32);
+    atlas.pack("depot", 40, 40);
+    atlas.pack("cinder", 48, 48);
+    atlas.pack("glacier", 64, 64);
+    atlas.pack("tempest", 64, 64);
+    atlas.pack("outpost", 40, 40);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v12 @dustball-art "Pack the dustball planet sprite"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    atlas.pack("explosion", 32, 32);
+    atlas.pack("depot", 40, 40);
+    atlas.pack("cinder", 48, 48);
+    atlas.pack("glacier", 64, 64);
+    atlas.pack("tempest", 64, 64);
+    atlas.pack("outpost", 40, 40);
+    atlas.pack("dustball", 32, 32);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item pack_sprites v13 @explosion-art-2 "Pack the redrawn explosion at its new size"
+/// Packs the sprites the game draws by name into the atlas, and the HUD font's glyphs.
+fn pack_sprites(atlas: &mut Atlas) {
+    atlas.pack("verdant", 64, 64);
+    atlas.pack("dot", 4, 4);
+    atlas.pack("scout", 32, 32);
+    atlas.pack("thruster", 16, 32);
+    atlas.pack("rock", 8, 8);
+    atlas.pack("ring", 48, 48);
+    atlas.pack("explosion", 48, 48);
+    atlas.pack("depot", 40, 40);
+    atlas.pack("cinder", 48, 48);
+    atlas.pack("glacier", 64, 64);
+    atlas.pack("tempest", 64, 64);
+    atlas.pack("outpost", 40, 40);
+    atlas.pack("dustball", 32, 32);
+    for c in GLYPHS.chars() {
+        atlas.pack(&c.to_string(), 8, 11);
+    }
+}
+
+#item hud_font v1 @hud-font "Draw the HUD font from the atlas"
+/// The HUD font: each character's glyph is the atlas region named after it.
+fn hud_font(atlas: &Atlas) -> Font {
+    let glyphs = GLYPHS
+        .chars()
+        .filter_map(|c| atlas.region(&c.to_string()).map(|r| (c, r)))
+        .collect();
+    Font::new(glyphs)
+}
+
+#item hud_font v2 @text-scale "Scale the interface text from the settings menu"
+/// The HUD font at a scale: each character's glyph is the atlas region named after it.
+fn hud_font(atlas: &Atlas, scale: f32) -> Font {
+    let glyphs = GLYPHS
+        .chars()
+        .filter_map(|c| atlas.region(&c.to_string()).map(|r| (c, r)))
+        .collect();
+    Font::new(glyphs).scaled(scale)
+}
+
+#item step v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl App {
+    /// Runs the flight for the time since the last frame, then pulls the camera after the ship.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        self.flight.follow(&mut self.camera, frame);
+    }
+}
+
+#item step v2 @engine-hum "Hum while the drive fires"
+impl App {
+    /// Runs the flight for the time since the last frame, then pulls the camera after the ship. The
+    /// engine hums while the drive fires.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        self.flight.follow(&mut self.camera, frame);
+    }
+}
+
+#item step v3 @docking "Dock with a station to stop the ship"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen is open, then pulls the
+    /// camera after the ship. The engine hums while the drive fires. A ship that latches on to a
+    /// station opens the docked screen.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        if !self.screens.is_empty() {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        }
+    }
+}
+
+#item step v4 @laser-sound "Play a laser sound while mining"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen is open, then pulls the
+    /// camera after the ship. The engine hums while the drive fires, and the laser while it mines.
+    /// A ship that latches on to a station opens the docked screen.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        if !self.screens.is_empty() {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        }
+    }
+}
+
+#item step v5 @docking-chime "Play the chime when the ship docks"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen is open, then pulls the
+    /// camera after the ship. The engine hums while the drive fires, and the laser while it mines.
+    /// A ship that latches on to a station opens the docked screen, to a chime.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        if !self.screens.is_empty() {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.play(Sound::Chime);
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        }
+    }
+}
+
+#item step v6 @chime-twice "Chime once per visit to a station\n\nUndocking left the ship in the port's reach, so it latched on again and the chime played a second time."
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen is open, then pulls the
+    /// camera after the ship. The engine hums while the drive fires, and the laser while it mines.
+    /// A ship that docks opens the docked screen, and the chime plays once a visit.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        if !self.screens.is_empty() {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.docked();
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+    }
+}
+
+#item step v7 @orbit-map "Keep the ship flying while the orbit map is open"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. The engine hums while the drive fires, and the laser
+    /// while it mines. A ship that docks opens the docked screen, and the chime plays once a visit.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.docked();
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+    }
+}
+
+#item step v8 @autosave "Autosave every five minutes"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. The engine hums while the drive fires, and the laser
+    /// while it mines. A ship that docks opens the docked screen, and the chime plays once a visit.
+    /// The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.docked();
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v9 @debug-draw "Draw the debug overlay on F3"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. The engine hums while the drive fires, and the laser
+    /// while it mines. A ship that docks opens the docked screen, and the chime plays once a visit.
+    /// The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.docked();
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v10 @music-fade "Fade the menu music out when a game starts"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. The engine hums while the drive fires, and the laser
+    /// while it mines. Once the title screen is gone, the menu music fades out. A ship that docks
+    /// opens the docked screen, and the chime plays once a visit. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            self.flight.tick();
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.docked();
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v11 @explosion-shake "Shake the camera when the ship hits a rock"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// engine hums while the drive fires. Once the title screen is gone, the menu music fades out.
+    /// A ship that docks opens the docked screen, and the chime plays once a visit. The game
+    /// autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if let Some(station) = self.flight.docked_at() {
+            self.mixer.docked();
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v12 @chime-2 "Start the chime as the ship first touches the port\n\nThe new chime is longer, so it starts at the first touch and ends as the clamps close."
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// engine hums while the drive fires. Once the title screen is gone, the menu music fades out.
+    /// The chime plays once a visit, from the first touch of a port, and a docked ship opens the
+    /// docked screen. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            self.screens
+                .push(Screen::Docked(Docked::new(&station.name)));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v13 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// engine hums while the drive fires. Once the title screen is gone, the menu music fades out.
+    /// The chime plays once a visit, from the first touch of a port, and a docked ship opens the
+    /// docked screen. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name).at_port(&self.flight);
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v14 @contracts "Pay contracts on delivery at their station"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// engine hums while the drive fires. Once the title screen is gone, the menu music fades out.
+    /// The chime plays once a visit, from the first touch of a port, and a docked ship opens the
+    /// docked screen. Docking pays for the contracts due at that station. The game autosaves on its
+    /// timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name).at_port(&self.flight);
+            self.flight.deliver();
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v15 @contracts-ui "Offer contracts from the station the ship docks at"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// engine hums while the drive fires. Once the title screen is gone, the menu music fades out.
+    /// The chime plays once a visit, from the first touch of a port, and a docked ship opens the
+    /// docked screen. Docking pays for the contracts due at that station, and the station offers
+    /// new ones. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name, self.flight.offers()).at_port(&self.flight);
+            self.flight.deliver();
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v16 @map-labels "Label the planets, the stations and the ship on the orbit map"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// engine hums while the drive fires. Once the title screen is gone, the menu music fades out.
+    /// The chime plays once a visit, from the first touch of a port, and a docked ship opens the
+    /// docked screen. Docking pays for the contracts due at that station, and the station offers
+    /// new ones. The orbit map lays its labels out for the frame. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        if let Some(Screen::Map(map)) = self.screens.last_mut() {
+            map.place_labels(&self.flight, self.screen);
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name, self.flight.offers()).at_port(&self.flight);
+            self.flight.deliver();
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v17 @gamepad-thrust "Fly with the gamepad stick as well as the keys"
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// gamepad stick steers the ship. The engine hums while the drive fires, and the laser while it
+    /// mines. Once the title screen is gone, the menu music fades out. The chime plays once a
+    /// visit, from the first touch of a port, and a docked ship opens the docked screen. Docking
+    /// pays for the contracts due at that station, and the station offers new ones. The orbit map
+    /// lays its labels out for the frame. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        self.flight.steer(input::deadzone(self.pad.stick()));
+        if let Some(Screen::Map(map)) = self.screens.last_mut() {
+            map.place_labels(&self.flight, self.screen);
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name, self.flight.offers()).at_port(&self.flight);
+            self.flight.deliver();
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v18 @rc-trade-scroll "Open the trade screen on the good last traded\n\nEvery dock opened the trade screen at the top of the list, so a pilot trading one good scrolled back down to it each visit."
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// gamepad stick steers the ship. The engine hums while the drive fires, and the laser while it
+    /// mines. Once the title screen is gone, the menu music fades out. The chime plays once a
+    /// visit, from the first touch of a port, and a docked ship opens the docked screen. Docking
+    /// pays for the contracts due at that station, and the station offers new ones. The orbit map
+    /// lays its labels out for the frame. The game autosaves on its timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        self.flight.steer(input::deadzone(self.pad.stick()));
+        if let Some(Screen::Map(map)) = self.screens.last_mut() {
+            map.place_labels(&self.flight, self.screen);
+        }
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name, self.flight.offers())
+                .at_port(&self.flight)
+                .at_row(self.trade_row);
+            self.flight.deliver();
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item step v19 @rc-map-lag "Lay the orbit map's labels out after the ticks\n\nThe labels were placed before the frame's ticks ran, so the ship's label trailed its dot by a tick."
+impl App {
+    /// Runs the flight for the time since the last frame, unless a screen that pauses it is open,
+    /// then pulls the camera after the ship. A hit shakes the camera, and the shake dies away. The
+    /// gamepad stick steers the ship. The engine hums while the drive fires, and the laser while it
+    /// mines. Once the title screen is gone, the menu music fades out. The chime plays once a
+    /// visit, from the first touch of a port, and a docked ship opens the docked screen. Docking
+    /// pays for the contracts due at that station, and the station offers new ones. The orbit map
+    /// lays its labels out after the ticks, from where the ship is now. The game autosaves on its
+    /// timer.
+    fn step(&mut self, now: Instant) {
+        let frame = self
+            .last_frame
+            .map_or(0.0, |last| (now - last).as_secs_f32());
+        self.last_frame = Some(now);
+        self.overlay.record(frame * 1000.0);
+        self.camera.decay(frame);
+        if !matches!(self.screens.first(), Some(Screen::Title(_))) {
+            self.mixer.fade_music(frame);
+        }
+        if self.screens.iter().any(Screen::pauses) {
+            return;
+        }
+        self.flight.steer(input::deadzone(self.pad.stick()));
+        for _ in 0..self.clock.advance(frame) {
+            let hit = self.flight.tick();
+            if hit > 0.0 {
+                self.camera.shake(hit * SHAKE_PER_SPEED);
+            }
+        }
+        if let Some(Screen::Map(map)) = self.screens.last_mut() {
+            map.place_labels(&self.flight, self.screen);
+        }
+        if self.flight.thrusting() {
+            self.mixer.play(Sound::Hum);
+        }
+        if self.flight.mining() {
+            self.mixer.play(Sound::Laser);
+        }
+        self.flight.follow(&mut self.camera, frame);
+        if self.flight.ship.dock != Dock::Flying {
+            self.mixer.docked();
+        } else if !self.flight.in_port() {
+            self.mixer.undocked();
+        }
+        if let Some(station) = self.flight.docked_at() {
+            let docked = Docked::new(&station.name, self.flight.offers())
+                .at_port(&self.flight)
+                .at_row(self.trade_row);
+            self.flight.deliver();
+            self.screens.push(Screen::Docked(docked));
+        }
+        self.autosave_elapsed += frame;
+        if save_slots::autosave_due(self.autosave_elapsed) {
+            self.autosave_elapsed = 0.0;
+            if let Err(err) = save_slots::write(save_slots::AUTOSAVE_SLOT, &self.flight) {
+                log::warn!("autosave failed: {err}");
+            }
+        }
+    }
+}
+
+#item draw v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl App {
+    /// Draws the flight: the starfield, seen through the camera.
+    fn draw(&mut self) {
+        if let Some(renderer) = &mut self.renderer {
+            let scene = Scene { stars: &self.stars };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v2 @verdant-art "Show the verdant planet in the orbit view"
+impl App {
+    /// Draws the flight: the starfield, then the sprites, seen through the camera.
+    fn draw(&mut self) {
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            self.flight.draw(&mut sprites, &self.atlas);
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+            };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v3 @hud-font "Draw the HUD font from the atlas"
+impl App {
+    /// Draws the flight: the starfield, the sprites, and the fuel readout, seen through the camera.
+    fn draw(&mut self) {
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            self.flight.draw(&mut sprites, &self.atlas);
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v4 @engine-hum "Hand each frame's sounds to the audio device"
+impl App {
+    /// Draws the flight: the starfield, the sprites, and the fuel readout, seen through the camera.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            self.flight.draw(&mut sprites, &self.atlas);
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v5 @docking "Dock with a station to stop the ship"
+impl App {
+    /// Draws the flight, the fuel readout, and the docked screen over it if one is open.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            self.flight.draw(&mut sprites, &self.atlas);
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            if let Some(Screen::Docked(docked)) = self.screens.last() {
+                docked.draw(&self.font, &mut glyphs);
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v6 @trade-screen "Show the trade screen at a station"
+impl App {
+    /// Draws the flight, the fuel readout, and the docked screen over it if one is open.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            self.flight.draw(&mut sprites, &self.atlas);
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            if let Some(Screen::Docked(docked)) = self.screens.last() {
+                docked.draw(&self.font, &mut glyphs, &self.flight);
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v7 @title-screen "Show a title screen on launch"
+impl App {
+    /// Draws the flight, the fuel readout, and the screen on top of it, if one is open.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            self.flight.draw(&mut sprites, &self.atlas);
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(&self.camera, &scene);
+        }
+    }
+}
+
+#item draw v8 @orbit-map "Show the orbit map for the whole system"
+impl App {
+    /// Draws the flight, the fuel readout, and the screen on top of it. The orbit map replaces the
+    /// flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v9 @settings-menu "Add a settings menu for volume and keys"
+impl App {
+    /// Draws the flight, the fuel readout, and the screen on top of it. The orbit map replaces the
+    /// flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v10 @orbit-trails "Trail the ship's path through the system"
+impl App {
+    /// Draws the flight, the trail behind the ship, the fuel readout, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first.
+    fn draw(&mut self) {
+        audio::output(&self.mixer.take_pending());
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v11 @menu-music "Play the menu music at the player's volume"
+impl App {
+    /// Draws the flight, the trail behind the ship, the fuel readout, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut glyphs = Vec::new();
+            self.font.draw(
+                &mut glyphs,
+                &self.flight.fuel_readout(),
+                Vec2::new(24.0, 24.0),
+                [1.0; 4],
+            );
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v12 @hud-cargo "Show the cargo hold's fill on the HUD"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(&mut panels, &self.font, &mut glyphs, &self.flight);
+            hud::draw_cargo_gauge(&mut panels, &self.flight);
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v13 @light-direction "Add a light direction setting for the planets"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(&mut panels, &self.font, &mut glyphs, &self.flight);
+            hud::draw_cargo_gauge(&mut panels, &self.flight);
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v14 @overlay-wire "Draw the frame-time overlay that F3 toggles"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(&mut panels, &self.font, &mut glyphs, &self.flight);
+            hud::draw_cargo_gauge(&mut panels, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v15 @hud-speed "Show the ship's speed on the HUD"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(&mut panels, &self.font, &mut glyphs, &self.flight);
+            hud::draw_cargo_gauge(&mut panels, &self.flight);
+            hud::draw_speed_readout(&self.font, &mut glyphs, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v16 @high-contrast "Add a high-contrast theme"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => {
+                    map.draw(&mut sprites, &self.flight, &self.atlas, self.screen)
+                }
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(
+                &mut panels,
+                &self.font,
+                &mut glyphs,
+                &self.flight,
+                &self.settings,
+            );
+            hud::draw_cargo_gauge(&mut panels, &self.flight, &self.settings);
+            hud::draw_speed_readout(&self.font, &mut glyphs, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            self.stars.set_high_contrast(self.settings.high_contrast);
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v17 @colour-blind "Colour the orbit map's markers for the colour-blind palette"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => map.draw(
+                    &mut sprites,
+                    &self.flight,
+                    &self.atlas,
+                    self.screen,
+                    &self.settings,
+                ),
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(
+                &mut panels,
+                &self.font,
+                &mut glyphs,
+                &self.flight,
+                &self.settings,
+            );
+            hud::draw_cargo_gauge(&mut panels, &self.flight, &self.settings);
+            hud::draw_speed_readout(&self.font, &mut glyphs, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                _ => {}
+            }
+            self.stars.set_high_contrast(self.settings.high_contrast);
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v18 @map-labels "Label the planets, the stations and the ship on the orbit map"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame, and labels
+    /// its bodies.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => map.draw(
+                    &mut sprites,
+                    &self.flight,
+                    &self.atlas,
+                    self.screen,
+                    &self.settings,
+                ),
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(
+                &mut panels,
+                &self.font,
+                &mut glyphs,
+                &self.flight,
+                &self.settings,
+            );
+            hud::draw_cargo_gauge(&mut panels, &self.flight, &self.settings);
+            hud::draw_speed_readout(&self.font, &mut glyphs, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                Some(Screen::Map(map)) => map.draw_labels(&self.font, &mut glyphs),
+                _ => {}
+            }
+            self.stars.set_high_contrast(self.settings.high_contrast);
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v19 @map-legend "Draw the orbit map's legend"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame, and labels
+    /// its bodies under a legend.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => map.draw(
+                    &mut sprites,
+                    &self.flight,
+                    &self.atlas,
+                    self.screen,
+                    &self.settings,
+                ),
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(
+                &mut panels,
+                &self.font,
+                &mut glyphs,
+                &self.flight,
+                &self.settings,
+            );
+            hud::draw_cargo_gauge(&mut panels, &self.flight, &self.settings);
+            hud::draw_speed_readout(&self.font, &mut glyphs, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => docked.draw(&self.font, &mut glyphs, &self.flight),
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                Some(Screen::Map(map)) => {
+                    map.draw_labels(&self.font, &mut glyphs);
+                    map_view::draw_legend(&mut panels, &self.font, &mut glyphs, &self.settings);
+                }
+                _ => {}
+            }
+            self.stars.set_high_contrast(self.settings.high_contrast);
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item draw v20 @mod-loader "List the ship classes on the docked screen"
+impl App {
+    /// Draws the flight, the trail behind the ship, the HUD, and the screen on top of it.
+    /// The orbit map replaces the flight's sprites and takes the camera for the frame, and labels
+    /// its bodies under a legend.
+    /// The frame's sounds go to the audio device first, with the music at the player's volume.
+    fn draw(&mut self) {
+        let music = self.mixer.music_gain() * self.settings.music_percent as f32 / 100.0;
+        audio::output(&self.mixer.take_pending(), music);
+        let camera = match self.screens.last() {
+            Some(Screen::Map(map)) => map.camera(),
+            _ => &self.camera,
+        };
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_light(self.settings.light_dir());
+            let mut sprites = SpriteBatch::default();
+            match self.screens.last() {
+                Some(Screen::Map(map)) => map.draw(
+                    &mut sprites,
+                    &self.flight,
+                    &self.atlas,
+                    self.screen,
+                    &self.settings,
+                ),
+                _ => self.flight.draw(&mut sprites, &self.atlas),
+            }
+            let mut panels = Painter::recording(self.screen.x as u32, self.screen.y as u32);
+            let mut glyphs = Vec::new();
+            hud::draw_fuel_gauge(
+                &mut panels,
+                &self.font,
+                &mut glyphs,
+                &self.flight,
+                &self.settings,
+            );
+            hud::draw_cargo_gauge(&mut panels, &self.flight, &self.settings);
+            hud::draw_speed_readout(&self.font, &mut glyphs, &self.flight);
+            self.overlay
+                .draw(&mut panels, Rect::new(hud::HUD_MARGIN, 120, 200, 12));
+            match self.screens.last() {
+                Some(Screen::Title(menu)) => menu.draw(&self.font, &mut glyphs),
+                Some(Screen::Docked(docked)) => {
+                    docked.draw(&self.font, &mut glyphs, &self.flight, &self.classes);
+                }
+                Some(Screen::Settings) => self.settings.draw(&self.font, &mut glyphs),
+                Some(Screen::Map(map)) => {
+                    map.draw_labels(&self.font, &mut glyphs);
+                    map_view::draw_legend(&mut panels, &self.font, &mut glyphs, &self.settings);
+                }
+                _ => {}
+            }
+            self.stars.set_high_contrast(self.settings.high_contrast);
+            let scene = Scene {
+                stars: &self.stars,
+                trails: std::slice::from_ref(&self.flight.trail),
+                sprites: &sprites,
+                panels: panels.commands(),
+                text: &glyphs,
+            };
+            renderer.frame(camera, &scene);
+        }
+    }
+}
+
+#item zoom v1 @camera-zoom "Zoom the camera with the scroll wheel"
+impl App {
+    /// Zooms the camera by a number of scroll lines.
+    fn zoom(&mut self, lines: f32) {
+        self.camera.zoom_by(lines);
+    }
+}
+
+#item zoom v2 @map-zoom "Keep the orbit map zoom centred on the cursor"
+impl App {
+    /// Zooms the camera by a number of scroll lines, keeping the point under the cursor in place.
+    /// On the orbit map the map's own camera takes the zoom.
+    fn zoom(&mut self, lines: f32) {
+        match self.screens.last_mut() {
+            Some(Screen::Map(map)) => map.zoom(lines, self.cursor, self.screen),
+            _ => self.camera.zoom_by(lines, self.cursor, self.screen),
+        }
+    }
+}
+
+#item handle v1 @docking "Dock with a station to stop the ship"
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do.
+    fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match self {
+            Screen::Docked(docked) => docked.handle(action, flight),
+        }
+    }
+}
+
+#item handle v2 @title-screen "Show a title screen on launch"
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do.
+    fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match self {
+            Screen::Title(menu) => match menu.handle(action) {
+                Some(Choice::NewGame) => Step::Pop,
+                Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                    Ok(save) => {
+                        *flight = Flight::restore(save);
+                        Step::Pop
+                    }
+                    Err(err) => {
+                        log::warn!("could not continue: {err}");
+                        Step::Stay
+                    }
+                },
+                Some(Choice::Settings) => Step::Stay,
+                Some(Choice::Quit) => Step::Quit,
+                None => Step::Stay,
+            },
+            Screen::Docked(docked) => docked.handle(action, flight),
+        }
+    }
+}
+
+#item handle v3 @ui-click "Click when a menu entry is picked"
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do. Picking a
+    /// title menu entry clicks.
+    fn handle(&mut self, action: Action, flight: &mut Flight, mixer: &mut Mixer) -> Step {
+        match self {
+            Screen::Title(menu) => {
+                let choice = menu.handle(action);
+                if choice.is_some() {
+                    mixer.play(Sound::Click);
+                }
+                match choice {
+                    Some(Choice::NewGame) => Step::Pop,
+                    Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                        Ok(save) => {
+                            *flight = Flight::restore(save);
+                            Step::Pop
+                        }
+                        Err(err) => {
+                            log::warn!("could not continue: {err}");
+                            Step::Stay
+                        }
+                    },
+                    Some(Choice::Settings) => Step::Stay,
+                    Some(Choice::Quit) => Step::Quit,
+                    None => Step::Stay,
+                }
+            }
+            Screen::Docked(docked) => docked.handle(action, flight),
+        }
+    }
+}
+
+#item handle v4 @orbit-map "Show the orbit map for the whole system"
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do. Picking a
+    /// title menu entry clicks.
+    fn handle(&mut self, action: Action, flight: &mut Flight, mixer: &mut Mixer) -> Step {
+        match self {
+            Screen::Title(menu) => {
+                let choice = menu.handle(action);
+                if choice.is_some() {
+                    mixer.play(Sound::Click);
+                }
+                match choice {
+                    Some(Choice::NewGame) => Step::Pop,
+                    Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                        Ok(save) => {
+                            *flight = Flight::restore(save);
+                            Step::Pop
+                        }
+                        Err(err) => {
+                            log::warn!("could not continue: {err}");
+                            Step::Stay
+                        }
+                    },
+                    Some(Choice::Settings) => Step::Stay,
+                    Some(Choice::Quit) => Step::Quit,
+                    None => Step::Stay,
+                }
+            }
+            Screen::Docked(docked) => docked.handle(action, flight),
+            Screen::Map(map) => map.handle(action),
+        }
+    }
+}
+
+#item handle v5 @cargo-clank "Clank the hold when the last slot fills"
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do. Picking a
+    /// title menu entry clicks, and a trade that fills the hold clanks.
+    fn handle(&mut self, action: Action, flight: &mut Flight, mixer: &mut Mixer) -> Step {
+        match self {
+            Screen::Title(menu) => {
+                let choice = menu.handle(action);
+                if choice.is_some() {
+                    mixer.play(Sound::Click);
+                }
+                match choice {
+                    Some(Choice::NewGame) => Step::Pop,
+                    Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                        Ok(save) => {
+                            *flight = Flight::restore(save);
+                            Step::Pop
+                        }
+                        Err(err) => {
+                            log::warn!("could not continue: {err}");
+                            Step::Stay
+                        }
+                    },
+                    Some(Choice::Settings) => Step::Stay,
+                    Some(Choice::Quit) => Step::Quit,
+                    None => Step::Stay,
+                }
+            }
+            Screen::Docked(docked) => {
+                let was_full = flight.cargo.is_full();
+                let step = docked.handle(action, flight);
+                if !was_full && flight.cargo.is_full() {
+                    mixer.play(Sound::Clank);
+                }
+                step
+            }
+            Screen::Map(map) => map.handle(action),
+        }
+    }
+}
+
+#item handle v6 @settings-menu "Add a settings menu for volume and keys"
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do. Picking a
+    /// title menu entry clicks, and a trade that fills the hold clanks.
+    fn handle(
+        &mut self,
+        action: Action,
+        flight: &mut Flight,
+        settings: &mut Settings,
+        mixer: &mut Mixer,
+    ) -> Step {
+        match self {
+            Screen::Title(menu) => {
+                let choice = menu.handle(action);
+                if choice.is_some() {
+                    mixer.play(Sound::Click);
+                }
+                match choice {
+                    Some(Choice::NewGame) => Step::Pop,
+                    Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                        Ok(save) => {
+                            *flight = Flight::restore(save);
+                            Step::Pop
+                        }
+                        Err(err) => {
+                            log::warn!("could not continue: {err}");
+                            Step::Stay
+                        }
+                    },
+                    Some(Choice::Settings) => Step::Push(Screen::Settings),
+                    Some(Choice::Quit) => Step::Quit,
+                    None => Step::Stay,
+                }
+            }
+            Screen::Docked(docked) => {
+                let was_full = flight.cargo.is_full();
+                let step = docked.handle(action, flight);
+                if !was_full && flight.cargo.is_full() {
+                    mixer.play(Sound::Clank);
+                }
+                step
+            }
+            Screen::Map(map) => map.handle(action),
+            Screen::Settings => settings.handle(action),
+        }
+    }
+}
+
+#item handle v7 @fix-1-0-save "Continue an empty save slot as a new game\n\nThe 1.0 loader refused a slot with no save in it, so continue did nothing on a fresh install."
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do. Picking a
+    /// title menu entry clicks, and a trade that fills the hold clanks. Continuing a slot with no
+    /// game in it starts a new one.
+    fn handle(
+        &mut self,
+        action: Action,
+        flight: &mut Flight,
+        settings: &mut Settings,
+        mixer: &mut Mixer,
+    ) -> Step {
+        match self {
+            Screen::Title(menu) => {
+                let choice = menu.handle(action);
+                if choice.is_some() {
+                    mixer.play(Sound::Click);
+                }
+                match choice {
+                    Some(Choice::NewGame) => Step::Pop,
+                    Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                        Ok(Some(save)) => {
+                            *flight = Flight::restore(save);
+                            Step::Pop
+                        }
+                        Ok(None) => {
+                            *flight = Flight::new();
+                            Step::Pop
+                        }
+                        Err(err) => {
+                            log::warn!("could not continue: {err}");
+                            Step::Stay
+                        }
+                    },
+                    Some(Choice::Settings) => Step::Push(Screen::Settings),
+                    Some(Choice::Quit) => Step::Quit,
+                    None => Step::Stay,
+                }
+            }
+            Screen::Docked(docked) => {
+                let was_full = flight.cargo.is_full();
+                let step = docked.handle(action, flight);
+                if !was_full && flight.cargo.is_full() {
+                    mixer.play(Sound::Clank);
+                }
+                step
+            }
+            Screen::Map(map) => map.handle(action),
+            Screen::Settings => settings.handle(action),
+        }
+    }
+}
+
+#item handle v8 @fix-1-0-chime "Count a continued dock's chime as played\n\nA game saved at a station chimed again when it was continued, so the player heard the docking chime twice."
+impl Screen {
+    /// Passes an action to the screen, and returns what the screen asks the app to do. Picking a
+    /// title menu entry clicks, and a trade that fills the hold clanks. Continuing a slot with no
+    /// game in it starts a new one, and a game continued at a station doesn't chime again.
+    fn handle(
+        &mut self,
+        action: Action,
+        flight: &mut Flight,
+        settings: &mut Settings,
+        mixer: &mut Mixer,
+    ) -> Step {
+        match self {
+            Screen::Title(menu) => {
+                let choice = menu.handle(action);
+                if choice.is_some() {
+                    mixer.play(Sound::Click);
+                }
+                match choice {
+                    Some(Choice::NewGame) => Step::Pop,
+                    Some(Choice::Continue) => match save_slots::read(save_slots::CONTINUE_SLOT) {
+                        Ok(Some(save)) => {
+                            *flight = Flight::restore(save);
+                            if flight.ship.dock != Dock::Flying {
+                                mixer.resume_docked();
+                            }
+                            Step::Pop
+                        }
+                        Ok(None) => {
+                            *flight = Flight::new();
+                            Step::Pop
+                        }
+                        Err(err) => {
+                            log::warn!("could not continue: {err}");
+                            Step::Stay
+                        }
+                    },
+                    Some(Choice::Settings) => Step::Push(Screen::Settings),
+                    Some(Choice::Quit) => Step::Quit,
+                    None => Step::Stay,
+                }
+            }
+            Screen::Docked(docked) => {
+                let was_full = flight.cargo.is_full();
+                let step = docked.handle(action, flight);
+                if !was_full && flight.cargo.is_full() {
+                    mixer.play(Sound::Clank);
+                }
+                step
+            }
+            Screen::Map(map) => map.handle(action),
+            Screen::Settings => settings.handle(action),
+        }
+    }
+}
+
+#test a_new_game_starts_on_the_title_screen v1 @title-screen "Test that the game opens on the title screen"
+#[test]
+fn a_new_game_starts_on_the_title_screen() {
+    let app = App::new();
+    assert!(matches!(app.screens.last(), Some(Screen::Title(_))));
+}
+
+#test a_screen_pauses_the_flight v1 @pause-test "Test that an open screen pauses the flight"
+#[test]
+fn a_screen_pauses_the_flight() {
+    let mut app = App::default();
+    app.screens.push(Screen::Settings);
+    let now = Instant::now();
+    app.step(now);
+    app.step(now + std::time::Duration::from_secs(1));
+    assert_eq!(
+        app.autosave_elapsed, 0.0,
+        "the clock stops while a screen is open"
+    );
+}

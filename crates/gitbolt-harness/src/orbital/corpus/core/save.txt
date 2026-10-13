@@ -1,0 +1,913 @@
+#file crates/orbital-core/src/save.rs
+#header v1 @save-files
+//! Save files: the game state written to disk and read back, with a CRC-32 on the end.
+//!
+//! The layout, in file order, with every number little-endian:
+//!
+//! - the magic `ORBS` (4 bytes);
+//! - the tick, `u64`;
+//! - the credits, `f32`;
+//! - the ship: position x and y, velocity x and y, and mass, each `f32`;
+//! - the cargo: 12 slots, each a good id `u8` (255 when the slot is empty) then its tonnes, `f32`;
+//! - the CRC-32 (IEEE, as zlib uses) of every byte before it, `u32`.
+
+use crate::body::Body;
+use crate::cargo::{CARGO_SLOTS, CargoHold, Commodity, Stack};
+use crate::error::Error;
+use crate::ship::Ship;
+use glam::Vec2;
+use std::fs;
+use std::path::Path;
+#header v2 @save-version
+//! Save files: the game state written to disk and read back, with a CRC-32 on the end.
+//!
+//! The layout, in file order, with every number little-endian:
+//!
+//! - the magic `ORBS` (4 bytes);
+//! - the format version, `u32` (1);
+//! - the tick, `u64`;
+//! - the credits, `f32`;
+//! - the ship: position x and y, velocity x and y, and mass, each `f32`;
+//! - the cargo: 12 slots, each a good id `u8` (255 when the slot is empty) then its tonnes, `f32`;
+//! - the CRC-32 (IEEE, as zlib uses) of every byte before it, `u32`.
+
+use crate::body::Body;
+use crate::cargo::{CARGO_SLOTS, CargoHold, Commodity, Stack};
+use crate::error::Error;
+use crate::ship::Ship;
+use glam::Vec2;
+use std::fs;
+use std::path::Path;
+#header v3 @save-v2
+//! Save files: the game state written to disk and read back, with a CRC-32 on the end.
+//!
+//! The layout, in file order, with every number little-endian:
+//!
+//! - the magic `ORBS` (4 bytes);
+//! - the format version, `u32` (2);
+//! - the creation time, `u64`, in seconds since the Unix epoch;
+//! - the tick, `u64`;
+//! - the credits, `f32`;
+//! - the ship: position x and y, velocity x and y, mass, fuel and hull, each `f32`;
+//! - the cargo: 12 slots, each a good id `u8` (255 when the slot is empty) then its tonnes, `f32`;
+//! - the CRC-32 (IEEE, as zlib uses) of every byte before it, `u32`.
+
+use crate::body::Body;
+use crate::cargo::{CARGO_SLOTS, CargoHold, Commodity, Stack};
+use crate::error::Error;
+use crate::ship::Ship;
+use glam::Vec2;
+use std::fs;
+use std::path::Path;
+#header v4 @save-migrate
+//! Save files: the game state written to disk and read back, with a CRC-32 on the end.
+//!
+//! The layout, in file order, with every number little-endian:
+//!
+//! - the magic `ORBS` (4 bytes);
+//! - the format version, `u32` (2);
+//! - the creation time, `u64`, in seconds since the Unix epoch;
+//! - the tick, `u64`;
+//! - the credits, `f32`;
+//! - the ship: position x and y, velocity x and y, mass, fuel and hull, each `f32`;
+//! - the cargo: 12 slots, each a good id `u8` (255 when the slot is empty) then its tonnes, `f32`;
+//! - the CRC-32 (IEEE, as zlib uses) of every byte before it, `u32`.
+//!
+//! Version 1 files load with no creation time, a full tank and a whole hull.
+
+use crate::body::Body;
+use crate::body::SHIP_HULL;
+use crate::cargo::{CARGO_SLOTS, CargoHold, Commodity, Stack};
+use crate::error::Error;
+use crate::ship::MAX_FUEL;
+use crate::ship::Ship;
+use glam::Vec2;
+use std::fs;
+use std::path::Path;
+#header v5 @save-v3
+//! Save files: the game state written to disk and read back, with a CRC-32 on the end.
+//!
+//! The layout, in file order, with every number little-endian:
+//!
+//! - the magic `ORBS` (4 bytes);
+//! - the format version, `u32` (3);
+//! - the creation time, `u64`, in seconds since the Unix epoch;
+//! - the tick, `u64`;
+//! - the credits, `f32`;
+//! - the ship: position x and y, velocity x and y, mass, fuel and hull, each `f32`;
+//! - the cargo: 12 slots, each a good id `u8` (255 when the slot is empty) then its tonnes, `f32`;
+//! - the contracts: a count `u32`, then for each its good id `u8`, tonnes `f32`, destination
+//!   station index `u32`, reward `f32` and ticks left `u32`;
+//! - the CRC-32 (IEEE, as zlib uses) of every byte before it, `u32`.
+//!
+//! Version 1 files load with no creation time, a full tank and a whole hull. Version 2 files load
+//! with no contracts.
+
+use crate::body::Body;
+use crate::body::SHIP_HULL;
+use crate::cargo::{CARGO_SLOTS, CargoHold, Commodity, Stack};
+use crate::contracts::Contract;
+use crate::error::Error;
+use crate::ship::MAX_FUEL;
+use crate::ship::Ship;
+use glam::Vec2;
+use std::fs;
+use std::path::Path;
+#item MAGIC v1 @save-files "Start every save file with the magic ORBS"
+/// The first four bytes of every save file.
+pub const MAGIC: [u8; 4] = *b"ORBS";
+#item PLAYER_NAME v1 @save-files "Name the loaded ship: save files don't store names"
+/// The name a loaded ship gets. Save files don't store names: the player's ship is always this one.
+pub const PLAYER_NAME: &str = "Scout";
+#const EMPTY_SLOT v1 @save-files "Save an empty cargo slot as good id 255"
+/// The good id an empty cargo slot is saved as. No good has this id.
+pub const EMPTY_SLOT: u8 = 255;
+#const FORMAT_VERSION v1 @save-version "Write a version number into each save file"
+/// The format a save is written in. A build refuses any other version.
+pub const FORMAT_VERSION: u32 = 1;
+#const FORMAT_VERSION v2 @save-v2 "Move the save format to version 2"
+/// The format a save is written in. A build refuses any other version.
+pub const FORMAT_VERSION: u32 = 2;
+#const FORMAT_VERSION v3 @save-v3 "Store open contracts in save format 3"
+/// The newest format this build writes. Older ones are migrated on load.
+pub const FORMAT_VERSION: u32 = 3;
+#item Save v1 @save-files "Add the save with the tick, credits, ship and cargo"
+/// The game state a save file holds.
+#[derive(Clone, Debug)]
+pub struct Save {
+    pub tick: u64,
+    pub credits: f32,
+    pub ship: Ship,
+    pub cargo: CargoHold,
+}
+#item Save v2 @save-v2 "Record when each save was made"
+/// The game state a save file holds.
+#[derive(Clone, Debug)]
+pub struct Save {
+    /// When the save was made, in seconds since the Unix epoch. The game stamps it.
+    pub created: u64,
+    pub tick: u64,
+    pub credits: f32,
+    pub ship: Ship,
+    pub cargo: CargoHold,
+}
+#item Save v3 @save-v3 "Store open contracts in save format 3"
+/// The game state a save file holds.
+#[derive(Clone, Debug)]
+pub struct Save {
+    /// When the save was made, in seconds since the Unix epoch. The game stamps it.
+    pub created: u64,
+    pub tick: u64,
+    pub credits: f32,
+    pub ship: Ship,
+    pub cargo: CargoHold,
+    pub contracts: Vec<Contract>,
+}
+#item crc32 v1 @save-files "Check each save with a CRC-32 so a damaged file can't load"
+/// The CRC-32 (IEEE, as zlib uses) of `bytes`, bit by bit: slow, but a save is small.
+pub fn crc32(bytes: &[u8]) -> u32 {
+    let mut crc = u32::MAX;
+    for &byte in bytes {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = (crc & 1).wrapping_neg();
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
+}
+#item Reader v1 @save-files "Read a save file's fields in order"
+/// Reads a save file's fields in order, from the bytes before its checksum.
+struct Reader<'a> {
+    bytes: &'a [u8],
+    pos: usize,
+}
+#item new v1 @save-files "Start reading a save file from its first byte"
+impl<'a> Reader<'a> {
+    fn new(bytes: &'a [u8]) -> Self {
+        Self { bytes, pos: 0 }
+    }
+}
+#item take v1 @save-files "Take the next bytes of a save file"
+impl<'a> Reader<'a> {
+    /// The next `n` bytes.
+    fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
+        let slice = &self.bytes[self.pos..self.pos + n];
+        self.pos += n;
+        Ok(slice)
+    }
+}
+#item take v2 @truncated-save "Report a save file that ends early as an error"
+impl<'a> Reader<'a> {
+    /// The next `n` bytes, or `Error::Truncated` when the file ends first.
+    fn take(&mut self, n: usize) -> Result<&'a [u8], Error> {
+        let end = self.pos + n;
+        let slice = self.bytes.get(self.pos..end).ok_or(Error::Truncated)?;
+        self.pos += n;
+        Ok(slice)
+    }
+}
+#item byte v1 @save-files "Read one byte of a save file"
+impl Reader<'_> {
+    /// One byte.
+    fn byte(&mut self) -> Result<u8, Error> {
+        Ok(self.take(1)?[0])
+    }
+}
+#item u32_le v1 @save-files "Read a little-endian u32 from a save file"
+impl Reader<'_> {
+    /// A `u32`, little-endian.
+    fn u32_le(&mut self) -> Result<u32, Error> {
+        let bytes = self.take(4)?;
+        Ok(u32::from_le_bytes(bytes.try_into().expect("four bytes")))
+    }
+}
+#item u64_le v1 @save-files "Read a little-endian u64 from a save file"
+impl Reader<'_> {
+    /// A `u64`, little-endian.
+    fn u64_le(&mut self) -> Result<u64, Error> {
+        let bytes = self.take(8)?;
+        Ok(u64::from_le_bytes(bytes.try_into().expect("eight bytes")))
+    }
+}
+#item f32_le v1 @save-files "Read a little-endian f32 from a save file"
+impl Reader<'_> {
+    /// An `f32`, little-endian.
+    fn f32_le(&mut self) -> Result<f32, Error> {
+        Ok(f32::from_bits(self.u32_le()?))
+    }
+}
+#item encode v1 @save-files "Write a save file: the magic, the fields, then the checksum"
+/// The bytes of a save file for `save`. The layout is in this module's docs.
+pub fn encode(save: &Save) -> Vec<u8> {
+    let mut out = MAGIC.to_vec();
+    out.extend(save.tick.to_le_bytes());
+    out.extend(save.credits.to_le_bytes());
+    let ship = &save.ship.body;
+    let values = [
+        ship.position.x,
+        ship.position.y,
+        ship.velocity.x,
+        ship.velocity.y,
+        ship.mass,
+    ];
+    for value in values {
+        out.extend(value.to_le_bytes());
+    }
+    for slot in save.cargo.slots() {
+        let (id, tonnes) = match slot {
+            Some(stack) => (stack.commodity as u8, stack.tonnes),
+            None => (EMPTY_SLOT, 0.0),
+        };
+        out.push(id);
+        out.extend(tonnes.to_le_bytes());
+    }
+    let sum = crc32(&out);
+    out.extend(sum.to_le_bytes());
+    out
+}
+#item encode v2 @save-version "Write the format version after the magic"
+/// The bytes of a save file for `save`. The layout is in this module's docs.
+pub fn encode(save: &Save) -> Vec<u8> {
+    let mut out = MAGIC.to_vec();
+    out.extend(FORMAT_VERSION.to_le_bytes());
+    out.extend(save.tick.to_le_bytes());
+    out.extend(save.credits.to_le_bytes());
+    let ship = &save.ship.body;
+    let values = [
+        ship.position.x,
+        ship.position.y,
+        ship.velocity.x,
+        ship.velocity.y,
+        ship.mass,
+    ];
+    for value in values {
+        out.extend(value.to_le_bytes());
+    }
+    for slot in save.cargo.slots() {
+        let (id, tonnes) = match slot {
+            Some(stack) => (stack.commodity as u8, stack.tonnes),
+            None => (EMPTY_SLOT, 0.0),
+        };
+        out.push(id);
+        out.extend(tonnes.to_le_bytes());
+    }
+    let sum = crc32(&out);
+    out.extend(sum.to_le_bytes());
+    out
+}
+#item encode v3 @save-v2 "Write the creation time, fuel and hull into version 2 saves"
+/// The bytes of a save file for `save`. The layout is in this module's docs.
+pub fn encode(save: &Save) -> Vec<u8> {
+    let mut out = MAGIC.to_vec();
+    out.extend(FORMAT_VERSION.to_le_bytes());
+    out.extend(save.created.to_le_bytes());
+    out.extend(save.tick.to_le_bytes());
+    out.extend(save.credits.to_le_bytes());
+    let ship = &save.ship.body;
+    let values = [
+        ship.position.x,
+        ship.position.y,
+        ship.velocity.x,
+        ship.velocity.y,
+        ship.mass,
+        save.ship.fuel,
+        ship.hull,
+    ];
+    for value in values {
+        out.extend(value.to_le_bytes());
+    }
+    for slot in save.cargo.slots() {
+        let (id, tonnes) = match slot {
+            Some(stack) => (stack.commodity as u8, stack.tonnes),
+            None => (EMPTY_SLOT, 0.0),
+        };
+        out.push(id);
+        out.extend(tonnes.to_le_bytes());
+    }
+    let sum = crc32(&out);
+    out.extend(sum.to_le_bytes());
+    out
+}
+#item encode v4 @save-v3 "Write the open contracts into format 3 saves"
+/// The bytes of a save file for `save`. The layout is in this module's docs.
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "a save holds far fewer contracts than u32 counts"
+)]
+pub fn encode(save: &Save) -> Vec<u8> {
+    let mut out = MAGIC.to_vec();
+    out.extend(FORMAT_VERSION.to_le_bytes());
+    out.extend(save.created.to_le_bytes());
+    out.extend(save.tick.to_le_bytes());
+    out.extend(save.credits.to_le_bytes());
+    let ship = &save.ship.body;
+    let values = [
+        ship.position.x,
+        ship.position.y,
+        ship.velocity.x,
+        ship.velocity.y,
+        ship.mass,
+        save.ship.fuel,
+        ship.hull,
+    ];
+    for value in values {
+        out.extend(value.to_le_bytes());
+    }
+    for slot in save.cargo.slots() {
+        let (id, tonnes) = match slot {
+            Some(stack) => (stack.commodity as u8, stack.tonnes),
+            None => (EMPTY_SLOT, 0.0),
+        };
+        out.push(id);
+        out.extend(tonnes.to_le_bytes());
+    }
+    out.extend((save.contracts.len() as u32).to_le_bytes());
+    for contract in &save.contracts {
+        out.push(contract.commodity as u8);
+        out.extend(contract.tonnes.to_le_bytes());
+        out.extend((contract.destination as u32).to_le_bytes());
+        out.extend(contract.reward.to_le_bytes());
+        out.extend(contract.ticks_left.to_le_bytes());
+    }
+    let sum = crc32(&out);
+    out.extend(sum.to_le_bytes());
+    out
+}
+#item decode v1 @save-files "Read a save file back, refusing a bad magic or checksum"
+/// Reads the bytes of a save file back into a `Save`.
+///
+/// # Errors
+///
+/// `Error::Checksum` when the file is damaged, and `Error::BadMagic` when it isn't a save at all.
+pub fn decode(bytes: &[u8]) -> Result<Save, Error> {
+    let (body, tail) = bytes.split_at(bytes.len() - 4);
+    let stored = u32::from_le_bytes(tail.try_into().expect("four bytes"));
+    if crc32(body) != stored {
+        return Err(Error::Checksum);
+    }
+    let mut r = Reader::new(body);
+    if r.take(4)? != MAGIC.as_slice() {
+        return Err(Error::BadMagic);
+    }
+    let tick = r.u64_le()?;
+    let credits = r.f32_le()?;
+    let position = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let velocity = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let mass = r.f32_le()?;
+    let ship = Ship::new(Body::ship(PLAYER_NAME, position, velocity, mass));
+    let mut slots = Vec::with_capacity(CARGO_SLOTS);
+    for _ in 0..CARGO_SLOTS {
+        let id = r.byte()?;
+        let tonnes = r.f32_le()?;
+        let stack = match id {
+            EMPTY_SLOT => None,
+            _ => Some(Stack {
+                commodity: Commodity::from_id(id).ok_or(Error::BadCommodity(id))?,
+                tonnes,
+            }),
+        };
+        slots.push(stack);
+    }
+    Ok(Save {
+        tick,
+        credits,
+        ship,
+        cargo: CargoHold::from_slots(slots),
+    })
+}
+#item decode v2 @save-version "Check the format version a save file was written in"
+/// Reads the bytes of a save file back into a `Save`.
+///
+/// # Errors
+///
+/// `Error::Checksum` when the file is damaged, `Error::BadMagic` when it isn't a save at all, and
+/// `Error::Version` for a format this build doesn't read.
+pub fn decode(bytes: &[u8]) -> Result<Save, Error> {
+    let (body, tail) = bytes.split_at(bytes.len() - 4);
+    let stored = u32::from_le_bytes(tail.try_into().expect("four bytes"));
+    if crc32(body) != stored {
+        return Err(Error::Checksum);
+    }
+    let mut r = Reader::new(body);
+    if r.take(4)? != MAGIC.as_slice() {
+        return Err(Error::BadMagic);
+    }
+    let version = r.u32_le()?;
+    if version != FORMAT_VERSION {
+        return Err(Error::Version(version));
+    }
+    let tick = r.u64_le()?;
+    let credits = r.f32_le()?;
+    let position = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let velocity = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let mass = r.f32_le()?;
+    let ship = Ship::new(Body::ship(PLAYER_NAME, position, velocity, mass));
+    let mut slots = Vec::with_capacity(CARGO_SLOTS);
+    for _ in 0..CARGO_SLOTS {
+        let id = r.byte()?;
+        let tonnes = r.f32_le()?;
+        let stack = match id {
+            EMPTY_SLOT => None,
+            _ => Some(Stack {
+                commodity: Commodity::from_id(id).ok_or(Error::BadCommodity(id))?,
+                tonnes,
+            }),
+        };
+        slots.push(stack);
+    }
+    Ok(Save {
+        tick,
+        credits,
+        ship,
+        cargo: CargoHold::from_slots(slots),
+    })
+}
+#item decode v3 @truncated-save "Refuse a save file too short to hold a checksum"
+/// Reads the bytes of a save file back into a `Save`.
+///
+/// # Errors
+///
+/// `Error::Truncated` when the file ends early, `Error::Checksum` when it is damaged,
+/// `Error::BadMagic` when it isn't a save at all, and `Error::Version` for a format this build
+/// doesn't read.
+pub fn decode(bytes: &[u8]) -> Result<Save, Error> {
+    if bytes.len() < 4 {
+        return Err(Error::Truncated);
+    }
+    let (body, tail) = bytes.split_at(bytes.len() - 4);
+    let stored = u32::from_le_bytes(tail.try_into().expect("four bytes"));
+    if crc32(body) != stored {
+        return Err(Error::Checksum);
+    }
+    let mut r = Reader::new(body);
+    if r.take(4)? != MAGIC.as_slice() {
+        return Err(Error::BadMagic);
+    }
+    let version = r.u32_le()?;
+    if version != FORMAT_VERSION {
+        return Err(Error::Version(version));
+    }
+    let tick = r.u64_le()?;
+    let credits = r.f32_le()?;
+    let position = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let velocity = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let mass = r.f32_le()?;
+    let ship = Ship::new(Body::ship(PLAYER_NAME, position, velocity, mass));
+    let mut slots = Vec::with_capacity(CARGO_SLOTS);
+    for _ in 0..CARGO_SLOTS {
+        let id = r.byte()?;
+        let tonnes = r.f32_le()?;
+        let stack = match id {
+            EMPTY_SLOT => None,
+            _ => Some(Stack {
+                commodity: Commodity::from_id(id).ok_or(Error::BadCommodity(id))?,
+                tonnes,
+            }),
+        };
+        slots.push(stack);
+    }
+    Ok(Save {
+        tick,
+        credits,
+        ship,
+        cargo: CargoHold::from_slots(slots),
+    })
+}
+#item decode v4 @save-v2 "Read the creation time, fuel and hull of version 2 saves"
+/// Reads the bytes of a save file back into a `Save`.
+///
+/// # Errors
+///
+/// `Error::Truncated` when the file ends early, `Error::Checksum` when it is damaged,
+/// `Error::BadMagic` when it isn't a save at all, and `Error::Version` for a format this build
+/// doesn't read.
+pub fn decode(bytes: &[u8]) -> Result<Save, Error> {
+    if bytes.len() < 4 {
+        return Err(Error::Truncated);
+    }
+    let (body, tail) = bytes.split_at(bytes.len() - 4);
+    let stored = u32::from_le_bytes(tail.try_into().expect("four bytes"));
+    if crc32(body) != stored {
+        return Err(Error::Checksum);
+    }
+    let mut r = Reader::new(body);
+    if r.take(4)? != MAGIC.as_slice() {
+        return Err(Error::BadMagic);
+    }
+    let version = r.u32_le()?;
+    if version != FORMAT_VERSION {
+        return Err(Error::Version(version));
+    }
+    let created = r.u64_le()?;
+    let tick = r.u64_le()?;
+    let credits = r.f32_le()?;
+    let position = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let velocity = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let mass = r.f32_le()?;
+    let fuel = r.f32_le()?;
+    let hull = r.f32_le()?;
+    let mut ship = Ship::new(Body::ship(PLAYER_NAME, position, velocity, mass));
+    ship.fuel = fuel;
+    ship.body.hull = hull;
+    let mut slots = Vec::with_capacity(CARGO_SLOTS);
+    for _ in 0..CARGO_SLOTS {
+        let id = r.byte()?;
+        let tonnes = r.f32_le()?;
+        let stack = match id {
+            EMPTY_SLOT => None,
+            _ => Some(Stack {
+                commodity: Commodity::from_id(id).ok_or(Error::BadCommodity(id))?,
+                tonnes,
+            }),
+        };
+        slots.push(stack);
+    }
+    Ok(Save {
+        created,
+        tick,
+        credits,
+        ship,
+        cargo: CargoHold::from_slots(slots),
+    })
+}
+#item decode v5 @save-migrate "Migrate version 1 saves on load"
+/// Reads the bytes of a save file back into a `Save`, upgrading older formats as it goes.
+///
+/// # Errors
+///
+/// `Error::Truncated` when the file ends early, `Error::Checksum` when it is damaged,
+/// `Error::BadMagic` when it isn't a save at all, and `Error::Version` for a format this build
+/// doesn't read.
+pub fn decode(bytes: &[u8]) -> Result<Save, Error> {
+    if bytes.len() < 4 {
+        return Err(Error::Truncated);
+    }
+    let (body, tail) = bytes.split_at(bytes.len() - 4);
+    let stored = u32::from_le_bytes(tail.try_into().expect("four bytes"));
+    if crc32(body) != stored {
+        return Err(Error::Checksum);
+    }
+    let mut r = Reader::new(body);
+    if r.take(4)? != MAGIC.as_slice() {
+        return Err(Error::BadMagic);
+    }
+    let version = r.u32_le()?;
+    if !(1..=FORMAT_VERSION).contains(&version) {
+        return Err(Error::Version(version));
+    }
+    // Version 1 saves predate the creation time, fuel and hull: they load as if just made, with a
+    // full tank and a whole hull.
+    let created = if version >= 2 { r.u64_le()? } else { 0 };
+    let tick = r.u64_le()?;
+    let credits = r.f32_le()?;
+    let position = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let velocity = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let mass = r.f32_le()?;
+    let (fuel, hull) = if version >= 2 {
+        (r.f32_le()?, r.f32_le()?)
+    } else {
+        (MAX_FUEL, SHIP_HULL)
+    };
+    let mut ship = Ship::new(Body::ship(PLAYER_NAME, position, velocity, mass));
+    ship.fuel = fuel;
+    ship.body.hull = hull;
+    let mut slots = Vec::with_capacity(CARGO_SLOTS);
+    for _ in 0..CARGO_SLOTS {
+        let id = r.byte()?;
+        let tonnes = r.f32_le()?;
+        let stack = match id {
+            EMPTY_SLOT => None,
+            _ => Some(Stack {
+                commodity: Commodity::from_id(id).ok_or(Error::BadCommodity(id))?,
+                tonnes,
+            }),
+        };
+        slots.push(stack);
+    }
+    Ok(Save {
+        created,
+        tick,
+        credits,
+        ship,
+        cargo: CargoHold::from_slots(slots),
+    })
+}
+#item decode v6 @save-v3 "Read the open contracts of format 3 saves"
+/// Reads the bytes of a save file back into a `Save`, upgrading older formats as it goes.
+///
+/// # Errors
+///
+/// `Error::Truncated` when the file ends early, `Error::Checksum` when it is damaged,
+/// `Error::BadMagic` when it isn't a save at all, and `Error::Version` for a format this build
+/// doesn't read.
+pub fn decode(bytes: &[u8]) -> Result<Save, Error> {
+    if bytes.len() < 4 {
+        return Err(Error::Truncated);
+    }
+    let (body, tail) = bytes.split_at(bytes.len() - 4);
+    let stored = u32::from_le_bytes(tail.try_into().expect("four bytes"));
+    if crc32(body) != stored {
+        return Err(Error::Checksum);
+    }
+    let mut r = Reader::new(body);
+    if r.take(4)? != MAGIC.as_slice() {
+        return Err(Error::BadMagic);
+    }
+    let version = r.u32_le()?;
+    if !(1..=FORMAT_VERSION).contains(&version) {
+        return Err(Error::Version(version));
+    }
+    // Version 1 saves predate the creation time, fuel and hull: they load as if just made, with a
+    // full tank and a whole hull.
+    let created = if version >= 2 { r.u64_le()? } else { 0 };
+    let tick = r.u64_le()?;
+    let credits = r.f32_le()?;
+    let position = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let velocity = Vec2::new(r.f32_le()?, r.f32_le()?);
+    let mass = r.f32_le()?;
+    let (fuel, hull) = if version >= 2 {
+        (r.f32_le()?, r.f32_le()?)
+    } else {
+        (MAX_FUEL, SHIP_HULL)
+    };
+    let mut ship = Ship::new(Body::ship(PLAYER_NAME, position, velocity, mass));
+    ship.fuel = fuel;
+    ship.body.hull = hull;
+    let mut slots = Vec::with_capacity(CARGO_SLOTS);
+    for _ in 0..CARGO_SLOTS {
+        let id = r.byte()?;
+        let tonnes = r.f32_le()?;
+        let stack = match id {
+            EMPTY_SLOT => None,
+            _ => Some(Stack {
+                commodity: Commodity::from_id(id).ok_or(Error::BadCommodity(id))?,
+                tonnes,
+            }),
+        };
+        slots.push(stack);
+    }
+    let contracts = if version >= 3 {
+        let count = r.u32_le()?;
+        let mut list = Vec::new();
+        for _ in 0..count {
+            let id = r.byte()?;
+            let commodity = Commodity::from_id(id).ok_or(Error::BadCommodity(id))?;
+            let tonnes = r.f32_le()?;
+            let destination = r.u32_le()? as usize;
+            let reward = r.f32_le()?;
+            let ticks_left = r.u32_le()?;
+            list.push(Contract {
+                commodity,
+                tonnes,
+                destination,
+                reward,
+                ticks_left,
+            });
+        }
+        list
+    } else {
+        Vec::new()
+    };
+    Ok(Save {
+        created,
+        tick,
+        credits,
+        ship,
+        cargo: CargoHold::from_slots(slots),
+        contracts,
+    })
+}
+#item save_to v1 @save-files "Write a save through a temporary file, then rename it"
+/// Writes `save` to `path`. The bytes go to a temporary file first, which is then renamed over
+/// the old save, so a crash never leaves half a save behind.
+///
+/// # Errors
+///
+/// `Error::Io` when the file can't be written or renamed.
+pub fn save_to(path: &Path, save: &Save) -> Result<(), Error> {
+    let tmp = path.with_extension("tmp");
+    fs::write(&tmp, encode(save))?;
+    fs::rename(&tmp, path)?;
+    Ok(())
+}
+#item load_from v1 @save-files "Read a save file from disk"
+/// Reads the save at `path`.
+///
+/// # Errors
+///
+/// `Error::Io` when the file can't be read, and the errors of `decode` when it isn't a save.
+pub fn load_from(path: &Path) -> Result<Save, Error> {
+    decode(&fs::read(path)?)
+}
+#test a_save_round_trips v1 @save-files "Test that a save reads back the way it was written"
+#[test]
+fn a_save_round_trips() {
+    let save = Save {
+        tick: 42,
+        credits: 1500.0,
+        ship: Ship::new(Body::ship("S", Vec2::new(1.0, 2.0), Vec2::ZERO, 3.0)),
+        cargo: CargoHold::default(),
+    };
+    let back = decode(&encode(&save)).unwrap();
+    assert_eq!(back.tick, 42);
+    assert_eq!(back.credits, 1500.0);
+    assert_eq!(back.ship.body.position, Vec2::new(1.0, 2.0));
+}
+#test a_save_round_trips v2 @save-v2 "Test that the creation time reads back too"
+#[test]
+fn a_save_round_trips() {
+    let save = Save {
+        created: 1_700_000_000,
+        tick: 42,
+        credits: 1500.0,
+        ship: Ship::new(Body::ship("S", Vec2::new(1.0, 2.0), Vec2::ZERO, 3.0)),
+        cargo: CargoHold::default(),
+    };
+    let back = decode(&encode(&save)).unwrap();
+    assert_eq!(back.created, 1_700_000_000);
+    assert_eq!(back.tick, 42);
+    assert_eq!(back.ship.body.position, Vec2::new(1.0, 2.0));
+}
+#test a_save_round_trips v3 @save-v3 "Test that a save with no contracts reads back"
+#[test]
+fn a_save_round_trips() {
+    let save = Save {
+        created: 1_700_000_000,
+        tick: 42,
+        credits: 1500.0,
+        ship: Ship::new(Body::ship("S", Vec2::new(1.0, 2.0), Vec2::ZERO, 3.0)),
+        cargo: CargoHold::default(),
+        contracts: Vec::new(),
+    };
+    let back = decode(&encode(&save)).unwrap();
+    assert_eq!(back.created, 1_700_000_000);
+    assert_eq!(back.tick, 42);
+    assert!(back.contracts.is_empty());
+}
+#test a_flipped_byte_fails_the_checksum v1 @save-files "Test that a damaged save is refused"
+#[test]
+fn a_flipped_byte_fails_the_checksum() {
+    let save = Save {
+        tick: 1,
+        credits: 2.0,
+        ship: Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::default(),
+    };
+    let mut bytes = encode(&save);
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 0x01;
+    assert!(matches!(decode(&bytes), Err(Error::Checksum)));
+}
+#test a_flipped_byte_fails_the_checksum v2 @save-v2 "Test that a damaged save with a time is refused"
+#[test]
+fn a_flipped_byte_fails_the_checksum() {
+    let save = Save {
+        created: 0,
+        tick: 1,
+        credits: 2.0,
+        ship: Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::default(),
+    };
+    let mut bytes = encode(&save);
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 0x01;
+    assert!(matches!(decode(&bytes), Err(Error::Checksum)));
+}
+#test a_flipped_byte_fails_the_checksum v3 @save-v3 "Test that a damaged format 3 save is refused"
+#[test]
+fn a_flipped_byte_fails_the_checksum() {
+    let save = Save {
+        created: 0,
+        tick: 1,
+        credits: 2.0,
+        ship: Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::default(),
+        contracts: Vec::new(),
+    };
+    let mut bytes = encode(&save);
+    let middle = bytes.len() / 2;
+    bytes[middle] ^= 0x01;
+    assert!(matches!(decode(&bytes), Err(Error::Checksum)));
+}
+#test crc32_matches_the_check_value v1 @save-files "Test the CRC-32 against its check value"
+#[test]
+fn crc32_matches_the_check_value() {
+    assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
+}
+#test not_a_save_is_refused v1 @save-files "Test that bytes that aren't a save are refused"
+#[test]
+fn not_a_save_is_refused() {
+    assert!(decode(b"not a save file at all").is_err());
+}
+#test a_short_file_is_truncated_not_a_panic v1 @truncated-save "Test that a short save is an error"
+#[test]
+fn a_short_file_is_truncated_not_a_panic() {
+    assert!(matches!(decode(&[1, 2]), Err(Error::Truncated)));
+    assert!(matches!(decode(&[]), Err(Error::Truncated)));
+}
+#test a_version_one_save_loads_with_a_full_tank v1 @save-migrate "Test the migration of a version 1 save"
+#[test]
+fn a_version_one_save_loads_with_a_full_tank() {
+    let mut bytes = MAGIC.to_vec();
+    bytes.extend(1_u32.to_le_bytes());
+    bytes.extend(7_u64.to_le_bytes());
+    bytes.extend(10.0_f32.to_le_bytes());
+    for value in [0.0_f32, 0.0, 0.0, 0.0, 2.0] {
+        bytes.extend(value.to_le_bytes());
+    }
+    for _ in 0..CARGO_SLOTS {
+        bytes.push(EMPTY_SLOT);
+        bytes.extend(0.0_f32.to_le_bytes());
+    }
+    let sum = crc32(&bytes);
+    bytes.extend(sum.to_le_bytes());
+    let save = decode(&bytes).unwrap();
+    assert_eq!(save.tick, 7);
+    assert_eq!(save.ship.fuel, MAX_FUEL);
+    assert_eq!(save.ship.body.hull, SHIP_HULL);
+}
+#test a_version_two_save_loads_with_no_contracts v1 @save-migrate-3 "Test the migration of a format 2 save"
+#[test]
+fn a_version_two_save_loads_with_no_contracts() {
+    let mut bytes = MAGIC.to_vec();
+    bytes.extend(2_u32.to_le_bytes());
+    bytes.extend(5_u64.to_le_bytes());
+    bytes.extend(9_u64.to_le_bytes());
+    bytes.extend(10.0_f32.to_le_bytes());
+    for value in [0.0_f32, 0.0, 0.0, 0.0, 2.0, 30.0, 20.0] {
+        bytes.extend(value.to_le_bytes());
+    }
+    for _ in 0..CARGO_SLOTS {
+        bytes.push(EMPTY_SLOT);
+        bytes.extend(0.0_f32.to_le_bytes());
+    }
+    let sum = crc32(&bytes);
+    bytes.extend(sum.to_le_bytes());
+    let save = decode(&bytes).unwrap();
+    assert_eq!(save.created, 5);
+    assert_eq!(save.ship.fuel, 30.0);
+    assert_eq!(save.ship.body.hull, 20.0);
+    assert!(save.contracts.is_empty());
+}
+#test a_contract_round_trips v1 @save-v3 "Test that open contracts survive a save"
+#[test]
+fn a_contract_round_trips() {
+    let contract = Contract {
+        commodity: Commodity::Medicine,
+        tonnes: 4.0,
+        destination: 2,
+        reward: 300.0,
+        ticks_left: 9,
+    };
+    let save = Save {
+        created: 0,
+        tick: 1,
+        credits: 0.0,
+        ship: Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::default(),
+        contracts: vec![contract],
+    };
+    let back = decode(&encode(&save)).unwrap();
+    assert_eq!(back.contracts, save.contracts);
+}

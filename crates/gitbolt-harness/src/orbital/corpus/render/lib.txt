@@ -1,0 +1,123 @@
+#file crates/orbital-render/src/lib.rs
+#header v1 @first-window "Open a window and clear it every frame"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod renderer;
+
+#header v2 @camera-follow "Follow the ship with the camera"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod camera;
+pub mod renderer;
+pub mod starfield;
+
+#header v3 @verdant-art "Show the verdant planet in the orbit view"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod camera;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+
+#header v4 @hud-font "Add the HUD font"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod camera;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+pub mod text;
+
+#header v5 @ui-icons "Draw the eight UI icons"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod camera;
+pub mod painter;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+pub mod text;
+
+pub use painter::{Color, Painter, Rect};
+
+#header v6 @bloom-pass "Add a bloom pass that glows over bright pixels"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod bloom;
+pub mod camera;
+pub mod painter;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+pub mod text;
+
+pub use painter::{Color, Painter, Rect};
+
+#header v7 @orbit-trails "Draw a fading trail behind each orbit"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod bloom;
+pub mod camera;
+pub mod painter;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+pub mod text;
+pub mod trails;
+
+pub use painter::{Color, Painter, Rect};
+
+#header v8 @debug-draw "Draw the debug overlay on F3"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod bloom;
+pub mod camera;
+pub mod debug_draw;
+pub mod painter;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+pub mod text;
+pub mod trails;
+
+pub use painter::{Color, Painter, Rect};
+#header v9 @hud-cargo "Draw the HUD's panels in their own pass"
+//! The render layer of Orbital: the window, the sprites and the HUD's drawing, on wgpu.
+
+#![warn(clippy::pedantic)]
+
+pub mod atlas;
+pub mod bloom;
+pub mod camera;
+pub mod debug_draw;
+pub mod painter;
+pub mod panels;
+pub mod renderer;
+pub mod sprite_batch;
+pub mod starfield;
+pub mod text;
+pub mod trails;
+
+pub use painter::{Color, Painter, Rect};

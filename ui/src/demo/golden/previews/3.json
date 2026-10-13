@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "treeFiles",
+    "params": {
+      "id": "75a57458b5df93fc4ebe2b7c480acde314b9643d",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "README.md",
+    "audio/docking-chime.opus",
+    "audio/laser.wav",
+    "audio/menu-loop.ogg",
+    "data/commodities.csv",
+    "data/stations.tsv",
+    "docs/design.pdf",
+    "fonts/OrbitalHud.ttf",
+    "images/fuel.svg",
+    "images/orbital.ico",
+    "images/scout.png",
+    "images/thruster.gif",
+    "images/title.png",
+    "media/trailer.webm",
+    "notes/devlog.md",
+    "saves/slot1.orbsave",
+    "scripts/pack-assets.sh",
+    "site/hero.png",
+    "site/index.html",
+    "site/leaderboard.html",
+    "site/style.css"
+  ]
+}

@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 1,
+    "deleted": 0,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "a7453f07505c42ea8d6fdda75fa91710c81c53d6"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "feature.txt",
+        "status": "A",
+        "submodule": false
+      }
+    ]
+  }
+}

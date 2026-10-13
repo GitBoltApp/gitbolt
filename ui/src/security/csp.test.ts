@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { appCsp, e2eCsp, inlineScriptHashes, parseCsp } from './csp';
+import { appCsp, demoCsp, e2eCsp, inlineScriptHashes, parseCsp } from './csp';
 
 const ui = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const tauriConf = JSON.parse(readFileSync(join(ui, '..', 'crates', 'gitbolt-app', 'tauri.conf.json'), 'utf8'));
@@ -42,5 +42,18 @@ describe('the Content Security Policy (tauri.conf.json, the one source)', () => 
     expect(e2e['script-src']).toEqual([...policy['script-src'], hash]);
     expect(e2e['connect-src']).toEqual([...policy['connect-src'], 'ws://127.0.0.1:9060']);
     for (const d of Object.keys(policy).filter((d) => d !== 'script-src' && d !== 'connect-src')) expect(e2e[d], d).toEqual(policy[d]);
+  });
+});
+
+describe("the demo's policy (a <meta> in demo.html: GitHub Pages sends no headers)", () => {
+  const demoHtml = readFileSync(join(ui, 'demo.html'), 'utf8');
+  const policy = parseCsp(demoCsp(tauriConf, demoHtml));
+
+  it("is the app's, without the app's IPC and frame-ancestors (ignored in a <meta>; the site frames it)", () => {
+    expect(policy['default-src']).toEqual(["'self'"]);
+    expect(policy['script-src']).toEqual(["'self'", "'wasm-unsafe-eval'", ...inlineScriptHashes(demoHtml)]);
+    expect(policy['connect-src']).toEqual(["'self'"]);
+    expect(policy['frame-ancestors']).toBeUndefined();
+    for (const d of ['object-src', 'base-uri', 'form-action']) expect(policy[d], d).toEqual(["'none'"]);
   });
 });

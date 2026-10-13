@@ -1,0 +1,173 @@
+#file crates/orbital-core/src/time.rs
+#header v1 @integrator
+//! The fixed timestep: frame time goes in, whole physics ticks come out, so a slow frame never
+//! changes the result.
+
+#const TICK_SECONDS v1 @integrator "Step ships with a fixed-timestep integrator"
+/// One physics tick, in seconds: twenty ticks a second.
+pub const TICK_SECONDS: f32 = 0.05;
+
+#const MAX_TICKS_PER_FRAME v1 @integrator
+/// The most ticks one frame may run, so a long stall can't freeze the window.
+pub const MAX_TICKS_PER_FRAME: u32 = 8;
+
+#const WARP_1 v1 @autopilot-burns "Add a time warp to the clock"
+/// Real time: one second of frame time is one second of game.
+pub const WARP_1: u32 = 1;
+
+#const WARP_2 v1 @autopilot-burns
+/// Four times real time, for the cruise between planets.
+pub const WARP_2: u32 = 4;
+
+#const WARP_3 v1 @autopilot-burns
+/// Sixteen times real time, for long transfers.
+pub const WARP_3: u32 = 16;
+
+#const WARP_4 v1 @autopilot-burns
+/// Sixty-four times real time, for the longest transfers.
+pub const WARP_4: u32 = 64;
+
+#item Clock v1 @integrator "Add a fixed-step clock"
+/// Turns frame time into whole ticks, carrying the leftover into the next frame.
+#[derive(Debug, Default)]
+pub struct Clock {
+    accumulated: f32,
+}
+
+#item Clock v2 @autopilot-burns "Add a time warp to the clock"
+/// Turns frame time into whole ticks, carrying the leftover into the next frame.
+#[derive(Debug)]
+pub struct Clock {
+    accumulated: f32,
+    warp: u32,
+}
+
+#item new v1 @integrator "Add a fixed-step clock"
+impl Clock {
+    /// A clock at rest, with nothing accumulated.
+    pub fn new() -> Self {
+        Self { accumulated: 0.0 }
+    }
+}
+
+#item new v2 @autopilot-burns "Start the clock at real time"
+impl Clock {
+    /// A clock at rest, running at real time.
+    pub fn new() -> Self {
+        Self {
+            accumulated: 0.0,
+            warp: WARP_1,
+        }
+    }
+}
+
+#item advance v1 @integrator "Turn frame time into whole ticks"
+impl Clock {
+    /// Adds `frame` seconds and returns how many whole ticks they make, at most a frame's cap.
+    pub fn advance(&mut self, frame: f32) -> u32 {
+        self.accumulated += frame;
+        let mut ticks = 0;
+        while self.accumulated >= TICK_SECONDS && ticks < MAX_TICKS_PER_FRAME {
+            self.accumulated -= TICK_SECONDS;
+            ticks += 1;
+        }
+        ticks
+    }
+}
+
+#item advance v2 @physics-drift "Cap the leftover time so a stall can't queue up ticks\n\nThe leftover used to grow without bound while the cap held the ticks back."
+impl Clock {
+    /// Adds `frame` seconds and returns how many whole ticks they make, at most a frame's
+    /// cap. The leftover is capped at one tick, so a stall can't queue up ticks for later.
+    pub fn advance(&mut self, frame: f32) -> u32 {
+        self.accumulated += frame;
+        let mut ticks = 0;
+        while self.accumulated >= TICK_SECONDS && ticks < MAX_TICKS_PER_FRAME {
+            self.accumulated -= TICK_SECONDS;
+            ticks += 1;
+        }
+        self.accumulated = self.accumulated.min(TICK_SECONDS);
+        ticks
+    }
+}
+
+#item advance v3 @autopilot-burns "Scale frame time by the clock's warp"
+impl Clock {
+    /// Adds `frame` seconds, scaled by the warp, and returns how many whole ticks they make, at most a frame's
+    /// cap. The leftover is capped at one tick, so a stall can't queue up ticks for later.
+    pub fn advance(&mut self, frame: f32) -> u32 {
+        self.accumulated += frame * self.warp as f32;
+        let mut ticks = 0;
+        while self.accumulated >= TICK_SECONDS && ticks < MAX_TICKS_PER_FRAME {
+            self.accumulated -= TICK_SECONDS;
+            ticks += 1;
+        }
+        self.accumulated = self.accumulated.min(TICK_SECONDS);
+        ticks
+    }
+}
+
+#item set_warp v1 @autopilot-burns "Let the autopilot set the time warp"
+impl Clock {
+    /// Sets the warp, clamped to the four levels.
+    pub fn set_warp(&mut self, warp: u32) {
+        self.warp = warp.clamp(WARP_1, WARP_4);
+    }
+}
+
+#item warp v1 @autopilot-burns "Read the clock's warp level"
+impl Clock {
+    /// The current warp level, one of the four `WARP_` levels.
+    pub fn warp(&self) -> u32 {
+        self.warp
+    }
+}
+
+#item default v1 @autopilot-burns "Start a default clock at real time"
+impl Default for Clock {
+    /// A clock at rest, running at real time.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#test clock_steps_whole_ticks v1 @integrator "Test that the clock steps whole ticks"
+#[test]
+fn clock_steps_whole_ticks() {
+    let mut clock = Clock::new();
+    assert_eq!(clock.advance(0.125), 2);
+}
+
+#test clock_caps_catch_up_ticks v1 @integrator "Test that a long frame is capped"
+#[test]
+fn clock_caps_catch_up_ticks() {
+    let mut clock = Clock::new();
+    assert_eq!(clock.advance(10.0), MAX_TICKS_PER_FRAME);
+}
+
+#test clock_keeps_the_remainder v1 @physics-drift "Test that the clock keeps the remainder"
+#[test]
+fn clock_keeps_the_remainder() {
+    let mut clock = Clock::new();
+    clock.advance(TICK_SECONDS * 0.75);
+    assert_eq!(clock.advance(TICK_SECONDS * 0.5), 1);
+}
+
+#test warp_speeds_up_the_clock v1 @autopilot-burns "Test that warp speeds up the clock"
+#[test]
+fn warp_speeds_up_the_clock() {
+    let mut clock = Clock::new();
+    assert_eq!(clock.advance(0.025), 0);
+    clock.set_warp(WARP_2);
+    assert!(clock.advance(0.025) >= 1);
+}
+
+#test set_warp_clamps_to_the_levels v1 @autopilot-burns "Test that the warp is clamped to the levels"
+#[test]
+fn set_warp_clamps_to_the_levels() {
+    let mut clock = Clock::new();
+    clock.set_warp(1000);
+    assert_eq!(clock.warp(), WARP_4);
+    clock.set_warp(WARP_3);
+    assert_eq!(clock.warp(), WARP_3);
+}

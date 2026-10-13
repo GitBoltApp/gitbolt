@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "worktree",
+        "worktree": "$wt"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "notes.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "401ecdef02c57ddf68be73a902b6585946344d01",
+      "size": 16,
+      "text": "untracked notes\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

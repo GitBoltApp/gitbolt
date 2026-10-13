@@ -1,0 +1,175 @@
+{
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": 200,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/main",
+      "detached": false,
+      "target": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/details",
+        "isHead": true,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 1,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/feature/x",
+        "name": "feature/x",
+        "remotes": [],
+        "row": 3,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 2,
+    "openWorktree": "/demo/details",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "",
+        "authorName": "",
+        "authorTime": 0,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 0,
+        "id": "wip:/demo/details",
+        "kind": "wip",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908"
+        ],
+        "segments": [
+          68157440
+        ],
+        "summary": "// WIP",
+        "wip": {
+          "added": 1,
+          "conflicted": 0,
+          "deleted": 0,
+          "modified": 2,
+          "renamed": 0,
+          "worktreeName": null,
+          "worktreePath": "/demo/details"
+        }
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226440,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226440,
+        "id": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+        "kind": "merge",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+          "c0470c5d6046e1709cdf3ff8126165ddd3c63cf4"
+        ],
+        "segments": [
+          67108864,
+          1048576,
+          5243904
+        ],
+        "summary": "Merge branch 'feature/x'",
+        "wip": null
+      },
+      {
+        "authorEmail": "grace@example.com",
+        "authorName": "Grace Hopper",
+        "authorTime": 1767226320,
+        "bodyFirstLine": "Refs !42 and group/sub/project!7, fixes #12.",
+        "color": 0,
+        "committerTime": 1767226320,
+        "id": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [
+          "!42",
+          "group/sub/project!7",
+          "#12"
+        ],
+        "parents": [
+          "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e"
+        ],
+        "segments": [
+          0,
+          6292481,
+          1048576
+        ],
+        "summary": "Rename guide and update assets",
+        "wip": null
+      },
+      {
+        "authorEmail": "lars@example.com",
+        "authorName": "Lars Tidemann",
+        "authorTime": 1767226020,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1767226020,
+        "id": "c0470c5d6046e1709cdf3ff8126165ddd3c63cf4",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e"
+        ],
+        "segments": [
+          2097152,
+          4195329,
+          5243905
+        ],
+        "summary": "Add feature file",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0,
+          4194305
+        ],
+        "summary": "Initial commit",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/details"
+      }
+    ]
+  }
+}

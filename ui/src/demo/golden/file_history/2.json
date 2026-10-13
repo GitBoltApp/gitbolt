@@ -1,0 +1,67 @@
+{
+  "request": {
+    "method": "fileHistory",
+    "params": {
+      "limit": 200,
+      "path": "src/story.txt",
+      "repo": "$repo",
+      "skip": 0,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "more": false,
+    "rows": [
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [
+          "8420d622fdbb3162dfa75f89852f96b1e97ec121"
+        ],
+        "path": "src/story.txt",
+        "sha": "eb6b614353968fa16e788878d26d1844a85bbc45",
+        "status": "M",
+        "summary": "Sharpen the opening",
+        "time": 1767226500
+      },
+      {
+        "author": "Lars Tidemann",
+        "email": "lars@example.com",
+        "oldPath": "story.txt",
+        "parents": [
+          "4d1b598ac56effafb61997357633a9c69495ffc3"
+        ],
+        "path": "src/story.txt",
+        "sha": "8420d622fdbb3162dfa75f89852f96b1e97ec121",
+        "status": "R",
+        "summary": "Move the story under src",
+        "time": 1767226320
+      },
+      {
+        "author": "Grace Hopper",
+        "email": "grace@example.com",
+        "oldPath": null,
+        "parents": [
+          "3170490ad378e1028eef5ba55bdf2343a31ad363"
+        ],
+        "path": "story.txt",
+        "sha": "4d1b598ac56effafb61997357633a9c69495ffc3",
+        "status": "M",
+        "summary": "Add the middle",
+        "time": 1767226080
+      },
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [],
+        "path": "story.txt",
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "status": "A",
+        "summary": "Start the story",
+        "time": 1767225720
+      }
+    ]
+  }
+}

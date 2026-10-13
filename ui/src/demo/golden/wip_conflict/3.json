@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "c.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "b19a1e93bec1317dc6097229e12afaffbfa74dc2",
+      "index": null,
+      "worktree": "f8d4ed9c49c6e2696d00b44360ae3607c27e350b"
+    },
+    "binary": false,
+    "hunks": [],
+    "refused": "Resolve the conflict first"
+  }
+}

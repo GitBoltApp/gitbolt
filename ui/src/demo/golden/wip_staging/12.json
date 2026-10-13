@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "selectionLines",
+    "params": {
+      "path": "src/app.txt",
+      "repo": "$repo",
+      "selection": {
+        "kind": "lines",
+        "new": [
+          {
+            "end": 20,
+            "start": 20
+          }
+        ],
+        "old": [
+          {
+            "end": 20,
+            "start": 20
+          }
+        ]
+      },
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "apply": 2,
+    "discard": 2
+  }
+}

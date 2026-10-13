@@ -1,0 +1,676 @@
+{
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": 30,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/main",
+      "detached": false,
+      "target": "1d408fbb77d7ebf066f8762bf9e7726d07dc5f16",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/long_history",
+        "isHead": true,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 1,
+    "openWorktree": "/demo/long_history",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767236340,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767236340,
+        "id": "1d408fbb77d7ebf066f8762bf9e7726d07dc5f16",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "90b00f7229088a783d308db29e34ad2cab862b15"
+        ],
+        "segments": [
+          1048576
+        ],
+        "summary": "Commit 59",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767236160,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767236160,
+        "id": "90b00f7229088a783d308db29e34ad2cab862b15",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "89029b916b8ed7900471f19eb77211784be24766"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 58",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767235980,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767235980,
+        "id": "89029b916b8ed7900471f19eb77211784be24766",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "28c4d207c38de7ceec280b79ceb016d47df09cfe"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 57",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767235800,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767235800,
+        "id": "28c4d207c38de7ceec280b79ceb016d47df09cfe",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "b3418ecb75edd1687ee8d0cb11215de70e7e1a56"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 56",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767235620,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767235620,
+        "id": "b3418ecb75edd1687ee8d0cb11215de70e7e1a56",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "29cfd43919627c1ab389a6f5e5a5892c99cdc77d"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 55",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767235440,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767235440,
+        "id": "29cfd43919627c1ab389a6f5e5a5892c99cdc77d",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "99388b038533d5d5f6f9c75dbb9e9f36320be944"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 54",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767235260,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767235260,
+        "id": "99388b038533d5d5f6f9c75dbb9e9f36320be944",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "9ce0d4264a87a5630ee1d040620ab02d08b7ebc4"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 53",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767235080,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767235080,
+        "id": "9ce0d4264a87a5630ee1d040620ab02d08b7ebc4",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "702870a2c15fa75aae8c5e983b36c0a5268b3c77"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 52",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767234900,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767234900,
+        "id": "702870a2c15fa75aae8c5e983b36c0a5268b3c77",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "eafcfbc00cae2e6f30ba1f9a90a40ab071cb7e74"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 51",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767234720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767234720,
+        "id": "eafcfbc00cae2e6f30ba1f9a90a40ab071cb7e74",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "e3793423b6299b57cbfb3fcd4fbb5bd9b583ced4"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 50",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767234540,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767234540,
+        "id": "e3793423b6299b57cbfb3fcd4fbb5bd9b583ced4",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "14ab651b14e8ad0e2f72f6c16778e5ba77c32c31"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 49",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767234360,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767234360,
+        "id": "14ab651b14e8ad0e2f72f6c16778e5ba77c32c31",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "02cbb7ea7b7ca0bb62ec8698fe0c80aa9fa5f4f3"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 48",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767234180,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767234180,
+        "id": "02cbb7ea7b7ca0bb62ec8698fe0c80aa9fa5f4f3",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "beaf595b23857976d7106d49e9ba4bedfa9e45a0"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 47",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767234000,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767234000,
+        "id": "beaf595b23857976d7106d49e9ba4bedfa9e45a0",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "24f3d595bacd9fa89619168ceb6775eb8cd4c1f6"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 46",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767233820,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767233820,
+        "id": "24f3d595bacd9fa89619168ceb6775eb8cd4c1f6",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "8c2a04bc9ac995ac95b06bbc06a2381da78ad460"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 45",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767233640,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767233640,
+        "id": "8c2a04bc9ac995ac95b06bbc06a2381da78ad460",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "0ea2409f3f252ba30e351a91f11913520d04fe03"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 44",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767233460,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767233460,
+        "id": "0ea2409f3f252ba30e351a91f11913520d04fe03",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "6c763777d0b46a8405524d5ba8b5b0e887f32d54"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 43",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767233280,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767233280,
+        "id": "6c763777d0b46a8405524d5ba8b5b0e887f32d54",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "e71aec732b3c81a708ca5ebe7f7f3acbc6dc1879"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 42",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767233100,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767233100,
+        "id": "e71aec732b3c81a708ca5ebe7f7f3acbc6dc1879",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "5d5a8f7753c06cb51a5f73bbf10af5418991e728"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 41",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767232920,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767232920,
+        "id": "5d5a8f7753c06cb51a5f73bbf10af5418991e728",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "f93a27f41b1a5e358138d5a1089bbf24bbd23d17"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 40",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767232740,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767232740,
+        "id": "f93a27f41b1a5e358138d5a1089bbf24bbd23d17",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "24795b2f864f753f83b54a119cee8fda34a5f02c"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 39",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767232560,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767232560,
+        "id": "24795b2f864f753f83b54a119cee8fda34a5f02c",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "7f289ae4b99f3caa09aaab43ebb2f9164e3e7abe"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 38",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767232380,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767232380,
+        "id": "7f289ae4b99f3caa09aaab43ebb2f9164e3e7abe",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "40a06b31bea188fa309f629e96860daffaa1a488"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 37",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767232200,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767232200,
+        "id": "40a06b31bea188fa309f629e96860daffaa1a488",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "a1c0ea59b98d98bc78bd10699fe1b0bfb7ff1416"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 36",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767232020,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767232020,
+        "id": "a1c0ea59b98d98bc78bd10699fe1b0bfb7ff1416",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "c222f2e3aba5b625f147b3761e7b63414f8dd9b1"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 35",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767231840,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767231840,
+        "id": "c222f2e3aba5b625f147b3761e7b63414f8dd9b1",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "6a1fa43ae17276719d5316f1f707667e5524c8ef"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 34",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767231660,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767231660,
+        "id": "6a1fa43ae17276719d5316f1f707667e5524c8ef",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "4b08a3fab5faa8aa042b9aeff82d715b7c240ca8"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 33",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767231480,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767231480,
+        "id": "4b08a3fab5faa8aa042b9aeff82d715b7c240ca8",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "0c863febb58fad68ad391c91e7b9883d0768ef86"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 32",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767231300,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767231300,
+        "id": "0c863febb58fad68ad391c91e7b9883d0768ef86",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "360c4eb42fab80e3b758fc4272db3a932baba37b"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 31",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767231120,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767231120,
+        "id": "360c4eb42fab80e3b758fc4272db3a932baba37b",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "65319a34474bb6bcbb728d7ca0d730d985e48ed8"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Commit 30",
+        "wip": null
+      }
+    ],
+    "truncated": true,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "1d408fbb77d7ebf066f8762bf9e7726d07dc5f16",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/long_history"
+      }
+    ]
+  }
+}

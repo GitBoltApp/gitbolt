@@ -1,0 +1,210 @@
+#file crates/orbital-core/src/station.rs
+#header v1 @docking
+//! Stations: the ports a ship docks at, the goods a station lists, and what it bills for service.
+
+#header v2 @trade-screen
+//! Stations: the ports a ship docks at, the goods a station lists, and what it bills for service.
+
+use crate::cargo::Commodity;
+use crate::economy::Market;
+
+#header v3 @station-services
+//! Stations: the ports a ship docks at, the goods a station lists, and what it bills for service.
+
+use crate::cargo::Commodity;
+use crate::economy::Market;
+use crate::ship::Ship;
+
+#const PORTS v1 @docking "Give every station four docking ports"
+/// Docking ports on a station. Each port takes one ship at a time.
+pub const PORTS: usize = 4;
+
+#const REFUEL_PRICE v1 @station-services "Set the refuel price per unit of fuel"
+/// Credits a tonne of fuel costs at a station.
+pub const REFUEL_PRICE: f32 = 2.5;
+
+#const REPAIR_RATE v1 @repair-price "Price repairs by hull damage"
+/// Credits per percent of hull lost, to repair it.
+pub const REPAIR_RATE: f32 = 3.0;
+
+#item Station v1 @docking "Add stations with docking ports"
+/// A station a ship can dock with, and how many of its ports are taken.
+#[derive(Clone, Debug)]
+pub struct Station {
+    pub name: String,
+    pub ports: usize,
+    pub docked: usize,
+}
+
+#item Station v2 @trade-screen "Show the trade screen at a station"
+/// A station a ship can dock with, its goods on sale, and how many of its ports are taken.
+#[derive(Clone, Debug)]
+pub struct Station {
+    pub name: String,
+    pub ports: usize,
+    pub docked: usize,
+    pub markets: Vec<Market>,
+}
+
+#item new v1 @docking "Start a station with every port free"
+impl Station {
+    /// A station with every port free.
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ports: PORTS,
+            docked: 0,
+        }
+    }
+}
+
+#item new v2 @trade-screen "Start a station with no goods listed"
+impl Station {
+    /// A station with every port free and no goods listed yet.
+    pub fn new(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            ports: PORTS,
+            docked: 0,
+            markets: Vec::new(),
+        }
+    }
+}
+
+#item take_port v1 @docking "Let a ship take a free port"
+impl Station {
+    /// Takes a free port for a ship. Returns false when every port is taken.
+    pub fn take_port(&mut self) -> bool {
+        if self.docked < self.ports {
+            self.docked += 1;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+#item release_port v1 @docking "Free a port when its ship leaves"
+impl Station {
+    /// Frees a port when its ship leaves.
+    pub fn release_port(&mut self) {
+        self.docked = self.docked.saturating_sub(1);
+    }
+}
+
+#item list v1 @trade-screen "List a good on the station's market"
+impl Station {
+    /// Lists `commodity` on this station's market, at its base price.
+    pub fn list(&mut self, commodity: Commodity, base: f32) {
+        self.markets.push(Market::new(commodity, base));
+    }
+}
+
+#item market_for v1 @trade-screen "Find a good's market on the station"
+impl Station {
+    /// The station's market for `commodity`, if it lists that good.
+    pub fn market_for(&mut self, commodity: Commodity) -> Option<&mut Market> {
+        self.markets.iter_mut().find(|m| m.commodity == commodity)
+    }
+}
+
+#item bill v1 @station-services "Bill a ship for a full tank at the refuel price"
+/// What a station bills a ship for a full tank, at its refuel price.
+pub fn bill(ship: &Ship) -> f32 {
+    (ship.tank - ship.fuel) * REFUEL_PRICE
+}
+
+#item bill v2 @repair-price "Bill repairs by the share of hull lost"
+/// What a station bills a ship for a full tank and a full hull, at its fixed rates.
+pub fn bill(ship: &Ship) -> f32 {
+    (ship.tank - ship.fuel) * REFUEL_PRICE + ship.hull_lost() * REPAIR_RATE
+}
+
+#item service v1 @station-services "Refuel and settle the bill in one step"
+/// Settles a ship's bill and fills its tank, so one button can do both.
+pub fn service(ship: &mut Ship) -> f32 {
+    let cost = bill(ship);
+    ship.refuel();
+    cost
+}
+
+#item service v2 @repair-price "Repair the hull in the same step as the refuel"
+/// Settles a ship's bill, then fills its tank and repairs its hull, so one button does both.
+pub fn service(ship: &mut Ship) -> f32 {
+    let cost = bill(ship);
+    ship.refuel();
+    ship.repair();
+    cost
+}
+
+#test a_station_has_free_ports_to_take v1 @docking "Test that a station fills up at its ports"
+#[test]
+fn a_station_has_free_ports_to_take() {
+    let mut station = Station::new("Ring");
+    for _ in 0..PORTS {
+        assert!(station.take_port());
+    }
+    assert!(!station.take_port());
+}
+
+#test releasing_a_port_frees_it v1 @docking "Test that a port is free again once its ship leaves"
+#[test]
+fn releasing_a_port_frees_it() {
+    let mut station = Station::new("Ring");
+    station.take_port();
+    station.release_port();
+    assert_eq!(station.docked, 0);
+}
+
+#test markets_list_goods_per_station v1 @trade-screen "Test that a station lists only its goods"
+#[test]
+fn markets_list_goods_per_station() {
+    let mut station = Station::new("Depot");
+    station.list(Commodity::Ore, 40.0);
+    assert!(station.market_for(Commodity::Ore).is_some());
+    assert!(station.market_for(Commodity::Ice).is_none());
+}
+
+#test refuelling_bills_the_missing_fuel v1 @station-services "Test that refuelling bills the fuel used"
+#[test]
+fn refuelling_bills_the_missing_fuel() {
+    use crate::body::Body;
+    use glam::Vec2;
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = ship.tank - 10.0;
+    assert!((bill(&ship) - 10.0 * REFUEL_PRICE).abs() < 1e-3);
+}
+
+#test service_fills_the_tank_and_charges_for_it v1 @station-services "Test the one-button service"
+#[test]
+fn service_fills_the_tank_and_charges_for_it() {
+    use crate::body::Body;
+    use glam::Vec2;
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = 0.0;
+    let cost = service(&mut ship);
+    assert!((cost - ship.tank * REFUEL_PRICE).abs() < 1e-3);
+    assert_eq!(ship.fuel, ship.tank);
+}
+
+#test repairs_are_billed_per_percent_lost v1 @repair-price "Test that repairs cost per percent lost"
+#[test]
+fn repairs_are_billed_per_percent_lost() {
+    use crate::body::{Body, SHIP_HULL};
+    use glam::Vec2;
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = ship.tank;
+    ship.body.hull = SHIP_HULL * 0.75;
+    assert!((bill(&ship) - 25.0 * REPAIR_RATE).abs() < 1e-3);
+}
+
+#test service_repairs_the_hull v1 @repair-price "Test that the service repairs the hull too"
+#[test]
+fn service_repairs_the_hull() {
+    use crate::body::{Body, SHIP_HULL};
+    use glam::Vec2;
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.body.hull = SHIP_HULL * 0.5;
+    service(&mut ship);
+    assert!(ship.hull_lost() < 1e-4);
+}

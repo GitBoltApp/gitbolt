@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "fileHistory",
+    "params": {
+      "limit": 200,
+      "path": "mixed.txt",
+      "repo": "$repo",
+      "skip": 0,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "more": false,
+    "rows": [
+      {
+        "author": "Grace Hopper",
+        "email": "grace@example.com",
+        "oldPath": null,
+        "parents": [
+          "f7f3e660e938bd28c89489fb84880788efeb1536"
+        ],
+        "path": "mixed.txt",
+        "sha": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "status": "M",
+        "summary": "Edit far down",
+        "time": 1767225900
+      },
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [],
+        "path": "mixed.txt",
+        "sha": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "status": "A",
+        "summary": "Add long file",
+        "time": 1767225720
+      }
+    ]
+  }
+}

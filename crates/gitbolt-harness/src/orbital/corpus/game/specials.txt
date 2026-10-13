@@ -1,0 +1,81 @@
+#; feature/hud-polish's own file. specials.rs builds the branch's commits; these messages match them.
+#file crates/orbital-game/src/hud_gauges.rs
+#header v1 @hud-polish
+//! Framed HUD gauges: one frame style for fuel, cargo and hull.
+
+use crate::hud::HUD_MARGIN;
+use orbital_render::{Color, Painter, Rect};
+#item draw_gauge_frame v1 @hud-polish "Draw the HUD gauges with a shared frame"
+/// Draws a gauge's frame at `slot` (0 at the top) and fills it `frac` full.
+pub fn draw_gauge_frame(painter: &mut Painter, slot: u32, frac: f32, colour: Color) {
+    let y = HUD_MARGIN + slot * 14;
+    let outer = Rect::new(HUD_MARGIN, y, 96, 10);
+    eprintln!("gauge {slot}: {frac:.2}");
+    painter.stroke_rect(outer, Color::FRAME);
+    painter.fill_rect(outer.inset(2).with_width_frac(frac), colour);
+}
+#item draw_gauge_frame v2 @hud-polish "fixup! Draw the HUD gauges with a shared frame"
+/// Draws a gauge's frame at `slot` (0 at the top) and fills it `frac` full.
+pub fn draw_gauge_frame(painter: &mut Painter, slot: u32, frac: f32, colour: Color) {
+    let y = HUD_MARGIN + slot * 14;
+    let outer = Rect::new(HUD_MARGIN, y, 96, 10);
+    eprintln!("gauge {slot}: {frac:.2}");
+    painter.stroke_rect(outer, Color::FRAME);
+    painter.fill_rect(outer.inset(2).with_width_frac(frac.clamp(0.0, 1.0)), colour);
+}
+#item draw_gauge_frame v3 @hud-polish "Remove the debug prints"
+/// Draws a gauge's frame at `slot` (0 at the top) and fills it `frac` full.
+pub fn draw_gauge_frame(painter: &mut Painter, slot: u32, frac: f32, colour: Color) {
+    let y = HUD_MARGIN + slot * 14;
+    let outer = Rect::new(HUD_MARGIN, y, 96, 10);
+    painter.stroke_rect(outer, Color::FRAME);
+    painter.fill_rect(outer.inset(2).with_width_frac(frac.clamp(0.0, 1.0)), colour);
+}
+#item gauge_colour v1 @hud-polish "Draw the HUD gauges with a shared frame"
+/// A gauge's fill: green when full, amber when low, red when nearly empty.
+pub fn gauge_colour(frac: f32) -> Color {
+    if frac > 0.5 {
+        Color::GREEN
+    } else if frac > 0.2 {
+        Color::AMBER
+    } else {
+        Color::RED
+    }
+}
+#item gauge_colour v2 @hud-polish "WIP"
+/// A gauge's fill: teal when full, amber when low, red when nearly empty.
+pub fn gauge_colour(frac: f32) -> Color {
+    if frac > 0.6 {
+        Color::TEAL
+    } else if frac > 0.25 {
+        Color::AMBER
+    } else {
+        Color::RED
+    }
+}
+#item gauge_colour v3 @hud-polish "Tweak the gauge colours again"
+/// A gauge's fill: teal when full, gold when low, red when nearly empty.
+pub fn gauge_colour(frac: f32) -> Color {
+    if frac > 0.55 {
+        Color::TEAL
+    } else if frac > 0.25 {
+        Color::GOLD
+    } else {
+        Color::RED
+    }
+}
+#item draw_fuel_gauge_framed v1 @hud-polish "Add the fuel gague"
+/// The fuel gauge, in the shared frame.
+pub fn draw_fuel_gauge_framed(painter: &mut Painter, fuel: f32, capacity: f32) {
+    let frac = fuel / capacity;
+    draw_gauge_frame(painter, 0, frac, gauge_colour(frac));
+}
+#test gauge_frame_fits_the_screen v1 @hud-polish "Test the gauge layout"
+#[test]
+fn gauge_frame_fits_the_screen() {
+    let mut painter = Painter::recording(320, 180);
+    for slot in 0..4 {
+        draw_gauge_frame(&mut painter, slot, 1.0, Color::GREEN);
+    }
+    assert!(painter.bounds().bottom() <= 180);
+}

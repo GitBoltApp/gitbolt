@@ -1,0 +1,246 @@
+#file crates/orbital-core/src/contracts.rs
+#header v1 @contracts
+//! Delivery contracts: a load of one good for a station to take, a deadline, and the pay for it.
+
+use crate::cargo::Commodity;
+use crate::rng::Rng;
+#const TICKS_PER_DAY v1 @contracts "Count contract deadlines in ticks, a day at a time"
+/// Ticks in one game day: 864 seconds of play at 0.05 seconds a tick.
+pub const TICKS_PER_DAY: u32 = 17_280;
+#const MAX_OPEN v1 @contracts "Post at most five contracts at a station"
+/// Most contracts a station has open at once.
+pub const MAX_OPEN: usize = 5;
+#const BASE_PAY v1 @contracts "Pay every contract a base sum before distance"
+/// Credits every contract pays before its distance and urgency are counted.
+pub const BASE_PAY: f32 = 120.0;
+#const PAY_PER_KM v1 @contract-pay "Pay contracts by distance and urgency"
+/// Credits per kilometre a contract pays for its distance, before urgency is counted.
+pub const PAY_PER_KM: f32 = 0.2;
+#const URGENT_DAYS v1 @contract-pay "Count a contract as urgent once it has six days or fewer"
+/// Days left at which a deadline stops adding urgency. A contract due at once pays twice the
+/// distance rate.
+pub const URGENT_DAYS: f32 = 6.0;
+#item Contract v1 @contracts "Add delivery contracts with a deadline"
+/// A load of one good for another station to take, paid on delivery before its deadline.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Contract {
+    pub commodity: Commodity,
+    pub tonnes: f32,
+    pub destination: usize,
+    pub reward: f32,
+    pub ticks_left: u32,
+}
+#item generate v1 @contracts "Post a contract from a station to another at random"
+/// A contract from station `from` to another of the `stations`, picked at random, with a deadline
+/// of two to six days. Returns `None` when there is no other station to deliver to.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "rolls in [0, 1) scale to indices, and counts stay small"
+)]
+pub fn generate(rng: &mut Rng, from: usize, stations: usize) -> Option<Contract> {
+    if stations < 2 {
+        return None;
+    }
+    let pick = (rng.next_f32() * (stations - 1) as f32) as usize;
+    let destination = if pick >= from { pick + 1 } else { pick };
+    let commodity = Commodity::ALL[(rng.next_f32() * Commodity::ALL.len() as f32) as usize];
+    Some(Contract {
+        commodity,
+        tonnes: rng.range(2.0, 12.0).round(),
+        destination,
+        reward: BASE_PAY,
+        ticks_left: (TICKS_PER_DAY as f32 * rng.range(2.0, 6.0)) as u32,
+    })
+}
+#item generate v2 @contract-pay "Pay contracts by distance and urgency"
+/// A contract from station `from` to another one, picked at random, with a deadline of two to six
+/// days. `distances[i]` is the distance to station `i`, and the pay follows it.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    clippy::cast_sign_loss,
+    reason = "rolls in [0, 1) scale to indices, and counts stay small"
+)]
+pub fn generate(rng: &mut Rng, from: usize, distances: &[f32]) -> Option<Contract> {
+    if distances.len() < 2 {
+        return None;
+    }
+    let pick = (rng.next_f32() * (distances.len() - 1) as f32) as usize;
+    let destination = if pick >= from { pick + 1 } else { pick };
+    let ticks_left = (TICKS_PER_DAY as f32 * rng.range(2.0, 6.0)) as u32;
+    Some(Contract {
+        commodity: Commodity::ALL[(rng.next_f32() * Commodity::ALL.len() as f32) as usize],
+        tonnes: rng.range(2.0, 12.0).round(),
+        destination,
+        reward: pay(distances[destination], ticks_left),
+        ticks_left,
+    })
+}
+#item pay v1 @contract-pay "Pay contracts by distance and urgency"
+/// What a contract pays: the base, plus its distance at a rate that rises as the deadline nears.
+#[allow(clippy::cast_precision_loss, reason = "tick counts are small")]
+pub fn pay(distance: f32, ticks_left: u32) -> f32 {
+    let days = (ticks_left as f32 / TICKS_PER_DAY as f32).min(URGENT_DAYS);
+    let urgency = 1.0 - days / URGENT_DAYS;
+    BASE_PAY + distance * PAY_PER_KM * (1.0 + urgency)
+}
+#item tick v1 @contracts "Count deadlines down and drop the contracts that run out"
+/// Counts every open contract down by `ticks`, and drops the ones whose deadline has passed.
+pub fn tick(contracts: &mut Vec<Contract>, ticks: u32) {
+    contracts.retain_mut(|c| {
+        c.ticks_left = c.ticks_left.saturating_sub(ticks);
+        c.ticks_left > 0
+    });
+}
+#item tick v2 @contract-pause "Stop contract deadlines counting while paused"
+/// Counts every open contract down by `ticks`, unless the game is paused, and drops the ones
+/// whose deadline has passed.
+pub fn tick(contracts: &mut Vec<Contract>, ticks: u32, paused: bool) {
+    let ticks = if paused { 0 } else { ticks };
+    contracts.retain_mut(|c| {
+        c.ticks_left = c.ticks_left.saturating_sub(ticks);
+        c.ticks_left > 0
+    });
+}
+#item has_room v1 @contracts "Cap how many contracts a station has open"
+/// Whether a station with these open contracts can post another.
+pub fn has_room(open: &[Contract]) -> bool {
+    open.len() < MAX_OPEN
+}
+#item days_left v1 @contracts-ui "Show a contract's deadline in days"
+impl Contract {
+    /// Days left until the deadline, for the trade screen.
+    #[allow(clippy::cast_precision_loss, reason = "tick counts are small")]
+    pub fn days_left(&self) -> f32 {
+        self.ticks_left as f32 / TICKS_PER_DAY as f32
+    }
+}
+#test a_new_contract_pays_the_base v1 @contracts "Test that a new contract pays the base"
+#[test]
+fn a_new_contract_pays_the_base() {
+    let mut rng = Rng::new(9);
+    let contract = generate(&mut rng, 0, 3).unwrap();
+    assert_eq!(contract.reward, BASE_PAY);
+}
+#test a_new_contract_pays_the_base v2 @contract-pay "Test that a new contract pays at least the base"
+#[test]
+fn a_new_contract_pays_the_base() {
+    let mut rng = Rng::new(9);
+    let contract = generate(&mut rng, 0, &[0.0, 50.0, 80.0]).unwrap();
+    assert!(contract.reward >= BASE_PAY);
+}
+#test generated_contracts_go_somewhere_else v1 @contracts "Test that a contract never stays put"
+#[test]
+fn generated_contracts_go_somewhere_else() {
+    let mut rng = Rng::new(4);
+    for _ in 0..50 {
+        let contract = generate(&mut rng, 1, 4).unwrap();
+        assert!(contract.destination != 1 && contract.destination < 4);
+    }
+}
+#test generated_contracts_go_somewhere_else v2 @contract-pay "Test destinations with the distance list"
+#[test]
+fn generated_contracts_go_somewhere_else() {
+    let mut rng = Rng::new(4);
+    for _ in 0..50 {
+        let contract = generate(&mut rng, 1, &[0.0, 10.0, 20.0, 30.0]).unwrap();
+        assert!(contract.destination != 1 && contract.destination < 4);
+    }
+}
+#test no_contract_without_another_station v1 @contracts "Test that a lone station posts nothing"
+#[test]
+fn no_contract_without_another_station() {
+    assert!(generate(&mut Rng::new(1), 0, 1).is_none());
+}
+#test no_contract_without_another_station v2 @contract-pay "Test a lone station with the distance list"
+#[test]
+fn no_contract_without_another_station() {
+    assert!(generate(&mut Rng::new(1), 0, &[0.0]).is_none());
+}
+#test deadlines_count_down_and_expire v1 @contracts "Test that deadlines count down and expire"
+#[test]
+fn deadlines_count_down_and_expire() {
+    let mut open = vec![Contract {
+        commodity: Commodity::Food,
+        tonnes: 3.0,
+        destination: 1,
+        reward: BASE_PAY,
+        ticks_left: 10,
+    }];
+    tick(&mut open, 4);
+    assert_eq!(open[0].ticks_left, 6);
+    tick(&mut open, 6);
+    assert!(open.is_empty());
+}
+#test deadlines_count_down_and_expire v2 @contract-pause "Test the countdown with the pause flag"
+#[test]
+fn deadlines_count_down_and_expire() {
+    let mut open = vec![Contract {
+        commodity: Commodity::Food,
+        tonnes: 3.0,
+        destination: 1,
+        reward: BASE_PAY,
+        ticks_left: 10,
+    }];
+    tick(&mut open, 4, false);
+    assert_eq!(open[0].ticks_left, 6);
+    tick(&mut open, 6, false);
+    assert!(open.is_empty());
+}
+#test deadlines_do_not_count_while_paused v1 @contract-pause "Test that a paused game keeps its deadlines"
+#[test]
+fn deadlines_do_not_count_while_paused() {
+    let mut open = vec![Contract {
+        commodity: Commodity::Food,
+        tonnes: 3.0,
+        destination: 1,
+        reward: BASE_PAY,
+        ticks_left: 10,
+    }];
+    tick(&mut open, 4, true);
+    assert_eq!(open[0].ticks_left, 10);
+}
+#test a_station_caps_its_open_contracts v1 @contracts "Test the cap on open contracts"
+#[test]
+fn a_station_caps_its_open_contracts() {
+    let contract = Contract {
+        commodity: Commodity::Ice,
+        tonnes: 2.0,
+        destination: 0,
+        reward: BASE_PAY,
+        ticks_left: 5,
+    };
+    let open = vec![contract; MAX_OPEN];
+    assert!(!has_room(&open));
+    assert!(has_room(&open[..MAX_OPEN - 1]));
+}
+#test pay_rises_with_distance_and_urgency v1 @contract-pay "Test that pay grows with distance and urgency"
+#[test]
+fn pay_rises_with_distance_and_urgency() {
+    assert!(pay(100.0, TICKS_PER_DAY) > pay(50.0, TICKS_PER_DAY));
+    assert!(pay(100.0, TICKS_PER_DAY / 2) > pay(100.0, TICKS_PER_DAY * 4));
+}
+#test a_contract_with_no_distance_pays_the_base v1 @contract-tests "Test the payout at zero distance"
+#[test]
+fn a_contract_with_no_distance_pays_the_base() {
+    assert!((pay(0.0, TICKS_PER_DAY * 3) - BASE_PAY).abs() < 1e-4);
+}
+#test an_urgent_contract_pays_twice_the_distance_rate v1 @contract-tests "Test the top payout at the deadline"
+#[test]
+fn an_urgent_contract_pays_twice_the_distance_rate() {
+    assert!((pay(500.0, 0) - (BASE_PAY + 500.0 * PAY_PER_KM * 2.0)).abs() < 1e-3);
+}
+#test days_left_counts_days v1 @contracts-ui "Test the days shown for a deadline"
+#[test]
+fn days_left_counts_days() {
+    let contract = Contract {
+        commodity: Commodity::Medicine,
+        tonnes: 1.0,
+        destination: 2,
+        reward: BASE_PAY,
+        ticks_left: TICKS_PER_DAY * 2,
+    };
+    assert!((contract.days_left() - 2.0).abs() < 1e-4);
+}

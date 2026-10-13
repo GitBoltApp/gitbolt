@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "gone.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "b023018cabc396e7692c70bbf5784a93d3f738ab",
+      "index": "b023018cabc396e7692c70bbf5784a93d3f738ab",
+      "worktree": null
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [],
+        "del": [
+          1
+        ],
+        "newLines": 0,
+        "newStart": 0,
+        "oldLines": 1,
+        "oldStart": 1
+      }
+    ],
+    "refused": null
+  }
+}

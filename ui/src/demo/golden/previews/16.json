@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "eed78ee70dea2696e2387b5314bc822f8de8075f"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "f727d04e35880950b42539b848456377cad22f11"
+      },
+      "path": "data/stations.tsv",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "eed78ee70dea2696e2387b5314bc822f8de8075f",
+      "size": 168,
+      "text": "id\tname\tregion\tdock_bays\nST01\tRing One\tInner\t14\nST02\tDepot Alpha\tInner\t8\nST03\tOutpost Kite\tBelt\t3\nST05\tHarbor Deep\tOuter\t6\nST06\tCinder Gate\tOuter\t5\nST07\tLantern\tBelt\t2\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "f727d04e35880950b42539b848456377cad22f11",
+      "size": 146,
+      "text": "id\tname\tregion\tdock_bays\nST01\tRing One\tInner\t12\nST02\tDepot Alpha\tInner\t8\nST03\tOutpost Kite\tBelt\t3\nST04\tRelay Nine\tBelt\t4\nST05\tHarbor Deep\tOuter\t6\n"
+    },
+    "tooLarge": false
+  }
+}

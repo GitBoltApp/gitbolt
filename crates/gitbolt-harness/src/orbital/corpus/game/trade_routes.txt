@@ -1,0 +1,172 @@
+#file crates/orbital-game/src/trade_routes.rs
+#header v1 @trade-routes "Plan multi-stop trade routes"
+//! Trade routes: a planned run of stops, and the order to visit a set of stations in for the least
+//! travel.
+
+#const MAX_STOPS v1 @trade-routes "Plan multi-stop trade routes"
+/// The most stops one route holds.
+pub const MAX_STOPS: usize = 6;
+#const MAX_STOPS v2 @trade-routes "Allow eight stops on a route"
+/// The most stops one route holds.
+pub const MAX_STOPS: usize = 8;
+#const MAX_STOPS v3 @trade-routes "Keep routes short enough to plan by hand"
+/// The most stops one route holds.
+pub const MAX_STOPS: usize = 5;
+#item Stop v1 @trade-routes "Plan multi-stop trade routes"
+/// One stop on a route: the station, and how far it is from the stop before.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Stop {
+    pub station: String,
+    pub distance: f32,
+}
+#item Route v1 @trade-routes "Plan multi-stop trade routes"
+/// A planned run of stops, in the order the ship visits them.
+#[derive(Debug, Default)]
+pub struct Route {
+    pub stops: Vec<Stop>,
+}
+#item push v1 @trade-routes "Plan multi-stop trade routes"
+impl Route {
+    /// Adds a stop to the end of the route. Returns false when the route is full.
+    pub fn push(&mut self, stop: Stop) -> bool {
+        if self.stops.len() >= MAX_STOPS {
+            return false;
+        }
+        self.stops.push(stop);
+        true
+    }
+}
+#item push v2 @trade-routes "Refuse a stop that repeats the one before it"
+impl Route {
+    /// Adds a stop to the end of the route. Returns false when the route is full, or the stop is the
+    /// one the route just left.
+    pub fn push(&mut self, stop: Stop) -> bool {
+        if self.stops.len() >= MAX_STOPS {
+            return false;
+        }
+        if self
+            .stops
+            .last()
+            .is_some_and(|last| last.station == stop.station)
+        {
+            return false;
+        }
+        self.stops.push(stop);
+        true
+    }
+}
+#item length v1 @trade-routes "Plan multi-stop trade routes"
+impl Route {
+    /// The distance the route covers, leg by leg.
+    pub fn length(&self) -> f32 {
+        self.stops.iter().map(|s| s.distance).sum()
+    }
+}
+#item length v2 @trade-routes "Never report a negative route length"
+impl Route {
+    /// The distance the route covers, leg by leg, and never less than nothing.
+    pub fn length(&self) -> f32 {
+        self.stops.iter().map(|s| s.distance).sum::<f32>().max(0.0)
+    }
+}
+#item nearest_order v1 @trade-routes "Plan multi-stop trade routes"
+/// The order to visit every station in, starting at `start`, always going to the nearest one left.
+pub fn nearest_order(distances: &[Vec<f32>], start: usize) -> Vec<usize> {
+    let mut left: Vec<usize> = (0..distances.len()).filter(|&i| i != start).collect();
+    let mut order = vec![start];
+    let mut here = start;
+    while !left.is_empty() {
+        let (at, next) = left
+            .iter()
+            .copied()
+            .enumerate()
+            .min_by(|a, b| distances[here][a.1].total_cmp(&distances[here][b.1]))
+            .expect("left is not empty");
+        left.swap_remove(at);
+        order.push(next);
+        here = next;
+    }
+    order
+}
+#item nearest_order v2 @trade-routes "Break distance ties by the station order"
+/// The order to visit every station in, starting at `start`, always going to the nearest one left.
+/// Ties go to the lower station index, so the same map always gives the same route.
+pub fn nearest_order(distances: &[Vec<f32>], start: usize) -> Vec<usize> {
+    let mut left: Vec<usize> = (0..distances.len()).filter(|&i| i != start).collect();
+    let mut order = vec![start];
+    let mut here = start;
+    while !left.is_empty() {
+        let (at, next) = left
+            .iter()
+            .copied()
+            .enumerate()
+            .min_by(|a, b| {
+                distances[here][a.1]
+                    .total_cmp(&distances[here][b.1])
+                    .then(a.1.cmp(&b.1))
+            })
+            .expect("left is not empty");
+        left.swap_remove(at);
+        order.push(next);
+        here = next;
+    }
+    order
+}
+#test a_route_stops_at_its_limit v1 @trade-routes "Test that a route refuses stops past its limit"
+#[test]
+fn a_route_stops_at_its_limit() {
+    let mut route = Route::default();
+    for i in 0..MAX_STOPS + 2 {
+        let stop = Stop {
+            station: format!("S{i}"),
+            distance: 1.0,
+        };
+        route.push(stop);
+    }
+    assert_eq!(route.stops.len(), MAX_STOPS);
+}
+#test nearest_order_visits_each_station_once v1 @trade-routes "Test that the nearest-stop order visits each station once"
+#[test]
+fn nearest_order_visits_each_station_once() {
+    let distances = vec![
+        vec![0.0, 3.0, 1.0],
+        vec![3.0, 0.0, 2.0],
+        vec![1.0, 2.0, 0.0],
+    ];
+    assert_eq!(nearest_order(&distances, 0), vec![0, 2, 1]);
+}
+#test route_refuses_a_repeat_stop v1 @trade-routes "Test that a route refuses a stop twice in a row"
+#[test]
+fn route_refuses_a_repeat_stop() {
+    let mut route = Route::default();
+    let stop = Stop {
+        station: "Ring".into(),
+        distance: 2.0,
+    };
+    assert!(route.push(stop.clone()));
+    assert!(!route.push(stop));
+}
+#test route_length_sums_the_legs v1 @trade-routes "Test that the route length sums its legs"
+#[test]
+fn route_length_sums_the_legs() {
+    let mut route = Route::default();
+    route.push(Stop {
+        station: "Ring".into(),
+        distance: 2.0,
+    });
+    route.push(Stop {
+        station: "Depot".into(),
+        distance: 3.5,
+    });
+    assert!((route.length() - 5.5).abs() < 1e-4);
+}
+#test nearest_order_breaks_ties_by_index v1 @trade-routes "Test that equal distances go to the lower index"
+#[test]
+fn nearest_order_breaks_ties_by_index() {
+    let distances = vec![
+        vec![0.0, 1.0, 1.0],
+        vec![1.0, 0.0, 1.0],
+        vec![1.0, 1.0, 0.0],
+    ];
+    assert_eq!(nearest_order(&distances, 0), vec![0, 1, 2]);
+}

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "686278415e4898c4d0d536de5ad9418b77720392"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "be5ad9d55e91bb44151ced2cb7052bfa4b80f594"
+      },
+      "path": "icon.svg",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "686278415e4898c4d0d536de5ad9418b77720392",
+      "size": 114,
+      "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><circle cx=\"8\" cy=\"8\" r=\"8\" fill=\"#f25d2e\"/></svg>\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "be5ad9d55e91bb44151ced2cb7052bfa4b80f594",
+      "size": 115,
+      "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><rect width=\"16\" height=\"16\" fill=\"#15a0bf\"/></svg>\n"
+    },
+    "tooLarge": false
+  }
+}

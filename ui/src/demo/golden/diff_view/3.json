@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "ee3c6cd9ede9b115e11dbc30d0fe84f6be69d560"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "192ff33db182b1ba2add6b1d58d1fe6aaa31e517"
+      },
+      "path": "long.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "ee3c6cd9ede9b115e11dbc30d0fe84f6be69d560",
+      "size": 1795,
+      "text": "line 001\nline 002\nline 003\nline 004\nline 005\nline 006\nline 007\nline 008\nline 009\nline 010\nline 011\nline 012\nline 013\nline 014\nline 015\nline 016\nline 017\nline 018\nline 019\nline 020\nline 021\nline 022\nline 023\nline 024\nline 025\nline 026\nline 027\nline 028\nline 029\nline 030\nline 031\nline 032\nline 033\nline 034\nline 035\nline 036\nline 037\nline 038\nline 039\nline 040\nline 041\nline 042\nline 043\nline 044\nline 045\nline 046\nline 047\nline 048\nline 049\nline 050\nline 051\nline 052\nline 053\nline 054\nline 055\nline 056\nline 057\nline 058\nline 059\nline 060\nline 061\nline 062\nline 063\nline 064\nline 065\nline 066\nline 067\nline 068\nline 069\nline 070\nline 071\nline 072\nline 073\nline 074\nline 075\nline 076\nline 077\nline 078\nline 079\nline 080\nline 081\nline 082\nline 083\nline 084\nline 085\nline 086\nline 087\nline 088\nline 089\nline 090\nline 091\nline 092\nline 093\nline 094\nline 095\nline 096\nline 097\nline 098\nline 099\nline 100\nline 101\nline 102\nline 103\nline 104\nline 105\nline 106\nline 107\nline 108\nline 109\nline 110\nline 111\nline 112\nline 113\nline 114\nline 115\nline 116\nline 117\nline 118\nline 119\nline 120 changed\nline 121\nline 122\nline 123\nline 124\nline 125\nline 126\nline 127\nline 128\nline 129\nline 130\nline 131\nline 132\nline 133\nline 134\nline 135\nline 136\nline 137\nline 138\nline 139\nline 140\nline 141\nline 142\nline 143\nline 144\nline 145\nline 146\nline 147\nline 148\nline 149\nline 153\nline 154\nline 155\nline 156\nline 157\nline 158\nline 159\nline 160\nline 161\nline 162\nline 163\nline 164\nline 165\nline 166\nline 167\nline 168\nline 169\nline 170\nline 171\nline 172\nline 173\nline 174\nline 175\nline 176\nline 177\nline 178\nline 179\nline 180\ninserted line\nline 181\nline 182\nline 183\nline 184\nline 185\nline 186\nline 187\nline 188\nline 189\nline 190\nline 191\nline 192\nline 193\nline 194\nline 195\nline 196\nline 197\nline 198\nline 199\nline 200\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "192ff33db182b1ba2add6b1d58d1fe6aaa31e517",
+      "size": 1800,
+      "text": "line 001\nline 002\nline 003\nline 004\nline 005\nline 006\nline 007\nline 008\nline 009\nline 010\nline 011\nline 012\nline 013\nline 014\nline 015\nline 016\nline 017\nline 018\nline 019\nline 020\nline 021\nline 022\nline 023\nline 024\nline 025\nline 026\nline 027\nline 028\nline 029\nline 030\nline 031\nline 032\nline 033\nline 034\nline 035\nline 036\nline 037\nline 038\nline 039\nline 040\nline 041\nline 042\nline 043\nline 044\nline 045\nline 046\nline 047\nline 048\nline 049\nline 050\nline 051\nline 052\nline 053\nline 054\nline 055\nline 056\nline 057\nline 058\nline 059\nline 060\nline 061\nline 062\nline 063\nline 064\nline 065\nline 066\nline 067\nline 068\nline 069\nline 070\nline 071\nline 072\nline 073\nline 074\nline 075\nline 076\nline 077\nline 078\nline 079\nline 080\nline 081\nline 082\nline 083\nline 084\nline 085\nline 086\nline 087\nline 088\nline 089\nline 090\nline 091\nline 092\nline 093\nline 094\nline 095\nline 096\nline 097\nline 098\nline 099\nline 100\nline 101\nline 102\nline 103\nline 104\nline 105\nline 106\nline 107\nline 108\nline 109\nline 110\nline 111\nline 112\nline 113\nline 114\nline 115\nline 116\nline 117\nline 118\nline 119\nline 120\nline 121\nline 122\nline 123\nline 124\nline 125\nline 126\nline 127\nline 128\nline 129\nline 130\nline 131\nline 132\nline 133\nline 134\nline 135\nline 136\nline 137\nline 138\nline 139\nline 140\nline 141\nline 142\nline 143\nline 144\nline 145\nline 146\nline 147\nline 148\nline 149\nline 150\nline 151\nline 152\nline 153\nline 154\nline 155\nline 156\nline 157\nline 158\nline 159\nline 160\nline 161\nline 162\nline 163\nline 164\nline 165\nline 166\nline 167\nline 168\nline 169\nline 170\nline 171\nline 172\nline 173\nline 174\nline 175\nline 176\nline 177\nline 178\nline 179\nline 180\nline 181\nline 182\nline 183\nline 184\nline 185\nline 186\nline 187\nline 188\nline 189\nline 190\nline 191\nline 192\nline 193\nline 194\nline 195\nline 196\nline 197\nline 198\nline 199\nline 200\n"
+    },
+    "tooLarge": false
+  }
+}

@@ -113,7 +113,15 @@ export function timed(inner: Transport): Transport {
   };
 }
 
+let override: Transport | null = null;
+
+/** The website demo installs its in-browser backend (ui/src/demo/) here before the app starts. */
+export function setTransportOverride(t: Transport): void {
+  override = t;
+}
+
 export function createTransport(onClosed?: () => void): Transport {
+  if (override) return timed(override);
   if (inTauri()) return timed(tauriTransport());
   return timed(wsTransport(import.meta.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws', undefined, onClosed));
 }

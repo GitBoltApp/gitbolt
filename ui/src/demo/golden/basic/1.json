@@ -1,0 +1,19 @@
+{
+  "request": {
+    "method": "peekRepo",
+    "params": {
+      "path": "$wt"
+    }
+  },
+  "response": {
+    "branch": "main",
+    "remotes": [
+      {
+        "host": null,
+        "hostKind": "generic",
+        "name": "origin",
+        "path": null
+      }
+    ]
+  }
+}

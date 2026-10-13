@@ -1,0 +1,452 @@
+# Orbital's features: one line each, then indented detail lines.
+#
+#   slug | kind | author | milestone | target | fate | title
+#     asset <path> v<N> "<message>"      an asset version this feature's branch adds
+#     > <text>                            a line of the merge request's description
+#     later: release | unwritten          no corpus content or assets: the releases make its
+#                                         commits, or its content isn't written yet
+#
+# kind:   feature fix art audio docs balance chore experiment
+# author: ilse teodor noor kasimir wen rafe
+# target: main | release/1.0 | release/1.1 | release/1.2
+# fate:   merged | direct | open | draft | long-lived | unpushed:<n> | remote-ahead:<n> | diverged | conflict | irebase
+workspace-setup | chore | ilse | 1 | main | direct | Set up the Cargo workspace and the core crate
+  > One workspace holds the core, the render layer and the game.
+core-math | feature | teodor | 1 | main | merged | Add Vec2 helpers for the orbit maths
+  > Thin helpers over glam, so the rest of the core never imports glam directly.
+core-bodies | feature | noor | 1 | main | merged | Model planets, stations and ships as bodies
+  > Every body has a position, a velocity, a mass and a radius.
+core-lints | fix | wen | 1 | main | direct | Fix the clippy pedantic warnings in orbital-core
+units-doc | docs | rafe | 1 | main | direct | Write down the unit conventions for the core
+  > Metres, seconds and tonnes, with the scale noted once per file.
+devlog-style | feature | rafe | 1 | main | direct | Add a devlog template with image slots
+devlog | docs | noor | 1 | main | direct | Keep a devlog, one entry a month
+gravity | feature | ilse | 2 | main | merged | Pull ships towards every body
+  > Gravity is a plain sum over bodies for now; a spatial index can wait.
+integrator | feature | teodor | 2 | main | merged | Step ships with a fixed-timestep integrator
+  > A fixed step keeps the orbits the same on every machine.
+first-window | feature | kasimir | 2 | main | merged | Open a window and clear it every frame
+  > A plain window first; the render layer comes in the next steps.
+ci-pipeline | feature | wen | 2 | main | merged | Run tests and clippy on every push
+  > Runs on the Linux runner only; the other platforms come later.
+physics-drift | fix | noor | 2 | main | merged | Fix the integrator drifting on long runs
+  > The error came from adding the velocity before the position update.
+softened-gravity | fix | teodor | 2 | main | merged | Soften gravity near a body's centre
+  > Ships that clipped a planet came out at absurd speeds.
+camera-follow | feature | kasimir | 3 | main | merged | Follow the ship with the camera
+verdant-art | feature | ilse | 3 | main | merged | Show the verdant planet in the orbit view
+  asset assets/sprites/planets/verdant.png v1 "Add the verdant planet sprite"
+orbit-prediction | feature | teodor | 3 | main | merged | Predict a ship's orbit a few hundred ticks ahead
+  > Predicted points are drawn as a dotted line, not a full simulation.
+camera-zoom | feature | rafe | 3 | main | merged | Zoom the camera with the scroll wheel
+  > Zoom steps are logarithmic, so each notch feels the same.
+prediction-jump | fix | wen | 3 | main | direct | Fix the predicted orbit jumping at the camera edge
+  > The camera edge test used the wrong frame, so the path jumped.
+angle-seam | fix | teodor | 3 | main | merged | Keep wrapped angles below one full turn
+  > A tiny negative angle used to wrap to exactly one full turn.
+thrust-fuel | feature | ilse | 4 | main | merged | Burn fuel to thrust the ship
+  > Fuel burns while the drive fires, at a fixed rate per unit of thrust.
+sprite-batch | fix | teodor | 4 | main | merged | Fix sprite order flicker in the batch
+scout-art | feature | noor | 4 | main | merged | Add the scout to the shipyard list
+  asset assets/sprites/ships/scout.png v1 "Add the scout sprite"
+thruster-art | feature | noor | 4 | main | merged | Show the thruster flame under thrust
+  asset assets/sprites/fx/thruster.png v1 "Add the thruster flame sprite"
+  asset docs/devlog/img/thruster.gif v1 "Record the thruster flame for the devlog"
+tag-v010 | chore | kasimir | 4 | main | merged | Tag v0.1.0 and write the changelog
+  > Tags v0.1.0 and writes the changelog from the commit subjects.
+  later: release
+asteroids | feature | wen | 5 | main | merged | Spawn asteroids on the outer orbits
+asteroid-art | art | noor | 5 | main | merged | Draw the asteroid field sprite
+  asset assets/sprites/asteroids.png v1 "Add the asteroid field sprite"
+collisions | feature | teodor | 5 | main | merged | Detect collisions between ships and asteroids
+  > Circle tests only; the hull shapes come with the ship rework.
+cinder-art | feature | ilse | 5 | main | merged | Put the cinder planet on the system map
+  asset assets/sprites/planets/cinder.png v1 "Add the cinder planet sprite"
+collision-stick | fix | rafe | 5 | main | direct | Stop ships sticking to asteroids after a hit
+  > A hit now pushes the ship out along the contact normal.
+hud-font | art | noor | 6 | main | merged | Add the HUD font
+  asset assets/fonts/OrbitalHud.ttf v1 "Add the HUD font"
+text-render | fix | teodor | 6 | main | merged | Fix text blurring at fractional zoom
+  > Glyphs come from the font atlas, one quad each.
+input-table | fix | kasimir | 6 | main | merged | Fix keys bound twice in the input table
+  > One table maps each action to its keys, so the settings menu can read it later.
+keymap-doc | docs | rafe | 6 | main | direct | Document the default key bindings
+digit-kerning | fix | ilse | 6 | main | direct | Fix kerning on the digits in the fuel readout
+  > Digits now share one advance width.
+engine-hum | audio | wen | 7 | main | merged | Play the engine hum under thrust
+  asset assets/audio/sfx/engine_hum.wav v1 "Add the engine hum sample"
+mixer | fix | teodor | 7 | main | merged | Fix the sound queue growing while the window is minimised
+  > A minimised window stops drawing, so nothing took the queued sounds. The queue now holds sixteen.
+cargo-hold | feature | ilse | 7 | main | merged | Add a cargo hold with a fixed number of slots
+  > Slots are fixed at twelve for now; upgrades come later.
+hauler-art | feature | ilse | 7 | main | merged | Put the hauler on the shipyard page
+  asset assets/sprites/ships/hauler.png v1 "Add the hauler sprite"
+glacier-art | feature | ilse | 7 | main | merged | Show the glacier planet in the orbit view
+  asset assets/sprites/planets/glacier.png v1 "Add the glacier planet sprite"
+tag-v020 | chore | kasimir | 7 | main | merged | Cut the v0.2.0 tag with the audio notes
+  later: release
+ring-station | feature | teodor | 8 | main | merged | Place a ring station on the inner orbit
+docking | feature | wen | 8 | main | merged | Dock with a station to stop the ship
+  > Docking needs the ship inside the ring and under the speed limit.
+ring-art | art | noor | 8 | main | merged | Draw the ring station sprite
+  asset assets/sprites/stations/ring.png v1 "Add the ring station sprite"
+design-doc-1 | docs | rafe | 8 | main | merged | Write the first design document
+  asset docs/design/orbital-design.pdf v1 "Add the first design document"
+dock-speed | balance | ilse | 8 | main | merged | Set the docking speed limit at 12 km/s
+  > A ship going faster than that can't latch on.
+mining-laser | balance | kasimir | 9 | main | merged | Cut the mining laser range to 40 units
+explosions | feature | teodor | 9 | main | merged | Explode asteroids that a hit wears through
+  > The explosion is a sprite only for now; particles come later.
+laser-sound | audio | wen | 9 | main | merged | Play a laser sound while mining
+  asset assets/audio/sfx/laser.wav v1 "Add the mining laser sound"
+explosion-art | feature | noor | 9 | main | merged | Show an explosion where a rock is destroyed
+  asset assets/sprites/fx/explosion.png v1 "Add the explosion sprite"
+explosion-sound | audio | wen | 9 | main | merged | Add the explosion sound
+  asset assets/audio/sfx/explosion.wav v1 "Add the explosion sound"
+prospector-art | feature | ilse | 9 | main | merged | Add the prospector to the shipyard list
+  asset assets/sprites/ships/prospector.png v1 "Add the prospector sprite"
+market | feature | ilse | 10 | main | merged | Add a market with buy and sell prices per good
+  > Prices start at the base value and move only when a trade happens.
+depot-art | feature | noor | 10 | main | merged | Place depot stations on the outer orbits
+  asset assets/sprites/stations/depot.png v1 "Add the depot station sprite"
+docking-chime | audio | wen | 10 | main | merged | Play a chime on docking
+  > The chime plays once on the first dock of a visit.
+  asset assets/audio/sfx/docking_chime.wav v1 "Add the docking chime"
+trade-screen | feature | kasimir | 10 | main | merged | Show the trade screen at a station
+  > The screen lists each good with its buy and sell price.
+chime-twice | fix | teodor | 10 | main | merged | Stop the docking chime playing twice on one visit
+  > Undocking left the ship in the port's reach, so it latched on again and chimed again.
+tag-v030 | chore | kasimir | 10 | main | merged | Tag v0.3.0 and write the changelog
+  later: release
+ui-icons | art | noor | 11 | main | merged | Draw the eight UI icons
+  asset assets/ui/icons/fuel.png v1 "Add the fuel icon"
+  asset assets/ui/icons/fuel.svg v1 "Add the fuel icon"
+  asset assets/ui/icons/cargo.png v1 "Add the cargo icon"
+  asset assets/ui/icons/cargo.svg v1 "Add the cargo icon"
+  asset assets/ui/icons/map.png v1 "Add the map icon"
+  asset assets/ui/icons/map.svg v1 "Add the map icon"
+  asset assets/ui/icons/trade.png v1 "Add the trade icon"
+  asset assets/ui/icons/trade.svg v1 "Add the trade icon"
+  asset assets/ui/icons/dock.png v1 "Add the dock icon"
+  asset assets/ui/icons/dock.svg v1 "Add the dock icon"
+  asset assets/ui/icons/mine.png v1 "Add the mine icon"
+  asset assets/ui/icons/mine.svg v1 "Add the mine icon"
+  asset assets/ui/icons/target.png v1 "Add the target icon"
+  asset assets/ui/icons/target.svg v1 "Add the target icon"
+  asset assets/ui/icons/settings.png v1 "Add the settings icon"
+  asset assets/ui/icons/settings.svg v1 "Add the settings icon"
+save-files | feature | teodor | 11 | main | merged | Save and load the game state to a file
+  > Saves are written to a temporary file first, then renamed over the old one.
+save-version | feature | ilse | 11 | main | merged | Write a version number into each save file
+  > The version sits right after the magic, and a build refuses any format it can't read.
+tempest-art | feature | ilse | 11 | main | merged | Add the tempest planet to the star chart
+  > The system now comes from the sector tables, so the tempest is one more row in sector 1.
+  asset assets/sprites/planets/tempest.png v1 "Add the tempest planet sprite"
+tooltip-clip | fix | rafe | 11 | main | direct | Keep icon tooltips inside the window
+title-screen | feature | kasimir | 12 | main | merged | Show a title screen on launch
+  asset assets/title/title.png v1 "Add the title screen art"
+menus | fix | teodor | 12 | main | merged | Fix the main menu losing focus after a resize
+  > A resize rebuilt the title menu, so the focus jumped back to the first entry.
+ui-click | audio | wen | 12 | main | merged | Click a sound on every menu button
+  > The click is short enough not to clash with the engine hum.
+  asset assets/audio/sfx/ui_click.wav v1 "Add the menu click sound"
+outpost-art | feature | noor | 12 | main | merged | Place outpost stations at the belt edges
+  asset assets/sprites/stations/outpost.png v1 "Add the outpost station sprite"
+menu-wrap | fix | rafe | 12 | main | direct | Fix menu focus wrapping at the last item
+orbit-map | feature | teodor | 13 | main | merged | Show the orbit map for the whole system
+  > The map draws every body where it is, with the ship on top, and the flight runs on under it.
+  asset docs/devlog/img/orbit-map.png v1 "Capture the orbit map for the devlog"
+dustball-art | feature | ilse | 13 | main | merged | Place the dustball planet on its orbit
+  asset assets/sprites/planets/dustball.png v1 "Add the dustball planet sprite"
+map-zoom | fix | wen | 13 | main | direct | Keep the orbit map zoom centred on the cursor
+  > Zoom keeps the point under the cursor fixed on screen.
+map-edge | fix | wen | 13 | main | merged | Count the orbit map's far edge as inside
+  > A body on the last pixel column of the map wasn't drawn.
+starfield | balance | kasimir | 14 | main | merged | Halve the starfield density at low zoom
+  > Three layers move at different speeds for a sense of depth.
+cargo-clank | audio | wen | 14 | main | merged | Clank the cargo hold when it fills
+  asset assets/audio/sfx/cargo_clank.wav v1 "Add the cargo clank sound"
+readme-3 | docs | rafe | 14 | main | direct | Rewrite the README around the play loop
+  > The README now walks through one play session from start to finish.
+tanker-art | feature | ilse | 14 | main | merged | List the tanker in the shipyard
+  asset assets/sprites/ships/tanker.png v1 "Add the tanker sprite"
+tag-v040 | chore | kasimir | 14 | main | merged | Release v0.4.0 and link the devlog
+  later: release
+hud-font-2 | art | noor | 15 | main | merged | Widen the HUD digits
+  asset assets/fonts/OrbitalHud.ttf v2 "Widen the HUD digits"
+settings-menu | feature | teodor | 15 | main | merged | Add a settings menu for volume and keys
+  > The settings are saved when the player leaves the screen.
+volume-sliders | balance | kasimir | 15 | main | merged | Set the default music volume to 40 percent
+  > The sliders step in five percent increments.
+hud-jitter | fix | ilse | 15 | main | direct | Fix the fuel readout jumping when digits change
+settings-save | fix | wen | 15 | main | merged | Fix settings resetting after an update
+  > Settings live in one file beside the saves.
+ecs-world | feature | teodor | 16 | main | merged | Store game objects in an ECS world
+  > Entities are plain ids; components live in one table per type.
+systems | feature | rafe | 16 | main | merged | Run physics and mining as systems
+  > Each system runs once per tick, in a fixed order.
+game-icon | art | noor | 16 | main | merged | Draw the game icon
+  asset crates/orbital-game/assets/orbital.ico v1 "Add the game icon"
+interceptor-art | feature | noor | 16 | main | merged | Add the interceptor to the shipyard list
+  asset assets/sprites/ships/interceptor.png v1 "Add the interceptor sprite"
+query-skip | fix | ilse | 16 | main | merged | Fix queries skipping the last entity in a system
+  > The loop bound was one short, so the last entity was never visited.
+save-sample | docs | rafe | 17 | main | merged | Add a sample save for bug reports
+  asset saves/sample.orbsave v1 "Add a sample save for bug reports"
+saves-docs | docs | ilse | 17 | main | direct | Document the save file format
+autosave | feature | kasimir | 17 | main | merged | Autosave every five minutes
+  > The autosave goes to its own slot, which the title screen's continue reads.
+truncated-save | fix | wen | 17 | main | merged | Stop a truncated save from crashing the load
+  > A short file now reports an error instead of panicking.
+tag-v050 | chore | kasimir | 17 | main | merged | Tag v0.5.0 and write the changelog
+  later: release
+multiplayer | experiment | teodor | 18 | main | long-lived | Prototype lockstep multiplayer
+  > Each peer runs the same simulation and exchanges only inputs.
+bloom-pass | balance | teodor | 18 | main | merged | Dim the bloom on the thruster glow
+  > The bloom is a two-pass blur over the glow layer.
+bloom-cost-doc | fix | rafe | 18 | main | direct | Cap bloom passes at two per frame
+shader-reload | feature | wen | 18 | main | merged | Reload shaders without restarting the game
+  > F5 rebuilds the sprite pipeline from its file; a file that can't be read leaves the old one.
+orbit-trails | balance | teodor | 19 | main | merged | Shorten the orbit trail to 300 ticks
+  > Trails are stored in a ring buffer, one per ship.
+debug-draw | feature | kasimir | 19 | main | merged | Draw the debug overlay on F3
+  > The overlay is a bar of the last frame's time against the 60 fps budget.
+debug-menu-clip | fix | wen | 19 | main | direct | Stop the debug overlay drawing over the menu
+tag-v060 | chore | kasimir | 19 | main | merged | Ship v0.6.0 with a changelog
+  later: release
+trail-fade | fix | rafe | 19 | main | merged | Stop the trail fade going NaN when its edges match
+  > A zero-width fade range made every trail point vanish.
+menu-music | audio | wen | 20 | main | merged | Loop the menu track under the title screen
+  > The loop point is sample-accurate, so the track does not click.
+  asset assets/audio/music/menu-loop.ogg v1 "Add the menu music loop"
+audio-buses | feature | kasimir | 20 | main | merged | Route sounds to effects and interface buses
+  > Music, effects and interface each have their own bus.
+courier-art | feature | ilse | 20 | main | merged | Show the courier in the shipyard
+  asset assets/sprites/ships/courier.png v1 "Add the courier sprite"
+music-fade | fix | rafe | 20 | main | direct | Fade the menu music out when a game starts
+  > The fade takes two seconds, down to silence.
+hud-cargo | feature | ilse | 21 | main | merged | Show the cargo hold's fill on the HUD
+  > A bar under the fuel gauge, so a full hold shows before the next dock.
+planet-shading | art | noor | 21 | main | merged | Rework the planet shading
+  > Shading uses a single light direction for every planet.
+  asset assets/sprites/planets/verdant.png v2 "Rework the planet shading"
+  asset assets/sprites/planets/cinder.png v2 "Rework the planet shading"
+  asset assets/sprites/planets/glacier.png v2 "Rework the planet shading"
+  asset assets/sprites/planets/tempest.png v2 "Rework the planet shading"
+  asset assets/sprites/planets/dustball.png v2 "Rework the planet shading"
+shading-banding | fix | teodor | 21 | main | merged | Fix planet banding on the dark side
+  > A dithering pass hides the bands on the night side.
+light-direction | feature | teodor | 21 | main | merged | Add a light direction setting for the planets
+  > Every planet is lit from one direction, and the settings screen turns it.
+shader-notes | docs | rafe | 21 | main | direct | Note the light model in the shader comments
+asteroid-art-2 | art | noor | 22 | main | merged | Replace the asteroid sprites with the belt set
+  asset assets/sprites/asteroids.png v2 "Redraw the asteroid field sprite"
+asteroid-belts | balance | wen | 22 | main | merged | Thin each asteroid belt to 24 rocks
+  > Fewer rocks leave room to fly through a belt instead of round it.
+mining-yield | balance | ilse | 22 | main | merged | Raise the ore yield per asteroid
+  > A rock now yields more ore before it is spent.
+belt-spawn | fix | teodor | 22 | main | merged | Fix belt asteroids spawning on top of each other
+  > Each rock now starts a random way outside the belt's radius.
+asteroid-spread | fix | teodor | 22 | main | merged | Spread asteroids around the belt instead of along one axis
+  > Rocks start at a random angle and move across the radius, so the belt reads as a ring.
+overlay-wire | fix | kasimir | 22 | main | merged | Draw the frame-time overlay that F3 toggles
+  > F3 has flipped the overlay since milestone 19, but the app loop never drew it.
+tag-v070 | chore | kasimir | 22 | main | merged | Write the v0.7.0 changelog and tag it
+  later: release
+hud-speed | feature | kasimir | 23 | main | merged | Show the ship's speed on the HUD
+  > Speed in kilometres a second, read from the ship's velocity each frame.
+explosion-art-2 | art | noor | 23 | main | merged | New explosion art with a shorter flash
+  asset assets/sprites/fx/explosion.png v2 "Redraw the explosion sprite"
+thruster-art-2 | art | noor | 23 | main | merged | Redraw the thruster flame
+  asset assets/sprites/fx/thruster.png v2 "Redraw the thruster flame"
+explosion-lifetime | fix | teodor | 23 | main | merged | Stop explosions staying on screen after their flash
+  > The explosion now ends when its animation does.
+thruster-flicker | fix | wen | 23 | main | direct | Stop the thruster flame flickering at low fuel
+explosion-shake | feature | kasimir | 23 | main | merged | Shake the camera when the ship hits a rock
+  > The shake grows with the speed of the hit and dies away in about a second.
+ship-rework | art | noor | 24 | main | merged | Redraw the scout, hauler and interceptor
+  > The three ships share one hull outline and a new colour palette.
+  asset assets/sprites/ships/scout.png v2 "Redraw the scout ship"
+  asset assets/sprites/ships/hauler.png v2 "Redraw the hauler ship"
+  asset assets/sprites/ships/interceptor.png v2 "Redraw the interceptor ship"
+save-v2 | feature | ilse | 24 | main | merged | Move the save format to version 2
+  > The version 2 format adds the save's creation time, and the ship's fuel and hull.
+save-migrate | feature | teodor | 24 | main | merged | Migrate version 1 saves on load
+  > Version 1 saves are upgraded in memory and written back as version 2.
+sample-save-2 | docs | rafe | 24 | main | merged | Update the sample save to format 2
+  asset saves/sample.orbsave v2 "Update the sample save to format 2"
+engine-hum-2 | audio | wen | 25 | main | merged | Rework the engine hum with a load-dependent pitch
+  > The new sample is lower, and loops without a click.
+  asset assets/audio/sfx/engine_hum.wav v2 "Rework the engine hum"
+laser-2 | audio | wen | 25 | main | merged | Shorten the mining laser sound
+  > The new sound is 0.4 seconds long.
+  asset assets/audio/sfx/laser.wav v2 "Shorten the mining laser sound"
+chime-2 | audio | wen | 25 | main | merged | Rework the docking chime
+  > The chime now ends on the root note.
+  asset assets/audio/sfx/docking_chime.wav v2 "Rework the docking chime"
+audio-balance | audio | teodor | 25 | main | merged | Balance the sound effects against the music
+  > The music sits about 6 dB under the effects on the menu.
+tag-v080 | chore | kasimir | 25 | main | merged | Tag v0.8.0 and write the changelog
+  later: release
+design-doc-2 | docs | rafe | 26 | main | merged | Update the design document for the economy
+  > The economy chapter now covers drift and contracts.
+  asset docs/design/orbital-design.pdf v2 "Update the design document"
+ring-art-2 | art | noor | 26 | main | merged | Give the ring station a new hull
+  asset assets/sprites/stations/ring.png v2 "Redraw the ring station"
+scout-faction-tint | art | noor | 26 | main | merged | Tint the scout hull for the faction colours
+  > The tint is one palette lookup, so it costs nothing at draw time.
+  asset assets/sprites/ships/scout.png v3 "Tint the scout hull for the faction colours"
+pause-test | chore | rafe | 26 | main | merged | Test that an open screen pauses the flight
+  > The flight's clock stops under a screen, so a menu can't run the ship into a station.
+economy-drift | balance | ilse | 26 | main | merged | Let market prices drift over time
+  > Prices drift a few percent a day and pull back toward their base.
+drift-floor | fix | teodor | 26 | main | merged | Stop prices drifting below zero
+  > Prices clamp at one unit of currency.
+drift-guide | docs | ilse | 26 | main | direct | Explain price drift in the trade guide
+  > Explains the drift in plain terms, with one worked example.
+hud-font-3 | art | noor | 27 | main | merged | Hint the HUD font for small sizes
+  asset assets/fonts/OrbitalHud.ttf v3 "Hint the HUD font for small sizes"
+text-scale | feature | kasimir | 27 | main | merged | Scale the interface text from the settings menu
+  > Scale runs from 80 to 160 percent.
+high-contrast | feature | teodor | 27 | main | merged | Add a high-contrast theme
+  > The gauges get gold frames, and the starfield dims behind them.
+colour-blind | feature | wen | 27 | main | merged | Add a colour-blind palette for the orbit map
+  > Green and red turn blue and orange, on the orbit map's markers and the fuel gauge.
+focus-ring | fix | rafe | 27 | main | direct | Make the focus ring visible on every button
+tag-v090 | chore | kasimir | 27 | main | merged | Release v0.9.0 with the accessibility notes
+  later: release
+title-2 | art | noor | 28 | main | merged | Redraw the title screen
+  > The new title art sits behind a darker band for the menu.
+  asset assets/title/title.png v2 "Redraw the title screen"
+icon-2 | art | noor | 28 | main | merged | New game icon with a heavier outline
+  asset crates/orbital-game/assets/orbital.ico v2 "Redraw the game icon"
+contracts | feature | teodor | 28 | main | merged | Add delivery contracts with a deadline
+  > A contract pays on delivery and expires when its deadline passes.
+contract-pay | balance | ilse | 28 | main | merged | Pay contracts by distance and urgency
+  > Pay rises with the distance and shrinks as the deadline nears.
+contract-pause | fix | rafe | 28 | main | direct | Stop contract deadlines counting while paused
+contracts-ui | feature | wen | 29 | main | merged | Show open contracts on the trade screen
+  > Contracts show their deadline in days.
+fuel-icon-2 | art | noor | 29 | main | merged | Redraw the fuel icon
+  > Reads clearly at 16 pixels.
+  asset assets/ui/icons/fuel.png v2 "Redraw the fuel icon"
+contracts-empty | fix | ilse | 29 | main | direct | Show an empty state when no contracts are open
+contract-tests | feature | rafe | 29 | main | direct | Count contract payouts in the trade total
+  > Each payout case gets its own test.
+press-kit-1 | docs | rafe | 30 | main | merged | Add the first press kit
+  > The kit has the title art, three screenshots and the trailer.
+  asset press/img/title.png v1 "Add the press kit title image"
+trailer-1 | art | noor | 30 | main | merged | Cut the first trailer
+  > A forty-second cut, with music from the menu track.
+  asset press/trailer.webm v1 "Add the first trailer"
+screenshots-1 | docs | noor | 30 | main | merged | Take the first set of press screenshots
+  > Taken at 1080p on the default palette.
+  asset press/img/screenshot-orbit.png v1 "Add the orbit screenshot"
+  asset press/img/screenshot-trade.png v1 "Add the trade screenshot"
+  asset press/img/screenshot-dock.png v1 "Add the dock screenshot"
+cut-10 | chore | kasimir | 30 | main | merged | Build a release archive for the tags from v1.0
+  > A tag's pipeline packs the assets next to the release build.
+fix-1-0-save | fix | ilse | 31 | release/1.0 | merged | Fix the 1.0 loader rejecting empty save slots
+  > Empty slots now load as new games.
+fix-1-0-chime | fix | kasimir | 31 | release/1.0 | merged | Fix the docking chime playing twice after a load
+  > A game saved at a station counts its chime as played when it is continued.
+map-labels | feature | wen | 31 | main | merged | Polish the orbit map labels
+  > Labels stop overlapping when two bodies share an orbit.
+map-legend | feature | kasimir | 31 | main | merged | Add a legend to the orbit map
+  > The legend lists the body types and their colours.
+tag-1-0-1 | chore | kasimir | 31 | main | merged | Tag v1.0.1 from release/1.0
+  later: release
+modding-docs | docs | noor | 32 | main | merged | Document how to add a ship with a mod folder
+  > Covers the ship file format and the mod folder layout.
+gamepad-thrust | feature | kasimir | 32 | main | merged | Add gamepad support for thrust and steering
+  > Thrust is analogue, so a half-press gives half thrust.
+mod-loader | feature | wen | 32 | main | merged | Load ship definitions from a mod folder
+  > Mod folders are read at startup; a bad line is skipped with a log line.
+stick-deadzone | fix | rafe | 32 | main | direct | Add a deadzone to the gamepad sticks
+  > The deadzone is 15 percent of the stick range.
+save-v3 | feature | ilse | 33 | main | merged | Store open contracts in save format 3
+  > Contracts are stored as a list, with their deadlines in ticks.
+save-migrate-3 | feature | teodor | 33 | main | merged | Migrate format 2 saves to format 3
+  > Format 2 saves gain an empty contract list on load.
+sample-save-3 | feature | rafe | 33 | main | merged | Add contracts to the sample save
+  asset saves/sample.orbsave v3 "Add contracts to the sample save"
+strings-table | feature | wen | 33 | main | merged | Move interface strings into one table
+  > The menus, the settings and the HUD look their text up by key.
+localise-guide | docs | rafe | 33 | main | direct | Describe how to add a translation
+station-services | balance | kasimir | 34 | main | merged | Set the refuel price per unit of fuel
+  > The refuel key fills the tank and bills it at a fixed price a tonne.
+gravity-coarse | fix | teodor | 34 | main | merged | Halve the gravity cost with a coarse pass
+  > Far bodies are summed on a coarser grid, which halves the cost.
+asteroid-batch | fix | teodor | 34 | main | merged | Batch the asteroid sprites into the main draw
+  > Asteroids now share one vertex buffer.
+repair-price | balance | ilse | 34 | main | merged | Price repairs by hull damage
+  > The price is a fixed rate per percent of hull lost.
+cut-11 | chore | kasimir | 34 | main | merged | Run the release job on the release/1.1 branch
+speed-clamp | fix | teodor | 34 | main | merged | Skip the square root in the speed clamp
+  > Short vectors return early, which saves a square root per ship per tick.
+fix-1-1-repair | fix | kasimir | 35 | release/1.1 | merged | Fix the refuel button charging for repairs twice
+  > The station's bill already counts the repairs, and the button added them again.
+fix-1-1-belt | fix | ilse | 35 | release/1.1 | merged | Fix belts spawning on top of a station
+  > Belt spawns check the station radius first.
+screenshots-2 | docs | noor | 35 | main | merged | Retake the press screenshots at 4K
+  > Retaken at 4K, with the HUD scaled to match.
+  asset press/img/screenshot-orbit.png v2 "Retake the orbit screenshot"
+  asset press/img/screenshot-trade.png v2 "Retake the trade screenshot"
+  asset press/img/screenshot-dock.png v2 "Retake the dock screenshot"
+tag-1-1-1 | chore | kasimir | 35 | main | merged | Tag v1.1.1 from release/1.1
+  later: release
+trailer-2 | art | noor | 36 | main | merged | Recut the trailer with the new ships
+  > Shows the new ships and the autopilot preview.
+  asset press/trailer.webm v2 "Recut the trailer with the new ships"
+verlet | feature | teodor | 36 | main | merged | Add a Verlet integrator for the orbit predictor
+  > Verlet keeps the energy steady over long orbits.
+verlet-drift | fix | kasimir | 36 | main | merged | Fix the Verlet step ignoring the timestep
+  > The timestep was read once and never updated.
+verlet-tests | fix | rafe | 36 | main | direct | Fix Verlet energy drift over a long orbit
+cut-12 | chore | kasimir | 37 | main | merged | Run the release job on every release branch
+rc-trade-scroll | fix | kasimir | 37 | release/1.2 | merged | Fix the trade screen losing its place between docks
+  > The screen opens on the good last traded, not at the top of the list.
+rc-zero-fuel | fix | ilse | 37 | release/1.2 | merged | Fix the thruster flame burning on an empty tank
+  > The flame now goes out with the drive at zero fuel.
+rc-map-lag | fix | rafe | 37 | release/1.2 | merged | Fix the orbit map drawing one tick behind
+  > The map reads the ship state after the tick, not before.
+autopilot-stub | feature | teodor | 37 | main | merged | Add a path planner stub for the autopilot
+  > Returns a straight-line route until the planner lands.
+tag-1-2-0 | chore | kasimir | 38 | main | merged | Tag v1.2.0 from release/1.2
+  > Tags v1.2.0 on release/1.2 and merges the notes back.
+  later: release
+trade-routes | feature | wen | 38 | main | diverged | Plan multi-stop trade routes
+  > A route is a list of stops that repeats until cancelled.
+hd-sprites | art | noor | 38 | main | open | Draw the ships at twice the resolution
+  > Ships are drawn at 512 pixels; the old sprites stay as the fallback.
+  asset assets/sprites/ships/scout.png v4 "Draw the scout at twice the resolution"
+route-stops | feature | wen | 38 | main | merged | Show the next stop on a trade route
+  > The next stop shows on the HUD.
+  later: unwritten
+autopilot-burns | feature | teodor | 38 | main | merged | Plan transfer burns for the autopilot
+  > The core works out a transfer's two burns from the radii of the two orbits.
+autopilot | feature | kasimir | 39 | main | unpushed:2 | Add an autopilot for transfer burns
+  > The autopilot plans transfer burns and flies them.
+station-ui | feature | wen | 39 | main | remote-ahead:2 | Rework the station screen
+  > The station screen groups services, market and contracts.
+fuel-rework | balance | ilse | 39 | main | conflict | Burn less fuel per unit of thrust and make fuel cells dearer
+  > A burn takes less fuel for the same thrust; fuel cells cost more and swing harder in price.
+hud-polish | feature | kasimir | 39 | main | irebase | Polish the HUD gauges
+  > The gauges share one framed style, coloured by how full they are.
+save-swap | fix | rafe | 39 | release/1.2 | merged | Fix a crash while saving losing the last good save
+  > The save goes to a file beside its slot and is moved over it once it is whole.
+music-cap | fix | kasimir | 39 | release/1.2 | merged | Fix an edited settings file pushing the music past 100%
+  > The settings file's music level stops at 100 percent, as the slider does.
+tag-1-2-1 | chore | kasimir | 39 | main | merged | Tag v1.2.1 from release/1.2
+  later: release
+press-kit-2 | docs | noor | 40 | main | draft | Refresh the press kit for 1.2
+  > Refreshes the kit for the 1.2 release.
+wormholes | feature | teodor | 40 | main | draft | Prototype wormholes between sectors
+  > Wormholes link two sectors. Draft only.
+wormhole-art | art | noor | 40 | main | draft | Draw the wormhole gate sprite
+  > Draft gate sprite for the wormhole prototype.
+  later: unwritten
+changelog-notes | docs | wen | 40 | main | merged | Explain the changelog and patch releases in the contributing notes
+  > Says what a release's changelog lists, and what a patch release takes.
+ci-cache | chore | rafe | 40 | main | merged | Cache the cargo registry between pipelines
+  > Pipelines keep the registry and the dependencies' checkouts between runs.

@@ -1,0 +1,107 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 200
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "long.txt",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:long.txt"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:long.txt"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "mixed.txt",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:mixed.txt"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:mixed.txt"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "blame",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "rev": {
+    "$rev": "HEAD"
+   },
+   "path": "long.txt"
+  }
+ },
+ {
+  "method": "blame",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "rev": {
+    "$rev": "HEAD"
+   },
+   "path": "mixed.txt"
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "mixed.txt",
+   "skip": 0,
+   "limit": 200
+  }
+ },
+ {
+  "method": "findPaths",
+  "params": {
+   "repo": "$repo",
+   "query": "mixed"
+  }
+ }
+]

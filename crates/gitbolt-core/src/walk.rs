@@ -1,57 +1,25 @@
-//! Collects up to `limit` commits newest-first, then fixes any clock-skew inversions with a
-//! date-priority topological sort (Kahn) so that children always precede parents.
+//! The graph's walk over gix: `gitbolt_graph::walk`'s order (newest committer date first, then a
+//! date-priority topological fix-up), each commit read and parsed in process.
 
 use crate::commit::parse_commit;
 use crate::error::{gix_err, GbError};
+use crate::graph::{to_gix, to_oid};
 use crate::message_refs::parse_message_refs;
-use gix::ObjectId;
-use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap, HashSet};
+pub use gitbolt_graph::{CommitMeta, Oid, WalkOptions, WalkResult};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct CommitMeta {
-    pub id: ObjectId,
-    pub parents: Vec<ObjectId>,
-    pub author_name: String,
-    pub author_email: String,
-    pub author_time: i64,
-    pub committer_time: i64,
-    pub summary: String,
-    pub body: String,
-    /// MR/PR/issue references in the full message (`message_refs`), parsed from the same
-    /// decoded commit: it includes lines 2+ of the first paragraph, which `summary`/`body` drop.
-    pub mr_refs: Vec<String>,
-}
-
-#[derive(Debug, Clone, Default)]
-pub struct WalkOptions {
-    pub limit: usize,
-    /// Commits whose extra parents must not be followed or reported (stash commits).
-    pub first_parent_only: HashSet<ObjectId>,
-}
-
-#[derive(Debug, Clone)]
-pub struct WalkResult {
-    pub commits: Vec<CommitMeta>,
-    pub truncated: bool,
-}
-
-fn load(repo: &gix::Repository, id: ObjectId, opts: &WalkOptions) -> Result<Option<CommitMeta>, GbError> {
-    if !repo.has_object(id) {
+fn load(repo: &gix::Repository, id: Oid) -> Result<Option<CommitMeta>, GbError> {
+    let gid = to_gix(id);
+    if !repo.has_object(gid) {
         return Ok(None);
     }
-    let obj = repo.find_object(id).map_err(gix_err)?;
+    let obj = repo.find_object(gid).map_err(gix_err)?;
     if obj.kind != gix::object::Kind::Commit {
         return Ok(None);
     }
     let c = parse_commit(&obj.data)?;
-    let mut parents = c.parents;
-    if opts.first_parent_only.contains(&id) {
-        parents.truncate(1);
-    }
     Ok(Some(CommitMeta {
         id,
-        parents,
+        parents: c.parents.into_iter().map(to_oid).collect(),
         author_name: c.author.name,
         author_email: c.author.email,
         author_time: c.author.time,
@@ -62,83 +30,26 @@ fn load(repo: &gix::Repository, id: ObjectId, opts: &WalkOptions) -> Result<Opti
     }))
 }
 
-pub fn walk(repo: &gix::Repository, tips: &[ObjectId], opts: &WalkOptions) -> Result<WalkResult, GbError> {
-    let (collected, truncated) = walk_by_date(repo, tips, opts)?;
-    Ok(WalkResult { commits: topo_by_date(collected), truncated })
+pub fn walk(repo: &gix::Repository, tips: &[Oid], opts: &WalkOptions) -> Result<WalkResult, GbError> {
+    gitbolt_graph::walk(tips, opts, |id| load(repo, id))
 }
 
-/// The commits `walk` collects, in the order it collects them (newest committer date first),
-/// before the topological fix-up; and whether more were left. A walk with a smaller `limit`
-/// collects a prefix of this order, so a commit at position `i` here is in every window of
-/// `limit > i` (find's outside-window hashes, spec §8.7).
-pub fn walk_by_date(repo: &gix::Repository, tips: &[ObjectId], opts: &WalkOptions) -> Result<(Vec<CommitMeta>, bool), GbError> {
-    let mut heap: BinaryHeap<(i64, Reverse<u64>, ObjectId)> = BinaryHeap::new();
-    let mut loaded: HashMap<ObjectId, CommitMeta> = HashMap::new();
-    let mut seen: HashSet<ObjectId> = HashSet::new();
-    let mut seq = 0u64;
-    let mut enqueue = |id: ObjectId, heap: &mut BinaryHeap<_>, loaded: &mut HashMap<_, _>| -> Result<(), GbError> {
-        if seen.insert(id) && let Some(c) = load(repo, id, opts)? {
-            heap.push((c.committer_time, Reverse(seq), id));
-            seq += 1;
-            loaded.insert(id, c);
-        }
-        Ok(())
-    };
-    for &t in tips {
-        enqueue(t, &mut heap, &mut loaded)?;
-    }
-    let mut collected = Vec::new();
-    while collected.len() < opts.limit {
-        let Some((_, _, id)) = heap.pop() else { break };
-        let c = loaded.remove(&id).expect("enqueued commit is loaded");
-        for &p in &c.parents {
-            enqueue(p, &mut heap, &mut loaded)?;
-        }
-        collected.push(c);
-    }
-    Ok((collected, !heap.is_empty()))
-}
-
-/// Kahn's algorithm restricted to the collected set; ties are broken by committer time, then by
-/// original (newest-first) position.
-fn topo_by_date(commits: Vec<CommitMeta>) -> Vec<CommitMeta> {
-    let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
-    let mut children = vec![0usize; commits.len()];
-    for c in &commits {
-        for p in &c.parents {
-            if let Some(&pi) = index.get(p) {
-                children[pi] += 1;
-            }
-        }
-    }
-    let mut ready: BinaryHeap<(i64, Reverse<usize>)> =
-        (0..commits.len()).filter(|&i| children[i] == 0).map(|i| (commits[i].committer_time, Reverse(i))).collect();
-    let mut order = Vec::with_capacity(commits.len());
-    while let Some((_, Reverse(i))) = ready.pop() {
-        order.push(i);
-        for p in &commits[i].parents {
-            if let Some(&pi) = index.get(p) {
-                children[pi] -= 1;
-                if children[pi] == 0 {
-                    ready.push((commits[pi].committer_time, Reverse(pi)));
-                }
-            }
-        }
-    }
-    let mut slots: Vec<Option<CommitMeta>> = commits.into_iter().map(Some).collect();
-    order.into_iter().map(|i| slots[i].take().expect("each commit emitted once")).collect()
+/// `gitbolt_graph::walk_by_date` over this repository: the collection order find sizes windows by.
+pub fn walk_by_date(repo: &gix::Repository, tips: &[Oid], opts: &WalkOptions) -> Result<(Vec<CommitMeta>, bool), GbError> {
+    gitbolt_graph::walk_by_date(tips, opts, |id| load(repo, id))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::testing::{fixtures, TestRepo};
+    use std::collections::{HashMap, HashSet};
 
-    fn oid(s: &str) -> ObjectId {
-        ObjectId::from_hex(s.as_bytes()).unwrap()
+    fn oid(s: &str) -> Oid {
+        Oid::from_hex(s).unwrap()
     }
 
-    fn all_tips(r: &TestRepo) -> Vec<ObjectId> {
+    fn all_tips(r: &TestRepo) -> Vec<Oid> {
         r.git(&["for-each-ref", "--format=%(objectname)", "refs/heads", "refs/remotes", "refs/tags"])
             .lines()
             .map(|l| {
@@ -149,7 +60,7 @@ mod tests {
     }
 
     fn assert_children_first(commits: &[CommitMeta]) {
-        let pos: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
+        let pos: HashMap<Oid, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
         for (i, c) in commits.iter().enumerate() {
             for p in &c.parents {
                 if let Some(&pi) = pos.get(p) {
@@ -242,7 +153,7 @@ mod tests {
         let src = format!("file://{}", r.path().display());
         r.git_in(r.root(), &["clone", "-q", "--depth", "2", &src, shallow.to_str().unwrap()]);
         let repo = gix::open(&shallow).unwrap();
-        let head = repo.head_id().unwrap().detach();
+        let head = to_oid(repo.head_id().unwrap().detach());
         let res = walk(&repo, &[head], &WalkOptions { limit: 10, first_parent_only: HashSet::new() }).unwrap();
         assert_eq!(res.commits.len(), 2);
         assert_eq!(res.commits[1].parents.len(), 1, "missing parent id is kept");

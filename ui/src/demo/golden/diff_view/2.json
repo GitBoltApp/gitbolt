@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 16,
+    "deleted": 21,
+    "files": [
+      {
+        "additions": 2,
+        "deletions": 4,
+        "new": {
+          "kind": "object",
+          "oid": "ee3c6cd9ede9b115e11dbc30d0fe84f6be69d560"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "192ff33db182b1ba2add6b1d58d1fe6aaa31e517"
+        },
+        "oldPath": null,
+        "path": "long.txt",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 14,
+        "deletions": 17,
+        "new": {
+          "kind": "object",
+          "oid": "d41524e669bdf4b2244242047330e32e06b16f67"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "e4dfb358b7fd4240051dc4c4bb73803c9049fc39"
+        },
+        "oldPath": null,
+        "path": "mixed.txt",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

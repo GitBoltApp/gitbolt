@@ -1,0 +1,275 @@
+#file crates/orbital-game/src/net.rs
+#header v1 @multiplayer "Prototype lockstep multiplayer"
+//! Lockstep networking: each peer sends its inputs a few ticks ahead, and the simulation steps only
+//! once every peer's inputs for that tick are in.
+
+use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+
+#const INPUT_DELAY v1 @multiplayer "Prototype lockstep multiplayer"
+/// How many ticks ahead inputs are sent, so the network has time to deliver them.
+pub const INPUT_DELAY: u64 = 3;
+#const INPUT_DELAY v2 @multiplayer
+/// How many ticks ahead inputs are sent, so the network has time to deliver them before the
+/// simulation needs them.
+pub const INPUT_DELAY: u64 = 4;
+#const INPUT_DELAY v3 @multiplayer "Send inputs two ticks ahead on the local network"
+/// How many ticks ahead inputs are sent, so the network has time to deliver them.
+pub const INPUT_DELAY: u64 = 2;
+#const INPUT_DELAY v4 @multiplayer "Raise the input delay to five ticks on slow links"
+/// How many ticks ahead inputs are sent, so the network has time to deliver them.
+pub const INPUT_DELAY: u64 = 5;
+#const MAX_PACKET v1 @multiplayer "Refuse packets over 64 KiB"
+/// The largest packet a peer will decode, in bytes.
+pub const MAX_PACKET: usize = 65_536;
+#item Input v1 @multiplayer "Send each peer's controls as an input packet"
+/// One peer's controls for one tick.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Input {
+    pub thrust: f32,
+    pub turn: f32,
+}
+#item Input v2 @multiplayer "Send the mining laser with each input"
+/// One peer's controls for one tick.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct Input {
+    pub thrust: f32,
+    pub turn: f32,
+    pub mine: bool,
+}
+#item Packet v1 @multiplayer "Send each peer's controls as an input packet"
+/// What one peer sends another: its name when it joins, its inputs for a tick, or a checksum of
+/// its simulation so a desync shows up at once.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Packet {
+    Hello { name: String },
+    Input { tick: u64, input: Input },
+    Checksum { tick: u64, value: u32 },
+}
+#item Packet v2 @multiplayer "Tell the other peers when a player leaves"
+/// What one peer sends another: its name when it joins, its inputs for a tick, a checksum of its
+/// simulation so a desync shows up at once, or a word that it has left.
+#[derive(Debug, Serialize, Deserialize)]
+pub enum Packet {
+    Hello { name: String },
+    Input { tick: u64, input: Input },
+    Checksum { tick: u64, value: u32 },
+    Leave { name: String },
+}
+#item Lockstep v1 @multiplayer "Step the simulation once every input for the tick is in"
+/// The lockstep clock: the tick the simulation is on, and the inputs each peer has sent for the
+/// ticks ahead of it.
+#[derive(Debug)]
+pub struct Lockstep {
+    pub tick: u64,
+    peers: usize,
+    pending: BTreeMap<u64, Vec<Input>>,
+}
+#item new v1 @multiplayer "Step the simulation once every input for the tick is in"
+impl Lockstep {
+    /// A clock for a game of `peers` players, at tick zero with nothing received.
+    pub fn new(peers: usize) -> Self {
+        Self {
+            tick: 0,
+            peers,
+            pending: BTreeMap::new(),
+        }
+    }
+}
+#item new v2 @multiplayer "Start the clock on the first tick the input delay allows"
+impl Lockstep {
+    /// A clock for a game of `peers` players, at the first tick the input delay leaves free.
+    pub fn new(peers: usize) -> Self {
+        Self {
+            tick: INPUT_DELAY,
+            peers,
+            pending: BTreeMap::new(),
+        }
+    }
+}
+#item receive v1 @multiplayer "Step the simulation once every input for the tick is in"
+impl Lockstep {
+    /// Records one peer's input for `tick`.
+    pub fn receive(&mut self, tick: u64, input: Input) {
+        self.pending.entry(tick).or_default().push(input);
+    }
+}
+#item receive v2 @multiplayer "Drop inputs that arrive after their tick has run"
+impl Lockstep {
+    /// Records one peer's input for `tick`. A late input for a tick that has already run is dropped,
+    /// since the simulation can't take it back.
+    pub fn receive(&mut self, tick: u64, input: Input) {
+        if tick < self.tick {
+            log::warn!("dropped a late input for tick {tick}");
+            return;
+        }
+        self.pending.entry(tick).or_default().push(input);
+    }
+}
+#item ready v1 @multiplayer "Step the simulation once every input for the tick is in"
+impl Lockstep {
+    /// Whether every peer's input for the current tick has arrived.
+    pub fn ready(&self) -> bool {
+        self.pending
+            .get(&self.tick)
+            .is_some_and(|inputs| inputs.len() == self.peers)
+    }
+}
+#item ready v2 @multiplayer "Count a tick ready only when every peer has sent its input"
+impl Lockstep {
+    /// Whether every peer's input for the current tick has arrived, and none is missing.
+    pub fn ready(&self) -> bool {
+        self.pending
+            .get(&self.tick)
+            .is_some_and(|inputs| inputs.len() >= self.peers)
+    }
+}
+#item advance v1 @multiplayer "Step the simulation once every input for the tick is in"
+impl Lockstep {
+    /// Moves to the next tick and hands back the inputs for the tick that just ran.
+    pub fn advance(&mut self) -> Vec<Input> {
+        let inputs = self.pending.remove(&self.tick).unwrap_or_default();
+        self.tick += 1;
+        inputs
+    }
+}
+#item advance v2 @multiplayer "Drop the inputs of every tick the clock passes"
+impl Lockstep {
+    /// Moves to the next tick and hands back the inputs for the tick that just ran. Any inputs
+    /// still waiting for an earlier tick are dropped with it.
+    pub fn advance(&mut self) -> Vec<Input> {
+        let inputs = self.pending.remove(&self.tick).unwrap_or_default();
+        self.pending.retain(|&tick, _| tick > self.tick);
+        self.tick += 1;
+        inputs
+    }
+}
+#item checksum v1 @multiplayer "Checksum the simulation so a desync shows up at once"
+/// A checksum of the simulation's values, so two peers can compare their state.
+pub fn checksum(values: &[f32]) -> u32 {
+    values.iter().fold(0u32, |sum, v| {
+        sum.wrapping_mul(31).wrapping_add(v.round() as i32 as u32)
+    })
+}
+#item checksum v2 @multiplayer "Hash the bits so a NaN can't hide a desync"
+/// A checksum of the simulation's values, so two peers can compare their state. The bits are
+/// hashed rather than the rounded values, so a NaN can't hide a desync.
+pub fn checksum(values: &[f32]) -> u32 {
+    values.iter().fold(0u32, |sum, v| {
+        sum.wrapping_mul(31).wrapping_add(v.to_bits())
+    })
+}
+#item checksum v3 @multiplayer "Mix the length into the checksum"
+/// A checksum of the simulation's values, so two peers can compare their state. The bits are
+/// hashed rather than the rounded values, so a NaN can't hide a desync.
+pub fn checksum(values: &[f32]) -> u32 {
+    let sum = values.iter().fold(0u32, |sum, v| {
+        sum.wrapping_mul(31).wrapping_add(v.to_bits())
+    });
+    sum.wrapping_add(values.len() as u32)
+}
+#item encode v1 @multiplayer "Send packets as JSON over the wire"
+/// The packet as the bytes a peer sends over the wire.
+pub fn encode(packet: &Packet) -> Vec<u8> {
+    serde_json::to_vec(packet).expect("packets always serialise")
+}
+#item encode v2 @multiplayer "Send an empty packet rather than panic on a bad one"
+/// The packet as the bytes a peer sends over the wire.
+pub fn encode(packet: &Packet) -> Vec<u8> {
+    serde_json::to_vec(packet).unwrap_or_default()
+}
+#item decode v1 @multiplayer "Send packets as JSON over the wire"
+/// The packet a peer sent, or None when the bytes aren't one.
+pub fn decode(bytes: &[u8]) -> Option<Packet> {
+    serde_json::from_slice(bytes).ok()
+}
+#item decode v2 @multiplayer "Refuse packets over 64 KiB"
+/// The packet a peer sent, or None when the bytes aren't one, or are too big to be one.
+pub fn decode(bytes: &[u8]) -> Option<Packet> {
+    if bytes.len() > MAX_PACKET {
+        return None;
+    }
+    serde_json::from_slice(bytes).ok()
+}
+#test ready_waits_for_every_peer v1 @multiplayer "Test that a tick waits for every peer's input"
+#[test]
+fn ready_waits_for_every_peer() {
+    let mut clock = Lockstep::new(2);
+    let tick = clock.tick;
+    clock.receive(tick, Input::default());
+    assert!(!clock.ready());
+    clock.receive(tick, Input::default());
+    assert!(clock.ready());
+}
+#test late_inputs_are_dropped v1 @multiplayer "Test that an input for a tick that has run is dropped"
+#[test]
+fn late_inputs_are_dropped() {
+    let mut clock = Lockstep::new(1);
+    let tick = clock.tick;
+    clock.receive(tick, Input::default());
+    assert_eq!(clock.advance().len(), 1);
+    clock.receive(tick, Input::default());
+    assert!(clock.pending.is_empty());
+}
+#test checksum_changes_with_the_values v1 @multiplayer "Test that the checksum changes with the values"
+#[test]
+fn checksum_changes_with_the_values() {
+    assert_ne!(checksum(&[1.0, 2.0]), checksum(&[2.0, 1.0]));
+    assert_eq!(checksum(&[1.0]), checksum(&[1.0]));
+}
+#test packets_round_trip v1 @multiplayer "Test that a packet decodes to what was encoded"
+#[test]
+fn packets_round_trip() {
+    let packet = Packet::Input {
+        tick: 7,
+        input: Input {
+            thrust: 1.0,
+            turn: -0.5,
+            mine: false,
+        },
+    };
+    let back = decode(&encode(&packet));
+    assert!(matches!(back, Some(Packet::Input { tick: 7, .. })));
+}
+#test packets_round_trip v2 @multiplayer "Test that a checksum packet round trips too"
+#[test]
+fn packets_round_trip() {
+    let packet = Packet::Input {
+        tick: 7,
+        input: Input {
+            thrust: 1.0,
+            turn: -0.5,
+            mine: false,
+        },
+    };
+    let back = decode(&encode(&packet));
+    assert!(matches!(back, Some(Packet::Input { tick: 7, .. })));
+    let sum = Packet::Checksum { tick: 9, value: 42 };
+    assert!(matches!(
+        decode(&encode(&sum)),
+        Some(Packet::Checksum { tick: 9, value: 42 })
+    ));
+}
+#test inputs_for_a_tick_are_kept_in_order v1 @multiplayer "Test that a tick keeps its inputs in the order they arrived"
+#[test]
+fn inputs_for_a_tick_are_kept_in_order() {
+    let mut clock = Lockstep::new(2);
+    let tick = clock.tick;
+    clock.receive(
+        tick,
+        Input {
+            thrust: 1.0,
+            ..Input::default()
+        },
+    );
+    clock.receive(
+        tick,
+        Input {
+            thrust: 0.0,
+            ..Input::default()
+        },
+    );
+    let inputs = clock.advance();
+    assert_eq!(inputs[0].thrust, 1.0);
+    assert_eq!(inputs[1].thrust, 0.0);
+}

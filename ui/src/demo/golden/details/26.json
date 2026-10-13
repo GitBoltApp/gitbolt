@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "worktree",
+        "worktree": "$wt"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "3ef495e6aced236e5a5585e91352a7ca9d583369"
+      },
+      "path": "docs/manual.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "81d6e81d3f8b6db9edb83a76b05a2a3e915ce461",
+      "size": 136,
+      "text": "Guide\n\nStep one.\nStep two, revised.\nStep three.\nStep five.\nStep six.\nStep seven.\nStep eight.\nStep nine.\nStep ten.\nStep four (unstaged).\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "3ef495e6aced236e5a5585e91352a7ca9d583369",
+      "size": 114,
+      "text": "Guide\n\nStep one.\nStep two, revised.\nStep three.\nStep five.\nStep six.\nStep seven.\nStep eight.\nStep nine.\nStep ten.\n"
+    },
+    "tooLarge": false
+  }
+}

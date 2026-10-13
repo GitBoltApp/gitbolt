@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "fileHistory",
+    "params": {
+      "limit": 200,
+      "path": "story.txt",
+      "repo": "$repo",
+      "rev": "4d1b598ac56effafb61997357633a9c69495ffc3",
+      "skip": 0,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "more": false,
+    "rows": [
+      {
+        "author": "Grace Hopper",
+        "email": "grace@example.com",
+        "oldPath": null,
+        "parents": [
+          "3170490ad378e1028eef5ba55bdf2343a31ad363"
+        ],
+        "path": "story.txt",
+        "sha": "4d1b598ac56effafb61997357633a9c69495ffc3",
+        "status": "M",
+        "summary": "Add the middle",
+        "time": 1767226080
+      },
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [],
+        "path": "story.txt",
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "status": "A",
+        "summary": "Start the story",
+        "time": 1767225720
+      }
+    ]
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "findPaths",
+    "params": {
+      "query": "file_1",
+      "repo": "$repo"
+    }
+  },
+  "response": []
+}

@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "openRepo",
+    "params": {
+      "path": "$wt"
+    }
+  },
+  "response": {
+    "id": 1,
+    "name": "previews",
+    "path": "/demo/previews",
+    "worktree": "/demo/previews"
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": false,
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 2,
+    "deleted": 0,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/details"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "3ef495e6aced236e5a5585e91352a7ca9d583369"
+        },
+        "oldPath": null,
+        "path": "docs/manual.txt",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/details"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "notes.txt",
+        "status": "A",
+        "submodule": false
+      }
+    ]
+  }
+}

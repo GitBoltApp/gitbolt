@@ -1,0 +1,52 @@
+#file crates/orbital-game/src/strings.rs
+#header v1 @strings-table
+//! The interface's strings: every label the screens and the HUD show, in one table, so a
+//! translation is one table to fill in. `docs/localisation.md` says how.
+
+#item STRINGS v1 @strings-table "Move the interface strings into one table"
+/// Every string the interface shows, by key. The HUD font has capitals only.
+pub const STRINGS: &[(&str, &str)] = &[
+    ("menu.new_game", "NEW GAME"),
+    ("menu.continue", "CONTINUE"),
+    ("menu.settings", "SETTINGS"),
+    ("menu.quit", "QUIT"),
+    ("settings.music", "MUSIC"),
+    ("settings.light", "LIGHT"),
+    ("settings.text", "TEXT"),
+    ("settings.contrast", "CONTRAST"),
+    ("settings.colour_blind", "COLOUR BLIND"),
+    ("settings.thrust_key", "THRUST KEY"),
+    ("settings.back", "BACK"),
+    ("settings.on", "ON"),
+    ("settings.off", "OFF"),
+    ("hud.fuel", "FUEL"),
+    ("hud.speed", "KM/S"),
+];
+
+#item tr v1 @strings-table "Move the interface strings into one table"
+/// The string for `key`, or the key itself when the table has none, so a missing string shows on
+/// screen instead of a blank.
+pub fn tr(key: &str) -> &str {
+    STRINGS
+        .iter()
+        .find(|(k, _)| *k == key)
+        .map_or(key, |&(_, text)| text)
+}
+
+#test a_missing_string_shows_its_key v1 @strings-table "Test that a missing string shows its key"
+#[test]
+fn a_missing_string_shows_its_key() {
+    assert_eq!(tr("menu.quit"), "QUIT");
+    assert_eq!(tr("menu.nowhere"), "menu.nowhere");
+}
+
+#test every_key_is_listed_once v1 @strings-table "Test that the strings table lists each key once"
+#[test]
+fn every_key_is_listed_once() {
+    for (i, (key, _)) in STRINGS.iter().enumerate() {
+        assert!(
+            STRINGS[i + 1..].iter().all(|(k, _)| k != key),
+            "{key} twice"
+        );
+    }
+}

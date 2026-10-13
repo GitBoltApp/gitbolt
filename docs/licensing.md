@@ -127,8 +127,9 @@ Chromium's profile at startup (`Cef::bundled_dictionary`, vendor/tauri-runtime-c
 
 `accepted` in `about.toml` is the list of licenses GitBolt ships code under: MIT, Apache-2.0,
 BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, MPL-2.0, EPL-2.0, Unicode, OFL-1.1, CC0-1.0, BSL-1.0,
-Unlicense and CDLA-Permissive-2.0. The UI plugin reads the same list. A crate or package under
-any other license, or with no recognizable license, fails the build with its name, so a
+Unlicense and CDLA-Permissive-2.0. The UI plugin reads the same list. The website's shipped fonts (OFL-1.1) are checked against
+`about.toml` by `site/build/fonts.ts`, not by `just licenses`. A crate or package under any other
+license, or with no recognizable license, fails the build with its name, so a
 copyleft dependency (GPL, LGPL, AGPL) is never added unnoticed. Review it, then either drop the
 dependency or record the decision:
 

@@ -1,0 +1,85 @@
+{
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": 200,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/main",
+      "detached": false,
+      "target": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/diff_view",
+        "isHead": true,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 1,
+    "openWorktree": "/demo/diff_view",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "grace@example.com",
+        "authorName": "Grace Hopper",
+        "authorTime": 1767225900,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225900,
+        "id": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "f7f3e660e938bd28c89489fb84880788efeb1536"
+        ],
+        "segments": [
+          1048576
+        ],
+        "summary": "Edit far down",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "f7f3e660e938bd28c89489fb84880788efeb1536",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0
+        ],
+        "summary": "Add long file",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/diff_view"
+      }
+    ]
+  }
+}

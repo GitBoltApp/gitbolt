@@ -15,6 +15,7 @@ import { graphLabelDoubleClick, graphRowDoubleClick } from '../graph/rowActions'
 import { useRowEditor } from '../graph/rowEditor';
 import { openContextMenu, useMenu, type MenuEventLike } from '../menu/menuStore';
 import { useRepoContext } from '../app/repoContext';
+import { useAppState } from '../app/state';
 import { preloadMarkdownWhenIdle } from '../markdown/lazy';
 import { CenterViewHost, centerViewOnTop, useCenterView, useCenterViewHasEditor } from './centerView';
 import { useAppEscape } from './escape';
@@ -181,7 +182,8 @@ function RepoLayout({ graphOverlay }: { graphOverlay?: ReactNode }) {
     const kind = s.panel?.selection.kind;
     return kind === 'compare' || kind === 'compareWorktree' ? 'Compare' : kind === 'multi' ? 'Selected commits' : kind === 'wip' ? 'Working tree changes' : 'Commit details';
   });
-  const [prefW, setRightW] = useState<number>(RIGHT_PANEL.default);
+  // The profile's width when it has one (the website demo's narrow start); the default otherwise.
+  const [prefW, setRightW] = useState<number>(() => useAppState.getState().profile.rightPanelWidth ?? RIGHT_PANEL.default);
   const viewRef = useRef<HTMLDivElement>(null);
   const maxW = useRightPanelMax(viewRef);
   // The chosen width, re-clamped to the window: widening the window again restores it.

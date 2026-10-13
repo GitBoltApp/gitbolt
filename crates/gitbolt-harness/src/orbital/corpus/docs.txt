@@ -1,0 +1,957 @@
+#; Orbital's docs: the README, the contributing and licence files, and the docs/ pages.
+#file README.md
+#whole v1 @workspace-setup "Set up the Cargo workspace and the core crate"
+# Orbital
+
+A small space-trading game about orbits, cargo and bad decisions.
+#whole v2 @keymap-doc "Document the default key bindings"
+# Orbital
+
+A small space-trading game about orbits, cargo and bad decisions.
+
+## Building
+
+    cargo run -p orbital-game
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left |
+| D | Turn right |
+
+The full table is in [docs/controls.md](docs/controls.md).
+#whole v3 @readme-3 "Rewrite the README around the play loop"
+# Orbital
+
+![The Orbital title screen](assets/title/title.png)
+
+A small space-trading game about orbits, cargo and bad decisions. You fly a scout between
+the planets of one system, mine rock for ore, and sell it where it fetches the most.
+
+## The play loop
+
+1. Undock from the station and fly out into the system.
+2. Fly through an asteroid belt. The laser mines any rock in range into the hold.
+3. Dock with a station. Sell the ore at its market and buy what the next run needs.
+4. Check the orbit map before you burn, so you know where the planets are.
+
+## Features
+
+- Flight under the pull of every planet, with a fixed-step simulation that gives the same
+  result on every machine.
+- A mining laser that cuts any rock within 40 km into a twelve-slot hold. Hitting a rock wears
+  both hulls down, and a rock worn through explodes.
+- Three stations, each trading twelve goods at prices that move as you buy and sell.
+- An orbit map of the whole system, which the ship keeps flying under.
+- A title screen, and saves in `.orbsave` files.
+- The system, the ships and the goods come from the tables in `assets/data/`.
+
+## Requirements
+
+- Rust 1.85. `rust-toolchain.toml` pins it, so `rustup` picks it up on its own.
+- A GPU that wgpu can drive: Vulkan, Metal or DirectX 12.
+
+## Building
+
+    cargo run -p orbital-game
+
+Run the tests with `cargo test --workspace` from the top of the workspace.
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left |
+| D | Turn right |
+| U | Undock |
+| B | Buy a tonne of the selected good |
+| S | Sell a tonne of the selected good |
+| Up, Down | Move the menu focus |
+| Enter | Pick the focused entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map |
+
+The full table is in [docs/controls.md](docs/controls.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bugs and ideas go in the issue tracker on
+https://gitlab.example.com/orbital/orbital.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+#whole v4 @economy-drift "Let market prices drift over time"
+# Orbital
+
+![The Orbital title screen](assets/title/title.png)
+
+A small space-trading game about orbits, cargo and bad decisions. You fly a scout between
+the planets of one system, mine rock for ore, and sell it where it fetches the most.
+
+## The play loop
+
+1. Undock from the station and fly out into the system.
+2. Fly through an asteroid belt. The laser mines any rock in range into the hold.
+3. Dock with a station. Sell the ore at its market and buy what the next run needs.
+4. Check the orbit map before you burn, so you know where the planets are.
+
+## Features
+
+- Flight under the pull of every planet, with a fixed-step simulation that gives the same
+  result on every machine.
+- A mining laser that cuts any rock within 40 km into a twelve-slot hold. Hitting a rock wears
+  both hulls down, shakes the camera, and a rock worn through explodes.
+- Three stations, each keeping its own market of thirteen goods. Prices move as you trade and
+  drift back towards their base once a game day.
+- An orbit map of the whole system, which the ship keeps flying under.
+- A HUD with the fuel, the hold and the ship's speed.
+- A settings screen for the music volume, the light on the planets and the thrust key.
+- An autosave every five minutes of flying, which Continue on the title screen picks up.
+- The system, the ships and the goods come from the tables in `assets/data/`.
+
+## Prices
+
+Every trade moves the price of that good at that station, and the station remembers it after
+you leave. Once a game day every market takes a small random shake and drifts back towards its
+usual stock, so a route that paid well last week may not pay well now. The trade screen shows the
+current buy and sell prices.
+
+The [trade guide](docs/trade.md) works one example through.
+
+## Requirements
+
+- Rust 1.85. `rust-toolchain.toml` pins it, so `rustup` picks it up on its own.
+- A GPU that wgpu can drive: Vulkan, Metal or DirectX 12.
+
+## Building
+
+    cargo run -p orbital-game
+
+Run the tests with `cargo test --workspace` from the top of the workspace.
+
+## Controls
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left |
+| D | Turn right |
+| U | Undock |
+| B | Buy a tonne of the selected good |
+| S | Sell a tonne of the selected good |
+| Up, Down | Move the menu focus |
+| Left, Right | Lower or raise the focused setting |
+| Enter | Pick the focused entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map |
+| F3 | Show or hide the frame-time overlay |
+| F5 | Reload the sprite shader |
+
+The full table is in [docs/controls.md](docs/controls.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bugs and ideas go in the issue tracker on
+https://gitlab.example.com/orbital/orbital.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+#whole v5 @repair-price "Price repairs by hull damage"
+# Orbital
+
+![The Orbital title screen](assets/title/title.png)
+
+A small space-trading game about orbits, cargo and bad decisions. You fly a scout between
+the planets of one system, mine rock for ore, take delivery contracts, and sell where it
+fetches the most.
+
+## The play loop
+
+1. Undock from the station and fly out into the system.
+2. Fly through an asteroid belt. The laser mines any rock in range into the hold.
+3. Dock with a station. Sell the ore at its market, take a contract if one pays, and buy what
+   the next run needs.
+4. Refuel and repair before you leave. Repairs cost by the percentage of hull lost.
+5. Check the orbit map before you burn, so you know where the planets are.
+
+## Features
+
+- Flight under the pull of every planet, with a fixed-step simulation that gives the same
+  result on every machine.
+- A mining laser that cuts any rock within 40 km into the hold. Hitting a rock wears both hulls
+  down, and a rock worn through explodes.
+- Three stations, each keeping its own market of thirteen goods. Prices move as you trade and
+  drift back towards their base once a game day.
+- Delivery contracts with deadlines, paid by distance and urgency, and kept in the save.
+- Refuelling and repairs at every station.
+- An orbit map of the whole system, with labels and a legend, which the ship keeps flying under.
+- Gamepad support: the left stick steers and gives analogue thrust.
+- Settings for the music volume, the light on the planets, the thrust key, the text size, high
+  contrast and a colour-blind palette.
+- An autosave every five minutes of flying, which Continue on the title screen picks up.
+- Ship classes from mod folders, listed in the shipyard on the docked screen.
+
+## Prices
+
+Every trade moves the price of that good at that station, and the station remembers it after
+you leave. Once a game day every market takes a small random shake and drifts back towards its
+usual stock. A contract pays by distance and by how close its deadline is.
+
+## Requirements
+
+- Rust 1.85. `rust-toolchain.toml` pins it, so `rustup` picks it up on its own.
+- A GPU that wgpu can drive: Vulkan, Metal or DirectX 12.
+- On Linux, the udev headers (`libudev-dev` on Debian and Ubuntu), which the gamepad library
+  builds against.
+
+## Building
+
+    cargo run -p orbital-game
+
+Run the tests with `cargo test --workspace` from the top of the workspace.
+
+## Controls
+
+The keys are listed in [docs/controls.md](docs/controls.md). The main ones:
+
+| Key | Action |
+| --- | --- |
+| W, A, D | Thrust, turn left, turn right |
+| U | Undock |
+| B, S | Buy and sell a tonne of the selected good |
+| C | Accept the first contract a station offers |
+| R | Refuel, and repair the hull, at a station |
+| T | Repair the hull at a station |
+| M | Open the orbit map |
+| P | Pause the flight |
+| F3, F5 | Frame-time overlay, reload the sprite shader |
+
+## Saves
+
+Saves are `.orbsave` files, written to a temporary file and renamed into place. The format
+is in [docs/saves.md](docs/saves.md). There is a sample save in `saves/` for bug reports.
+
+## Modding
+
+Ship classes can be added with a mod folder. See [docs/modding.md](docs/modding.md).
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Bugs and ideas go in the issue tracker on
+https://gitlab.example.com/orbital/orbital.
+
+## Licence
+
+MIT. See [LICENSE](LICENSE).
+#file CONTRIBUTING.md
+#whole v1 @ci-pipeline "Run tests and clippy on every push"
+# Contributing
+
+Thanks for looking at Orbital. The team is small, so the rules are short.
+
+## Branches
+
+Work on a branch named after the feature, such as `feature/gravity-coarse`. Keep `main`
+working: every commit on it builds and passes the tests.
+
+## Merge requests
+
+Open a merge request against `main` on https://gitlab.example.com/orbital/orbital. Ask one
+person who has not touched the change to review it. The branch lands as one commit.
+
+## Tests and lints
+
+    cargo test --workspace
+    cargo clippy --workspace --all-targets -- -D clippy::all
+
+CI runs both on every push, with `cargo fmt --check` as well. A change that breaks any of
+them does not merge. Clippy's default lints are errors; the pedantic ones each crate turns on
+are warnings, to clear in the code you touch.
+
+## Commit messages
+
+Write a plain sentence in the imperative, such as "Fix the docking chime playing twice".
+Start it with a capital, keep it under 72 characters, and leave off the full stop. Do not
+use prefixes like `feat:`.
+#whole v2 @cut-10 "Describe the release branches in the contributing notes"
+# Contributing
+
+Thanks for looking at Orbital. The team is small, so the rules are short.
+
+## Branches
+
+Work on a branch named after the feature, such as `feature/gravity-coarse`. Keep `main`
+working: every commit on it builds and passes the tests.
+
+## Merge requests
+
+Open a merge request against `main` on https://gitlab.example.com/orbital/orbital. Ask one
+person who has not touched the change to review it. The branch lands as one commit.
+
+## Release branches
+
+Each release has a branch, `release/1.0` and so on, cut from `main` when the release is
+ready. Fixes for a release go to its branch first, as small merge requests. Once a release
+is tagged, the branch's fixes are merged back into `main`, so the next release has them too.
+
+## Tests and lints
+
+    cargo test --workspace
+    cargo clippy --workspace --all-targets -- -D clippy::all
+
+CI runs both on every push, with `cargo fmt --check` as well. A change that breaks any of
+them does not merge. Clippy's default lints are errors; the pedantic ones each crate turns on
+are warnings, to clear in the code you touch.
+
+## Commit messages
+
+Write a plain sentence in the imperative, such as "Fix the docking chime playing twice".
+Start it with a capital, keep it under 72 characters, and leave off the full stop. Do not
+use prefixes like `feat:`.
+#whole v3 @changelog-notes "Explain the changelog and patch releases in the contributing notes"
+# Contributing
+
+Thanks for looking at Orbital. The team is small, so the rules are short.
+
+## Branches
+
+Work on a branch named after the feature, such as `feature/gravity-coarse`. Keep `main`
+working: every commit on it builds and passes the tests.
+
+## Merge requests
+
+Open a merge request against `main` on https://gitlab.example.com/orbital/orbital. Ask one
+person who has not touched the change to review it. The branch lands as one commit.
+
+## Release branches
+
+Each release has a branch, `release/1.0` and so on, cut from `main` when the release is
+ready. Fixes for a release go to its branch first, as small merge requests. Once a release
+is tagged, the branch's fixes are merged back into `main`, so the next release has them too.
+
+## Changelog
+
+`CHANGELOG.md` is written when a release is tagged: one line for each merge request merged
+since the last release, under Added, Changed or Fixed, with the merge request's number. A
+patch release, such as 1.2.1, lists only the fixes merged into its branch. Give a merge
+request a title that reads well in that list.
+
+## Tests and lints
+
+    cargo test --workspace
+    cargo clippy --workspace --all-targets -- -D clippy::all
+
+CI runs both on every push, with `cargo fmt --check` as well. A change that breaks any of
+them does not merge. Clippy's default lints are errors; the pedantic ones each crate turns on
+are warnings, to clear in the code you touch.
+
+## Commit messages
+
+Write a plain sentence in the imperative, such as "Fix the docking chime playing twice".
+Start it with a capital, keep it under 72 characters, and leave off the full stop. Do not
+use prefixes like `feat:`.
+#file LICENSE
+#whole v1 @workspace-setup "Add the MIT licence"
+MIT License
+
+Copyright (c) 2024 The Orbital contributors
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software
+and associated documentation files (the "Software"), to deal in the Software without
+restriction, including without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the
+Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or
+substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING
+BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
+DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+#file docs/architecture.md
+#whole v1 @workspace-setup "Describe the workspace and its one crate"
+# Architecture
+
+Orbital is a Cargo workspace. For now it holds one crate, `orbital-core`: the simulation,
+with no rendering and no window. The render layer and the game come in the next steps.
+
+## Units
+
+Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+The header of `crates/orbital-core/src/lib.rs` has the same note.
+#whole v2 @ecs-world "Draw the crates and their systems"
+# Architecture
+
+Orbital is a Cargo workspace with three crates. Each one depends only on the ones above it
+in the diagram.
+
+```mermaid
+flowchart TD
+  game["orbital-game<br/>app, flight, docked, menu, map_view, trade_screen, settings, save_slots, audio"]
+  render["orbital-render<br/>renderer, painter, camera, sprite_batch, atlas, text, starfield"]
+  core["orbital-core<br/>body, world, level, ship, station, cargo, economy, save"]
+  systems["systems<br/>gravity, thrust, collisions, mining, docking, economy"]
+  game --> render
+  game --> core
+  render --> core
+  core --> systems
+```
+
+## Crates
+
+- `orbital-core` is the simulation. A system's objects live in a `World`: one table per
+  component, with an `Entity` index into each. The systems read and write those tables once
+  per tick, in a fixed order. The bodies of a new game come from the sector tables in
+  `assets/data/levels/`, read by `level.rs`.
+- `orbital-render` draws a `World` through `wgpu`. It knows nothing about the rules of the game.
+- `orbital-game` owns the window, the input, the screens and the save slots, and calls the
+  other two.
+
+## Units
+
+Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+#whole v3 @audio-buses "Add the audio buses to the architecture notes"
+# Architecture
+
+Orbital is a Cargo workspace with three crates. Each one depends only on the ones above it
+in the diagram.
+
+```mermaid
+flowchart TD
+  game["orbital-game<br/>app, flight, docked, menu, map_view, trade_screen, settings, save_slots, audio"]
+  render["orbital-render<br/>renderer, painter, camera, sprite_batch, atlas, text, starfield"]
+  core["orbital-core<br/>body, world, level, ship, station, cargo, economy, save"]
+  systems["systems<br/>gravity, thrust, collisions, mining, docking, economy"]
+  buses["audio buses<br/>effects, interface, music"]
+  game --> render
+  game --> core
+  game --> buses
+  render --> core
+  core --> systems
+```
+
+## Crates
+
+- `orbital-core` is the simulation. A system's objects live in a `World`: one table per
+  component, with an `Entity` index into each. The systems read and write those tables once
+  per tick, in a fixed order. The bodies of a new game come from the sector tables in
+  `assets/data/levels/`, read by `level.rs`.
+- `orbital-render` draws a `World` through `wgpu`. It knows nothing about the rules of the game.
+- `orbital-game` owns the window, the input, the screens and the save slots, and calls the
+  other two.
+
+## Sound
+
+The game asks for a sound by name, and each sound plays on a bus. The flight's sounds are on
+the effects bus, the menus' clicks are on the interface bus, and the music has its own gain.
+A bus can be balanced on its own, so the mix can change without touching the sounds.
+
+The audio device is a stub for now: `audio::output` writes each sound and its bus to the log at
+trace level, so a sound's trigger can be checked before the output stream lands.
+
+## Units
+
+Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+#file docs/controls.md
+#whole v1 @keymap-doc "Document the default key bindings"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+#whole v2 @docking "Document the undock key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+#whole v3 @trade-screen "Document the buy and sell keys"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+#whole v4 @title-screen "Document the menu keys"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+#whole v5 @orbit-map "Document the orbit map key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+#whole v6 @settings-menu "Document the settings keys"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+#whole v7 @shader-reload "Document the shader reload key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+#whole v8 @debug-draw "Document the overlay key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+#whole v9 @contract-pause "Document the pause key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+| P | Pause the flight, and the contract deadlines with it |
+#whole v10 @contracts-ui "Document the key that accepts a contract"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+| P | Pause the flight, and the contract deadlines with it |
+| C | Accept the first contract a station offers |
+#whole v11 @gamepad-thrust "Document the gamepad's stick"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+| P | Pause the flight, and the contract deadlines with it |
+| C | Accept the first contract a station offers |
+
+## Gamepad
+
+The left stick steers and thrusts. Thrust is analogue, so a half press gives half thrust.
+#whole v12 @stick-deadzone "Document the stick's deadzone"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+| P | Pause the flight, and the contract deadlines with it |
+| C | Accept the first contract a station offers |
+
+## Gamepad
+
+The left stick steers and thrusts. Thrust is analogue, so a half press gives half thrust. The stick has a deadzone of 15 percent of its range, so a stick that rests slightly off centre
+does not drift the ship.
+#whole v13 @station-services "Document the refuel key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+| P | Pause the flight, and the contract deadlines with it |
+| C | Accept the first contract a station offers |
+| R | Refuel the tank at a station |
+
+## Gamepad
+
+The left stick steers and thrusts. Thrust is analogue, so a half press gives half thrust. The stick has a deadzone of 15 percent of its range, so a stick that rests slightly off centre
+does not drift the ship.
+#whole v14 @repair-price "Document the repair key"
+# Controls
+
+Every action has one key. A key appears in one row of the table only. The table is `BINDINGS`
+in `crates/orbital-game/src/input.rs`.
+
+| Key | Action |
+| --- | --- |
+| W | Thrust |
+| A | Turn left, anticlockwise |
+| D | Turn right, clockwise |
+| U | Undock from the station |
+| B | Buy a tonne of the selected good, at a station |
+| S | Sell a tonne of the selected good, at a station |
+| Up | Move the menu focus up |
+| Down | Move the menu focus down |
+| Enter | Pick the focused menu entry |
+| Escape | Leave the current screen |
+| M | Open the orbit map of the whole system |
+| Left | Lower the focused setting |
+| Right | Raise the focused setting |
+| F5 | Reload the render pipelines from the shader files |
+| F3 | Show or hide the frame-time overlay |
+| P | Pause the flight, and the contract deadlines with it |
+| C | Accept the first contract a station offers |
+| R | Refuel the tank and repair the hull at a station, in one bill |
+| T | Repair the hull at a station |
+
+## Gamepad
+
+The left stick steers and thrusts. Thrust is analogue, so a half press gives half thrust. The stick has a deadzone of 15 percent of its range, so a stick that rests slightly off centre
+does not drift the ship.
+#file docs/saves.md
+#whole v1 @saves-docs "Document the save file format"
+# Save files
+
+A save is one `.orbsave` file. The game writes it to a temporary file first and then renames
+the file over the old save. Every number is little-endian.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| magic | 4 bytes | `ORBS` |
+| version | `u32` | `1` in this format |
+| tick | `u64` | the game clock, in physics ticks |
+| credits | `f32` | the player's money |
+| ship x, ship y | `f32` each | position |
+| ship vx, ship vy | `f32` each | velocity |
+| ship mass | `f32` | tonnes |
+| cargo | 12 slots of `u8` then `f32` | the good's id (255 when the slot is empty), then its tonnes |
+| checksum | `u32` | CRC-32 (IEEE, as zlib uses) of every byte before it |
+
+A file shorter than 16 bytes is refused as truncated before it is read, and a file whose
+checksum doesn't match is refused as damaged.
+
+The sample save in `saves/sample.orbsave` is in this format.
+#whole v2 @save-v2 "Document save format 2 with the fuel and hull"
+# Save files
+
+A save is one `.orbsave` file. The game writes it to a temporary file first and then renames
+the file over the old save. Every number is little-endian.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| magic | 4 bytes | `ORBS` |
+| version | `u32` | `2` in this format |
+| created | `u64` | when the save was made, in seconds since the Unix epoch |
+| tick | `u64` | the game clock, in physics ticks |
+| credits | `f32` | the player's money |
+| ship x, ship y | `f32` each | position |
+| ship vx, ship vy | `f32` each | velocity |
+| ship mass | `f32` | tonnes |
+| ship fuel | `f32` | fuel left in the tank |
+| ship hull | `f32` | hull left |
+| cargo | 12 slots of `u8` then `f32` | the good's id (255 when the slot is empty), then its tonnes |
+| checksum | `u32` | CRC-32 (IEEE, as zlib uses) of every byte before it |
+
+Version 1 files have no creation time, fuel or hull. They load with a full tank and a whole
+hull, and the next save writes them back as version 2. The game writes version 2 only.
+
+A file shorter than 16 bytes is refused as truncated before it is read, and a file whose
+checksum doesn't match is refused as damaged.
+
+The sample save in `saves/sample.orbsave` is in this format.
+#whole v3 @save-v3 "Document format 3 with the open contracts"
+# Save files
+
+A save is one `.orbsave` file. The game writes it to a temporary file first and then renames
+the file over the old save. Every number is little-endian.
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| magic | 4 bytes | `ORBS` |
+| version | `u32` | `3` in this format |
+| created | `u64` | when the save was made, in seconds since the Unix epoch |
+| tick | `u64` | the game clock, in physics ticks |
+| credits | `f32` | the player's money |
+| ship x, ship y | `f32` each | position |
+| ship vx, ship vy | `f32` each | velocity |
+| ship mass | `f32` | tonnes |
+| ship fuel | `f32` | fuel left in the tank |
+| ship hull | `f32` | hull left |
+| cargo | 12 slots of `u8` then `f32` | the good's id (255 when the slot is empty), then its tonnes |
+| contracts | `u32` count, then the contracts | see below |
+| checksum | `u32` | CRC-32 (IEEE, as zlib uses) of every byte before it |
+
+Each contract is five fields: the good's id `u8`, its tonnes `f32`, the destination's station
+index `u32`, its reward `f32`, and the ticks left `u32`.
+
+Version 1 files load with no creation time, a full tank and a whole hull. Version 2 files
+load with no contracts. The game writes version 3 only.
+
+A file shorter than 16 bytes is refused as truncated before it is read, and a file whose
+checksum doesn't match is refused as damaged. An empty slot, with no file or an empty one, is
+not an error: Continue starts a new game from it.
+
+The sample save in `saves/sample.orbsave` is in this format.
+#file docs/modding.md
+#whole v1 @modding-docs "Document how to add a ship with a mod folder"
+# Modding
+
+A mod can add ship classes. Make a folder under `mods/`, in the folder the game runs from, next
+to `saves/`, and put a `ships.csv` in it:
+
+    mods/
+      my-mod/
+        ships.csv
+
+The file has the same columns as `assets/data/ships.csv`, under the same header row:
+
+    class,mass_t,cargo_t,thrust_kn,fuel_t,price
+    freighter,5.0,360,750,90,9800
+
+The masses are in tonnes and the thrust in kilonewtons. For a feel of the numbers, the scout is
+2 tonnes with a 600 kN drive and a 60 tonne tank.
+
+The game reads the mod folders once, at startup, in the order of their names. A line it cannot
+read is skipped, and the game writes a line to the log naming the file and the line. Class names
+must be unique across the base game and every mod; a class whose name is taken is skipped the same
+way.
+
+The classes show in the shipyard list on the docked screen, with their prices, so you can check
+that a mod loaded. They can't be bought or flown yet: every game starts in the scout.
+#file docs/trade.md
+#whole v1 @drift-guide "Explain price drift in the trade guide"
+# Trade guide
+
+Ore is the first good most players sell, so this guide follows a few tonnes of it. Ore has a base
+price of 12 credits a tonne, from `assets/data/economy/commodities.csv`.
+
+## Buy and sell
+
+Each station keeps a stock of each good, and keeps it between your visits. A station likes to
+hold 20 tonnes of each. The price moves with the stock:
+
+- The price to buy is the base price, plus 2 percent of the base for each tonne the station is
+  short of 20, minus 2 percent for each tonne it has over. A buy price never goes below one credit.
+- The price to sell is 90 percent of the buy price, so a sale always pays less than a purchase
+  would cost at the same moment.
+
+Buying takes stock away, so the price goes up. Selling adds stock, so the price goes down.
+
+## Drift
+
+Once a game day, a little under fifteen minutes of flying, every station's stock moves on its
+own. First it takes a small random shake: up to the good's volatility from the commodity table,
+as a share of 20 tonnes, either way. Ore's volatility is 0.04, so its shake is under a tonne.
+Then 5 percent of the gap between the stock and 20 closes. A station that has been bought from
+settles back over a week or two, and the price settles with it.
+
+## A worked example
+
+Say a station holds 10 tonnes of ore. Its buy price is 12 times (1 + 0.02 times 10), which is 14.40
+credits a tonne, and its sell price is 90 percent of that, 12.96.
+
+You buy 5 tonnes. The cost is 5 times 14.40, so 72 credits, and the station is left with 5 tonnes.
+Its buy price is now 15.60, because the stock is further below 20. You do not pay the new price for
+the tonnes you have just bought.
+
+Seven game days later the stock has drifted back. Each day closed 5 percent of what was left of the
+gap, so after a week about 30 percent of the gap of 15 tonnes has closed. Leaving the shakes out,
+the station holds about 9.5 tonnes, and its buy price is about 14.50 again.
+
+So if you wanted ore for a run, buying it at the station straight after a sale costs more than
+buying it a week later. Look at the trade screen before you buy, and compare the buy price with
+the base.
+
+## Contracts
+
+The contracts in the design document pay a fixed reward on delivery, so drift will not change what
+a contract pays. It will change what the ore in your hold would sell for on the open market while
+you fly, so a contract with a long deadline gives you time to wait for a better market.
+#file docs/localisation.md
+#whole v1 @localise-guide "Describe how to add a translation"
+# Adding a translation
+
+Every string the interface shows lives in one table, `STRINGS` in
+`crates/orbital-game/src/strings.rs`. The menus, the settings screen and the HUD look their text
+up by key with `tr`, so a translation is that table with the second column changed.
+
+## Steps
+
+1. Copy the table and translate the second column. Keep the keys as they are.
+2. Keep each string in capitals. The HUD font has capitals, digits, the space and a few marks
+   (`. : % / -`), and a character it doesn't have is drawn as a gap.
+3. Keep strings short. A menu or settings row has room for about sixteen characters.
+4. Run the game and go through the title screen, the settings screen and a flight.
+
+A key the table has no string for shows the key itself, such as `menu.quit`. That is on purpose:
+a missing string is easy to spot on screen, and easy to search for.
+
+## Not in the table yet
+
+The docked screen's key hints, the trade panel's lines and the contract rows still have their
+text in the code. They move into the table next, with the station names.
+
+There is no way to pick a language in the game yet. For now a translation replaces the table.

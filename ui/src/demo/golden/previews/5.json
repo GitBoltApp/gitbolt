@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "1f5564d66cb9179224126e5b9f5cb238f58bab0f"
+      },
+      "path": "images/title.png",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": true,
+    "new": {
+      "base64": "sha256:fc831c46683e62f3131e44c6551a8a6b79bf6f789a112170f286daff5a7a5801:20236",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c",
+      "size": 15176,
+      "text": null
+    },
+    "old": {
+      "base64": "sha256:13508d9bd143597d8e077c20b18eeaa078f110391252af1aee95a400254bb600:18312",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "1f5564d66cb9179224126e5b9f5cb238f58bab0f",
+      "size": 13734,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

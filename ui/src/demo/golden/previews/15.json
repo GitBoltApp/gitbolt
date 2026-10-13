@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "cb5f4bb0c339ba1d58ce3e634450906de10e7fd1"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "c43edc9b58fb360a06ee0b74625c5bad93417529"
+      },
+      "path": "data/commodities.csv",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "cb5f4bb0c339ba1d58ce3e634450906de10e7fd1",
+      "size": 277,
+      "text": "id,name,base_price,volatility\nwater_ice,Water ice,45,0.10\nfuel_cells,Fuel cells,120,0.15\nrations,Rations,60,0.08\nmachinery,Machinery,290,0.20\nelectronics,Electronics,450,0.25\nore,Raw ore,85,0.12\nluxuries,Luxuries,900,0.40\nsalvage,Salvage,150,0.35\nartifacts,Artifacts,1400,0.50\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "c43edc9b58fb360a06ee0b74625c5bad93417529",
+      "size": 249,
+      "text": "id,name,base_price,volatility\nwater_ice,Water ice,40,0.10\nfuel_cells,Fuel cells,120,0.15\nrations,Rations,60,0.08\nmachinery,Machinery,310,0.20\nelectronics,Electronics,450,0.25\nore,Raw ore,85,0.12\nmedicine,Medicine,520,0.30\nluxuries,Luxuries,900,0.40\n"
+    },
+    "tooLarge": false
+  }
+}

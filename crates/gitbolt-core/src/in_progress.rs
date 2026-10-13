@@ -4,61 +4,7 @@
 use crate::error::{gix_err, GbError};
 use serde::Serialize;
 use std::path::Path;
-use ts_rs::TS;
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-#[ts(export)]
-pub enum InProgress {
-    /// `MERGE_HEAD` exists. `message`: `MERGE_MSG`, line endings normalised (§8.2).
-    Merge { merge_head: String, message: String, conflicted: u32 },
-    /// `rebase-merge/` (or `rebase-apply/`). `onto` and `stopped_at` are oids; `head_name` is the
-    /// branch being rebased (`refs/heads/main`). `message`: what Continue commits the stopped
-    /// pick with (`rebase-merge/message`, `rebase-apply/final-commit`), line endings normalised;
-    /// empty when git wrote none.
-    Rebase {
-        onto: String,
-        head_name: String,
-        step: u32,
-        total: u32,
-        stopped_at: Option<String>,
-        // --- 3C T4 ---
-        /// At an `edit` stop: the commit git made there (`rebase-merge/amend`). `None` at a
-        /// conflict, or a stop of another kind.
-        edit_stop: Option<String>,
-        // --- end 3C T4 ---
-        /// UX L: GitBolt's Edit stop is "about to commit": right after git stopped, HEAD was
-        /// soft-reset to the edited commit's parent (this oid), so its changes are staged and its
-        /// message (`message`) is the commit box's. `None`: git's own stop (HEAD on `edit_stop`),
-        /// as a terminal's rebase has it.
-        edit_base: Option<String>,
-        /// UX L, with `edit_base`: the paths the stopped commit adds. One left untracked is a
-        /// piece of it not staged yet: Continue waits for it (any other untracked file doesn't).
-        edit_added: Vec<String>,
-        /// UX L, with `edit_base`: the index isn't the stopped commit's tree (changed, or some of
-        /// it unstaged): an Abort keeps it.
-        edit_changed: bool,
-        /// 3C final fix (I1): the stopped pick is an `edit` line that stopped before git made its
-        /// commit (a conflict): git won't stop again once it's resolved, so this stop is the Edit's.
-        edit_conflict: bool,
-        /// 3C final fix (M1, M2): GitBolt couldn't apply this stop's new message (a commit-msg
-        /// hook refused it): why. HEAD keeps the old one.
-        message_failed: Option<String>,
-        /// 3C fix round 2: GitBolt's own interactive rebase (its session is there): Commit at
-        /// its Edit stops is GitBolt's. `false` for one started in a terminal.
-        gitbolt: bool,
-        conflicted: u32,
-        message: String,
-    },
-    /// `CHERRY_PICK_HEAD` (a single pick, or a range's, `.git/sequencer/` too). `head`: the commit
-    /// being picked; `message`: `MERGE_MSG`, what Continue commits it with. A range stopped
-    /// between picks (`sequencer/` alone) isn't an operation here, as for gix.
-    CherryPick { head: Option<String>, message: String, conflicted: u32 },
-    /// `REVERT_HEAD`: as `CherryPick`, for the commit being reverted.
-    Revert { head: Option<String>, message: String, conflicted: u32 },
-    /// `git am`, started outside GitBolt; #3 adds its actions.
-    Other { what: String },
-}
+pub use gitbolt_graph::InProgress;
 
 fn unmerged_paths(repo: &gix::Repository) -> u32 {
     let Ok(index) = repo.index_or_empty() else { return 0 };

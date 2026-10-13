@@ -1,0 +1,196 @@
+#file crates/orbital-game/src/save_slots.rs
+#header v1 @save-files
+//! Save slots: where each game is written, and the autosave the flight keeps on its timer.
+
+use std::path::PathBuf;
+
+use orbital_core::error::Error;
+use orbital_core::save::{Save, load_from, save_to};
+
+use crate::flight::Flight;
+
+#header v2 @fix-1-0-save
+//! Save slots: where each game is written, and the autosave the flight keeps on its timer.
+
+use std::path::{Path, PathBuf};
+
+use orbital_core::error::Error;
+use orbital_core::save::{Save, load_from, save_to};
+
+use crate::flight::Flight;
+
+#const SLOT_COUNT v1 @save-files
+/// How many save slots there are, the last of them the autosave's.
+pub const SLOT_COUNT: usize = 4;
+
+#const CONTINUE_SLOT v1 @title-screen "Show a title screen on launch"
+/// The slot the title screen's continue reads from.
+pub const CONTINUE_SLOT: usize = 0;
+
+#const CONTINUE_SLOT v2 @autosave
+/// The slot the title screen's continue reads from: the autosave's, so continue picks up the
+/// last autosave.
+pub const CONTINUE_SLOT: usize = 3;
+
+#const AUTOSAVE_SLOT v1 @autosave "Autosave every five minutes"
+/// The slot the autosave writes to, so it never overwrites a save the player made.
+pub const AUTOSAVE_SLOT: usize = 3;
+
+#const AUTOSAVE_SECONDS v1 @autosave "Autosave every five minutes"
+/// How long the autosave waits between saves, in seconds.
+pub const AUTOSAVE_SECONDS: f32 = 300.0;
+
+#const MIN_SAVE_BYTES v1 @truncated-save "Stop a truncated save from crashing the load"
+/// The smallest a save file can be: its magic, its version and its checksum.
+pub const MIN_SAVE_BYTES: u64 = 16;
+
+#item SAVE_EXTENSION v1 @save-files "Save and load the game state to a file"
+/// The extension a save file is written with.
+pub const SAVE_EXTENSION: &str = "orbsave";
+
+#item slot_path v1 @save-files "Save and load the game state to a file"
+/// The file a slot's save is written to, in the saves folder.
+pub fn slot_path(slot: usize) -> PathBuf {
+    debug_assert!(slot < SLOT_COUNT, "there are {SLOT_COUNT} slots");
+    PathBuf::from(format!("saves/slot-{slot}.{SAVE_EXTENSION}"))
+}
+
+#item snapshot v1 @save-files "Save and load the game state to a file"
+/// The game as a save: the ship, its hold, the credits and the tick count.
+pub fn snapshot(flight: &Flight) -> Save {
+    Save {
+        tick: flight.ticks,
+        credits: flight.credits,
+        ship: flight.ship.clone(),
+        cargo: flight.cargo.clone(),
+    }
+}
+
+#item snapshot v2 @save-v2 "Record when each game was started"
+/// The game as a save: the ship, its hold, the credits, the tick count and when it was started.
+pub fn snapshot(flight: &Flight) -> Save {
+    Save {
+        tick: flight.ticks,
+        created: flight.created,
+        credits: flight.credits,
+        ship: flight.ship.clone(),
+        cargo: flight.cargo.clone(),
+    }
+}
+
+#item snapshot v3 @save-v3 "Store open contracts in save format 3"
+/// The game as a save: the ship, its hold, the credits, the tick count, when it was started, and
+/// the open contracts.
+pub fn snapshot(flight: &Flight) -> Save {
+    Save {
+        tick: flight.ticks,
+        created: flight.created,
+        credits: flight.credits,
+        ship: flight.ship.clone(),
+        cargo: flight.cargo.clone(),
+        contracts: flight.contracts.clone(),
+    }
+}
+
+#item write v1 @save-files "Save and load the game state to a file"
+/// Writes the flight to a slot.
+pub fn write(slot: usize, flight: &Flight) -> Result<(), Error> {
+    save_to(&slot_path(slot), &snapshot(flight))
+}
+
+#item write v2 @save-swap "Write a save beside its slot and move it into place\n\nA crash while saving left a cut-short file in the slot, so the last good save went with it."
+/// Writes the flight to a slot: to a file beside it first, then moved over the slot, so a crash
+/// while saving leaves the last save as it was.
+pub fn write(slot: usize, flight: &Flight) -> Result<(), Error> {
+    let path = slot_path(slot);
+    let partial = path.with_extension("tmp");
+    save_to(&partial, &snapshot(flight))?;
+    std::fs::rename(&partial, &path)?;
+    Ok(())
+}
+
+#item read v1 @save-files "Save and load the game state to a file"
+/// Reads a slot's save back.
+pub fn read(slot: usize) -> Result<Save, Error> {
+    load_from(&slot_path(slot))
+}
+
+#item read v2 @truncated-save "Stop a truncated save from crashing the load"
+/// Reads a slot's save back. A file too short to hold a save's header is refused, not parsed.
+pub fn read(slot: usize) -> Result<Save, Error> {
+    let path = slot_path(slot);
+    if std::fs::metadata(&path)?.len() < MIN_SAVE_BYTES {
+        return Err(Error::Truncated);
+    }
+    load_from(&path)
+}
+
+#item read v3 @fix-1-0-save "Continue an empty save slot as a new game\n\nThe 1.0 loader refused a slot with no save in it, so continue did nothing on a fresh install."
+/// Reads a slot's save back, or `None` for a slot with no game in it yet.
+pub fn read(slot: usize) -> Result<Option<Save>, Error> {
+    read_path(&slot_path(slot))
+}
+
+#item read_path v1 @fix-1-0-save "Continue an empty save slot as a new game"
+/// Reads the save at `path`, or `None` when there is no game there yet: no file, or an empty one. A
+/// file too short to hold a save's header is refused, not parsed.
+fn read_path(path: &Path) -> Result<Option<Save>, Error> {
+    let len = match std::fs::metadata(path) {
+        Ok(meta) => meta.len(),
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(err.into()),
+    };
+    if len == 0 {
+        return Ok(None);
+    }
+    if len < MIN_SAVE_BYTES {
+        return Err(Error::Truncated);
+    }
+    load_from(path).map(Some)
+}
+
+#item autosave_due v1 @autosave "Autosave every five minutes"
+/// Whether the autosave timer has run out, given the seconds since the last autosave.
+pub fn autosave_due(elapsed: f32) -> bool {
+    elapsed >= AUTOSAVE_SECONDS
+}
+
+#test each_slot_has_its_own_file v1 @save-files "Test that each slot writes to its own file"
+#[test]
+fn each_slot_has_its_own_file() {
+    assert_ne!(slot_path(0), slot_path(1));
+}
+
+#test autosave_waits_five_minutes v1 @autosave "Test that the autosave waits five minutes"
+#[test]
+fn autosave_waits_five_minutes() {
+    assert!(!autosave_due(299.0));
+    assert!(autosave_due(300.0));
+}
+
+#test snapshot_records_the_start v1 @save-v2 "Test that a save records when the game started"
+#[test]
+fn snapshot_records_the_start() {
+    let flight = Flight::new();
+    assert_eq!(snapshot(&flight).created, flight.created);
+}
+
+#test snapshot_keeps_the_contracts v1 @save-v3 "Test that a save keeps the open contracts"
+#[test]
+fn snapshot_keeps_the_contracts() {
+    assert!(snapshot(&Flight::new()).contracts.is_empty());
+}
+
+#test an_empty_slot_is_no_game v1 @fix-1-0-save "Test that a missing or empty slot reads as no game"
+#[test]
+fn an_empty_slot_is_no_game() {
+    let dir = std::env::temp_dir();
+    assert!(matches!(
+        read_path(&dir.join("orbital-no-such-slot.orbsave")),
+        Ok(None)
+    ));
+    let empty = dir.join("orbital-empty-slot.orbsave");
+    std::fs::write(&empty, b"").unwrap();
+    assert!(matches!(read_path(&empty), Ok(None)));
+    std::fs::remove_file(&empty).unwrap();
+}

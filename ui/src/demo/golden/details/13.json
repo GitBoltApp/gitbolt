@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "treeFiles",
+    "params": {
+      "id": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "big.txt",
+    "crlf.txt",
+    "data.bin",
+    "dir with space/ünï.txt",
+    "docs/manual.txt",
+    "icon.svg",
+    "latin1.txt",
+    "logo.png",
+    "src/app.php",
+    "utf16.txt",
+    "ws.txt"
+  ]
+}

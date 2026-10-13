@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "src/app.php",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "483366b2ba32edbaca6439861bf36c909fc4b7e7",
+      "index": "f4b28df26ce59681707ee79fe4409f48d486a01f",
+      "worktree": "f4b28df26ce59681707ee79fe4409f48d486a01f"
+    },
+    "binary": false,
+    "hunks": [],
+    "refused": null
+  }
+}

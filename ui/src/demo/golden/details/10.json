@@ -1,0 +1,191 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "from": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "kind": "worktree",
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 80013,
+    "deleted": 10,
+    "files": [
+      {
+        "additions": 80000,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "422f7409e96fd14f500715919a3eceb3b96d7207"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "big.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 3,
+        "new": {
+          "kind": "object",
+          "oid": "ff6e6b1a505523bd4c9af36bd9d70d136872b225"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "2e11fe5aa880a2f69b3d1d3d1d1338f7783d6811"
+        },
+        "oldPath": null,
+        "path": "crlf.txt",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "60e4f6dee8b770aec2047820ba0ae18513171f9f"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "d1258f06d284a194abe3f89b0e9cb6e49ab942e5"
+        },
+        "oldPath": null,
+        "path": "data.bin",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "7ca544198d426a3b003978db7cc75fde8d6f64aa"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "dir with space/ünï.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 2,
+        "deletions": 1,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/details"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "952d103345eed4749929d8a47bc6d2be08ba4929"
+        },
+        "oldPath": "docs/guide.txt",
+        "path": "docs/manual.txt",
+        "status": "R",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "a7453f07505c42ea8d6fdda75fa91710c81c53d6"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "feature.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "object",
+          "oid": "686278415e4898c4d0d536de5ad9418b77720392"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "be5ad9d55e91bb44151ced2cb7052bfa4b80f594"
+        },
+        "oldPath": null,
+        "path": "icon.svg",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "cdd5f8ebed8ea5976a9d7dcf828b31ab16d444e3"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "04ecf4b5b62d74f81c30682abe0bad227b9045d5"
+        },
+        "oldPath": null,
+        "path": "logo.png",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 0,
+        "deletions": 1,
+        "new": {
+          "kind": "absent"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "420201136f42027c6f971934cc73615082d65160"
+        },
+        "oldPath": null,
+        "path": "old.txt",
+        "status": "D",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 2,
+        "new": {
+          "kind": "object",
+          "oid": "f4b28df26ce59681707ee79fe4409f48d486a01f"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "ba1084dea241c998ff27961bf9346e44cd7ceb2c"
+        },
+        "oldPath": null,
+        "path": "src/app.php",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 2,
+        "deletions": 2,
+        "new": {
+          "kind": "object",
+          "oid": "8e1cc4669c289b1ddb56231398bd4b81a4877cad"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "871539ca141ba15d9774b2ae2fe1b3117ca19d9f"
+        },
+        "oldPath": null,
+        "path": "ws.txt",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

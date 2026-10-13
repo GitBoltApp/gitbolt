@@ -74,6 +74,14 @@ land in the repo.
   or the wrong version).
 - The first build downloads the CEF distribution (~320 MB compressed) into `~/.cache/tauri-cef`;
   after that, rebuilds are incremental.
+- The WebAssembly toolchain, which `just test` needs (its `test-demo` step builds the demo's wasm
+  via `just demo-wasm`) as well as `just e2e-demo` and the website demo build: the WebAssembly
+  target, the wasm-bindgen CLI pinned to the `wasm-bindgen` crate's version, and cargo-about
+  (licence notices):
+  `rustup target add wasm32-unknown-unknown`,
+  `cargo install wasm-bindgen-cli --version 0.2.129 --locked` and
+  `cargo install cargo-about --locked` (`just demo-wasm` checks the first two and prints these
+  commands when one is missing).
 
 ## Dock and app-grid icon (unbundled builds)
 
@@ -141,6 +149,30 @@ Setting `GITBOLT_E2E_PORT_BASE=N` runs the harness on port `N` and the UI on por
 unset to keep the defaults (7433 / 1420). Pick bases far enough apart that `N` and `N+1` don't
 overlap another worktree's pair -- e.g. 7500, 7600, 7700. This only affects `just e2e`; `just dev`
 and the packaged app are unaffected and always use 1420.
+
+## The website demo
+
+`just demo-build` builds `ui/demo.html` into `site/dist/demo/` (`GITBOLT_DEMO_DATA=<folder>` for
+other data than `site/demo-data/`); `just test-demo` runs its vitest suites, the parity suite
+included; `just e2e-demo` its Playwright smoke test (its own config, port
+`GITBOLT_E2E_PORT_BASE + 2`, 1422 by default). `just demo-golden` re-records the core's answers the
+parity suite compares with, after a change to them or to the `basic` and `long_history` fixtures.
+`just demo-data` rebuilds the demo's repositories into `site/demo-data/` (see docs/playground.md);
+a change to `playground/media_repos.rs` needs both `just demo-data` and `just demo-golden`.
+
+The website itself is `site/`, its own npm project (Vite, plain TypeScript and CSS; run
+`cd site && npm ci` once). `just site-build` builds the landing page into `site/dist/` and checks
+it (nothing left unfilled, the first screen's weight); `just demo-build` adds the demo under
+`site/dist/demo/`; `just site-dev` serves the page at http://localhost:1430 with the last demo
+build at `/demo/`; `just test-site` runs its unit tests and `just e2e-site` its Playwright checks
+(port `GITBOLT_E2E_PORT_BASE + 3`, 1423 by default). The features and the GitKraken table are
+generated from README.md and the downloads from `site/data/release.json` at build time.
+`just site-shots` retakes the screenshots in `site/shots/` from the demo build (headless Chromium,
+port base + 4; needs Pillow): on demand only, then commit them. The four review, undo,
+rebase and stack shots wait for the writes, rebase and forge phases: until their demo
+methods exist, the page shows a placeholder card in their place
+(`ui/src/demo/coverage.ts` lists the methods still pending). `just site-pages` builds the whole
+website the way its deploy does and checks it ([docs/website.md](website.md)).
 
 ## Build and test speed
 

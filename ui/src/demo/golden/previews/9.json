@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "3345c8509c958e5ec6ac3d10bf37035f8d5f3080"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "9d948f62134a533a5d5bc16342df12985640a349"
+      },
+      "path": "audio/laser.wav",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "media": true,
+    "new": {
+      "base64": "sha256:a983e995fa19b0f8c7a7f2a76df530d2eb504786b76afdafbc6104fb62d7e573:20640",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "3345c8509c958e5ec6ac3d10bf37035f8d5f3080",
+      "size": 15480,
+      "text": null
+    },
+    "old": {
+      "base64": "sha256:2882c8ef52512b2b768549467bfb92fdf917fa7a602940a6ebf283e5ef7db352:20640",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "9d948f62134a533a5d5bc16342df12985640a349",
+      "size": 15480,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

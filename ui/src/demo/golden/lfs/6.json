@@ -1,0 +1,55 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "worktree",
+        "worktree": "$wt"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "48c1468715c3f71a70e1622cd994d79446296f59"
+      },
+      "path": "art/title.png",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": true,
+    "lfs": true,
+    "new": {
+      "base64": "sha256:e6a1f3f68c622156a62a30d5ca1bc6feadf3d816d278853d515307886db553e5:18520",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "filtered": true,
+      "hash": "aa4c38c549bb01b9b6dc132e1088d7def8820f4d",
+      "lfs": {
+        "downloaded": true,
+        "oid": "a999a59ea576348aad727fc8a459df9707a9b0d19e6b60357149593d1b0037bf",
+        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:a999a59ea576348aad727fc8a459df9707a9b0d19e6b60357149593d1b0037bf\nsize 13889\n",
+        "size": 13889
+      },
+      "size": 13889,
+      "text": null
+    },
+    "old": {
+      "base64": "sha256:fc831c46683e62f3131e44c6551a8a6b79bf6f789a112170f286daff5a7a5801:20236",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c",
+      "lfs": {
+        "downloaded": true,
+        "oid": "91abddced57cdc011a56d7c1d83a7ee1fc1b0d30f5444808eb0a62a00bc37b70",
+        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:91abddced57cdc011a56d7c1d83a7ee1fc1b0d30f5444808eb0a62a00bc37b70\nsize 15176\n",
+        "size": 15176
+      },
+      "size": 15176,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

@@ -1,0 +1,169 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 81,
+    "deleted": 0,
+    "files": [
+      {
+        "additions": 3,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "2e11fe5aa880a2f69b3d1d3d1d1338f7783d6811"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "crlf.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "d1258f06d284a194abe3f89b0e9cb6e49ab942e5"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "data.bin",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 11,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "952d103345eed4749929d8a47bc6d2be08ba4929"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "docs/guide.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "be5ad9d55e91bb44151ced2cb7052bfa4b80f594"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "icon.svg",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "2b1bbf61d6206ee868316106e9efc6f5c60395c9"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "latin1.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "04ecf4b5b62d74f81c30682abe0bad227b9045d5"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "logo.png",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "420201136f42027c6f971934cc73615082d65160"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "old.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 60,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "ba1084dea241c998ff27961bf9346e44cd7ceb2c"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "src/app.php",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "2f2e7d09939cdc85ab30d846c4c49878dcf3e279"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "utf16.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 4,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "871539ca141ba15d9774b2ae2fe1b3117ca19d9f"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "ws.txt",
+        "status": "A",
+        "submodule": false
+      }
+    ]
+  }
+}

@@ -6,9 +6,10 @@ publish.workspace = true
 license.workspace = true
 
 [features]
-testing = []
+testing = ["gitbolt-graph/testing"]
 
 [dependencies]
+gitbolt-graph.workspace = true
 gix.workspace = true
 tokio.workspace = true
 tokio-util.workspace = true
@@ -29,6 +30,8 @@ dirs.workspace = true
 notify.workspace = true
 
 [dev-dependencies]
+# The layout's continuity check runs in the core's unit tests too.
+gitbolt-graph = { workspace = true, features = ["testing"] }
 insta.workspace = true
 # `#[tokio::test(start_paused = true)]` for the settings debounce test.
 tokio = { workspace = true, features = ["test-util"] }

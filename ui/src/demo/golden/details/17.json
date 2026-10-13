@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "worktreePathKind",
+    "params": {
+      "path": "nope/x.txt",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": null
+}

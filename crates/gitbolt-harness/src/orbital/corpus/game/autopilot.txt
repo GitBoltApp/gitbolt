@@ -1,0 +1,129 @@
+#file crates/orbital-game/src/autopilot.rs
+#header v1 @autopilot "Add an autopilot for transfer burns"
+//! The autopilot: flies a ship to a higher or lower orbit with the two burns a transfer needs.
+
+use glam::Vec2;
+use orbital_core::orbit::hohmann_dv;
+use orbital_core::ship::Ship;
+
+#const AUTOPILOT_GAIN v1 @autopilot "Add an autopilot for transfer burns"
+/// How hard the autopilot pushes per step of burn it still owes, as a fraction of full thrust.
+pub const AUTOPILOT_GAIN: f32 = 0.6;
+#const AUTOPILOT_GAIN v2 @autopilot "Turn the autopilot's burn down a notch"
+/// How hard the autopilot pushes per step of burn it still owes, as a fraction of full thrust.
+pub const AUTOPILOT_GAIN: f32 = 0.5;
+#const AUTOPILOT_GAIN v3 @autopilot "Turn the autopilot's burn back up for the transfer"
+/// How hard the autopilot pushes per step of burn it still owes, as a fraction of full thrust.
+pub const AUTOPILOT_GAIN: f32 = 0.55;
+#item Autopilot v1 @autopilot "Add an autopilot for transfer burns"
+/// The autopilot's plan: the orbit it is heading for, the central body's pull, and the burn it
+/// still owes to get there.
+#[derive(Debug)]
+pub struct Autopilot {
+    target: f32,
+    mu: f32,
+    owed: f32,
+}
+#item new v1 @autopilot "Add an autopilot for transfer burns"
+impl Autopilot {
+    /// An autopilot for the orbit at radius `target`, around a body with gravitational parameter `mu`.
+    pub fn new(target: f32, mu: f32) -> Self {
+        Self {
+            target,
+            mu,
+            owed: 0.0,
+        }
+    }
+}
+#item plan v1 @autopilot "Add an autopilot for transfer burns"
+impl Autopilot {
+    /// Works out the two burns from the current orbit to the target, and records what they cost.
+    pub fn plan(&mut self, current: f32) -> f32 {
+        let (first, second) = hohmann_dv(current, self.target, self.mu);
+        self.owed = first + second;
+        self.owed
+    }
+}
+#item plan v2 @autopilot "Plan the burns from the orbit the ship is actually in"
+impl Autopilot {
+    /// Works out the two burns from the current orbit to the target, and records what they cost. A
+    /// ship inside the reference radius is planned from radius one instead.
+    pub fn plan(&mut self, current: f32) -> f32 {
+        let (first, second) = hohmann_dv(current.max(1.0), self.target, self.mu);
+        self.owed = first + second;
+        self.owed
+    }
+}
+#item remaining v1 @autopilot "Add an autopilot for transfer burns"
+impl Autopilot {
+    /// The burn still owed, in the units `plan` gave.
+    pub fn remaining(&self) -> f32 {
+        self.owed.max(0.0)
+    }
+}
+#item steer v1 @autopilot "Add an autopilot for transfer burns"
+impl Autopilot {
+    /// The thrust to fire this tick: along the ship's velocity while a burn is owed, then nothing.
+    pub fn steer(&mut self, ship: &Ship) -> Vec2 {
+        if self.owed <= 0.0 {
+            return Vec2::ZERO;
+        }
+        self.owed -= AUTOPILOT_GAIN;
+        ship.body.velocity.normalize_or_zero() * AUTOPILOT_GAIN
+    }
+}
+#item steer v2 @autopilot "Stop the autopilot firing once the burn is paid"
+impl Autopilot {
+    /// The thrust to fire this tick: along the ship's velocity while a burn is owed, then nothing.
+    /// Paying the last of the burn also stops the thrust at once.
+    pub fn steer(&mut self, ship: &Ship) -> Vec2 {
+        if self.owed <= 0.0 {
+            return Vec2::ZERO;
+        }
+        self.owed -= AUTOPILOT_GAIN;
+        if self.owed <= 0.0 {
+            return Vec2::ZERO;
+        }
+        ship.body.velocity.normalize_or_zero() * AUTOPILOT_GAIN
+    }
+}
+#test plan_owes_two_burns v1 @autopilot "Test that a transfer plan owes a burn"
+#[test]
+fn plan_owes_two_burns() {
+    let mut autopilot = Autopilot::new(1400.0, 1.0);
+    autopilot.plan(1000.0);
+    assert!(autopilot.remaining() > 0.0);
+}
+#test steer_pays_the_burn_down v1 @autopilot "Test that steering pays the burn down"
+#[test]
+fn steer_pays_the_burn_down() {
+    let ship = Ship::new(orbital_core::body::Body::ship(
+        "probe",
+        Vec2::ZERO,
+        Vec2::Y,
+        1.0,
+    ));
+    let mut autopilot = Autopilot::new(1400.0, 1.0);
+    autopilot.plan(1000.0);
+    let before = autopilot.remaining();
+    autopilot.steer(&ship);
+    assert!(autopilot.remaining() < before);
+}
+#test a_paid_burn_stops_the_thrust v1 @autopilot "Test that a paid burn stops the thrust"
+#[test]
+fn a_paid_burn_stops_the_thrust() {
+    let ship = Ship::new(orbital_core::body::Body::ship(
+        "probe",
+        Vec2::ZERO,
+        Vec2::Y,
+        1.0,
+    ));
+    let mut autopilot = Autopilot::new(1400.0, 1.0);
+    assert_eq!(autopilot.steer(&ship), Vec2::ZERO);
+}
+#test plan_to_the_same_orbit_owes_nothing v1 @autopilot "Test that a plan to the same orbit owes no burn"
+#[test]
+fn plan_to_the_same_orbit_owes_nothing() {
+    let mut autopilot = Autopilot::new(1400.0, 1.0);
+    assert!(autopilot.plan(1400.0).abs() < 1e-4);
+}

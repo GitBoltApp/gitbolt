@@ -1,0 +1,780 @@
+#file crates/orbital-game/src/settings.rs
+#header v1 @settings-menu
+//! The settings screen: the music volume, the light on the planets, the text size, the contrast
+//! and the keys.
+
+use glam::Vec2;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::input::Action;
+
+#header v2 @strings-table
+//! The settings screen: the music volume, the light on the planets, the text size, the contrast
+//! and the keys.
+
+use glam::Vec2;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::input::Action;
+use crate::strings::tr;
+
+#const MUSIC_STEP v1 @settings-menu
+/// How far one press moves the music volume, in percent.
+pub const MUSIC_STEP: u32 = 5;
+
+#const DEFAULT_MUSIC_PERCENT v1 @volume-sliders
+/// The music volume a new player starts with, in percent.
+pub const DEFAULT_MUSIC_PERCENT: u32 = 40;
+
+#const LIGHT_STEP v1 @light-direction
+/// How far one press turns the light, in degrees.
+pub const LIGHT_STEP: f32 = 15.0;
+
+#const TEXT_STEP v1 @text-scale
+/// How far one press changes the interface text's scale.
+pub const TEXT_STEP: f32 = 0.1;
+
+#item SETTINGS_PATH v1 @settings-save "Keep the settings when the game updates"
+/// Where the settings are kept, beside the saves.
+pub const SETTINGS_PATH: &str = "saves/settings.cfg";
+
+#item ROWS v1 @settings-menu "Add a settings menu for volume and keys"
+/// The rows of the settings screen, top to bottom.
+pub const ROWS: [Row; 3] = [Row::Music, Row::Thrust, Row::Back];
+
+#item ROWS v2 @light-direction "Add a light direction setting for the planets"
+/// The rows of the settings screen, top to bottom.
+pub const ROWS: [Row; 4] = [Row::Music, Row::Light, Row::Thrust, Row::Back];
+
+#item ROWS v3 @text-scale "Scale the interface text from the settings menu"
+/// The rows of the settings screen, top to bottom.
+pub const ROWS: [Row; 5] = [Row::Music, Row::Light, Row::Text, Row::Thrust, Row::Back];
+
+#item ROWS v4 @high-contrast "Add a high-contrast theme"
+/// The rows of the settings screen, top to bottom.
+pub const ROWS: [Row; 6] = [
+    Row::Music,
+    Row::Light,
+    Row::Text,
+    Row::HighContrast,
+    Row::Thrust,
+    Row::Back,
+];
+
+#item ROWS v5 @colour-blind "Add a colour-blind palette for the orbit map"
+/// The rows of the settings screen, top to bottom.
+pub const ROWS: [Row; 7] = [
+    Row::Music,
+    Row::Light,
+    Row::Text,
+    Row::HighContrast,
+    Row::ColourBlind,
+    Row::Thrust,
+    Row::Back,
+];
+
+#item Row v1 @settings-menu "Add a settings menu for volume and keys"
+/// One row of the settings screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    Music,
+    Thrust,
+    Back,
+}
+
+#item Row v2 @light-direction "Add a light direction setting for the planets"
+/// One row of the settings screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    Music,
+    Light,
+    Thrust,
+    Back,
+}
+
+#item Row v3 @text-scale "Scale the interface text from the settings menu"
+/// One row of the settings screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    Music,
+    Light,
+    Text,
+    Thrust,
+    Back,
+}
+
+#item Row v4 @high-contrast "Add a high-contrast theme"
+/// One row of the settings screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    Music,
+    Light,
+    Text,
+    HighContrast,
+    Thrust,
+    Back,
+}
+
+#item Row v5 @colour-blind "Add a colour-blind palette for the orbit map"
+/// One row of the settings screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Row {
+    Music,
+    Light,
+    Text,
+    HighContrast,
+    ColourBlind,
+    Thrust,
+    Back,
+}
+
+#item Settings v1 @settings-menu "Add a settings menu for volume and keys"
+/// The settings the player can change, and the row that has focus.
+#[derive(Debug)]
+pub struct Settings {
+    pub music_percent: u32,
+    focus: usize,
+}
+
+#item Settings v2 @light-direction "Add a light direction setting for the planets"
+/// The settings the player can change, and the row that has focus.
+#[derive(Debug)]
+pub struct Settings {
+    pub music_percent: u32,
+    pub light_angle: f32,
+    focus: usize,
+}
+
+#item Settings v3 @text-scale "Scale the interface text from the settings menu"
+/// The settings the player can change, and the row that has focus.
+#[derive(Debug)]
+pub struct Settings {
+    pub music_percent: u32,
+    pub light_angle: f32,
+    pub text_scale: f32,
+    focus: usize,
+}
+
+#item Settings v4 @high-contrast "Add a high-contrast theme"
+/// The settings the player can change, and the row that has focus.
+#[derive(Debug)]
+pub struct Settings {
+    pub music_percent: u32,
+    pub light_angle: f32,
+    pub text_scale: f32,
+    pub high_contrast: bool,
+    focus: usize,
+}
+
+#item Settings v5 @colour-blind "Add a colour-blind palette for the orbit map"
+/// The settings the player can change, and the row that has focus.
+#[derive(Debug)]
+pub struct Settings {
+    pub music_percent: u32,
+    pub light_angle: f32,
+    pub text_scale: f32,
+    pub high_contrast: bool,
+    pub colour_blind: bool,
+    focus: usize,
+}
+
+#item default v1 @settings-menu "Add a settings menu for volume and keys"
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            music_percent: 50,
+            focus: 0,
+        }
+    }
+}
+
+#item default v2 @volume-sliders "Set the default music volume to 40 percent"
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            music_percent: DEFAULT_MUSIC_PERCENT,
+            focus: 0,
+        }
+    }
+}
+
+#item default v3 @light-direction "Add a light direction setting for the planets"
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            music_percent: DEFAULT_MUSIC_PERCENT,
+            light_angle: 45.0,
+            focus: 0,
+        }
+    }
+}
+
+#item default v4 @text-scale "Scale the interface text from the settings menu"
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            music_percent: DEFAULT_MUSIC_PERCENT,
+            light_angle: 45.0,
+            text_scale: 1.0,
+            focus: 0,
+        }
+    }
+}
+
+#item default v5 @high-contrast "Add a high-contrast theme"
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            music_percent: DEFAULT_MUSIC_PERCENT,
+            light_angle: 45.0,
+            text_scale: 1.0,
+            high_contrast: false,
+            focus: 0,
+        }
+    }
+}
+
+#item default v6 @colour-blind "Add a colour-blind palette for the orbit map"
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            music_percent: DEFAULT_MUSIC_PERCENT,
+            light_angle: 45.0,
+            text_scale: 1.0,
+            high_contrast: false,
+            colour_blind: false,
+            focus: 0,
+        }
+    }
+}
+
+#item row v1 @settings-menu "Add a settings menu for volume and keys"
+impl Settings {
+    /// The row that has focus.
+    fn row(&self) -> Row {
+        ROWS[self.focus]
+    }
+}
+
+#item handle v1 @settings-menu "Add a settings menu for volume and keys"
+impl Settings {
+    /// Moves the focus, changes the focused setting with left and right, and acts on select. Back
+    /// leaves the screen, and select on the thrust row waits for the next key to rebind it.
+    pub fn handle(&mut self, action: Action) -> Step {
+        match action {
+            Action::Up => self.focus = self.focus.saturating_sub(1),
+            Action::Down => self.focus = (self.focus + 1).min(ROWS.len() - 1),
+            Action::Left => self.adjust(false),
+            Action::Right => self.adjust(true),
+            Action::Select => match self.row() {
+                Row::Thrust => return Step::Capture(Action::Thrust),
+                Row::Back => return Step::Pop,
+                _ => self.adjust(true),
+            },
+            Action::Back => return Step::Pop,
+            _ => {}
+        }
+        Step::Stay
+    }
+}
+
+#item handle v2 @settings-save "Keep the settings when the game updates"
+impl Settings {
+    /// Moves the focus, changes the focused setting with left and right, and acts on select. Back
+    /// saves the settings and leaves the screen. Select on the thrust row waits for the next key to
+    /// rebind it.
+    pub fn handle(&mut self, action: Action) -> Step {
+        match action {
+            Action::Up => self.focus = self.focus.saturating_sub(1),
+            Action::Down => self.focus = (self.focus + 1).min(ROWS.len() - 1),
+            Action::Left => self.adjust(false),
+            Action::Right => self.adjust(true),
+            Action::Select => match self.row() {
+                Row::Thrust => return Step::Capture(Action::Thrust),
+                Row::Back => return self.leave(),
+                _ => self.adjust(true),
+            },
+            Action::Back => return self.leave(),
+            _ => {}
+        }
+        Step::Stay
+    }
+}
+
+#item leave v1 @settings-save "Keep the settings when the game updates"
+impl Settings {
+    /// Saves the settings on the way out, so they survive a restart.
+    fn leave(&self) -> Step {
+        if let Err(err) = self.save() {
+            log::warn!("could not save the settings: {err}");
+        }
+        Step::Pop
+    }
+}
+
+#item adjust v1 @settings-menu "Add a settings menu for volume and keys"
+impl Settings {
+    /// Moves the focused setting one step up or down.
+    fn adjust(&mut self, up: bool) {
+        if self.row() == Row::Music {
+            self.music_percent = if up {
+                (self.music_percent + MUSIC_STEP).min(100)
+            } else {
+                self.music_percent.saturating_sub(MUSIC_STEP)
+            };
+        }
+    }
+}
+
+#item adjust v2 @light-direction "Add a light direction setting for the planets"
+impl Settings {
+    /// Moves the focused setting one step up or down.
+    fn adjust(&mut self, up: bool) {
+        let dir = if up { 1.0 } else { -1.0 };
+        match self.row() {
+            Row::Music => {
+                self.music_percent = if up {
+                    (self.music_percent + MUSIC_STEP).min(100)
+                } else {
+                    self.music_percent.saturating_sub(MUSIC_STEP)
+                };
+            }
+            Row::Light => {
+                self.light_angle = (self.light_angle + dir * LIGHT_STEP).rem_euclid(360.0)
+            }
+            _ => {}
+        }
+    }
+}
+
+#item adjust v3 @text-scale "Scale the interface text from the settings menu"
+impl Settings {
+    /// Moves the focused setting one step up or down.
+    fn adjust(&mut self, up: bool) {
+        let dir = if up { 1.0 } else { -1.0 };
+        match self.row() {
+            Row::Music => {
+                self.music_percent = if up {
+                    (self.music_percent + MUSIC_STEP).min(100)
+                } else {
+                    self.music_percent.saturating_sub(MUSIC_STEP)
+                };
+            }
+            Row::Light => {
+                self.light_angle = (self.light_angle + dir * LIGHT_STEP).rem_euclid(360.0)
+            }
+            Row::Text => self.text_scale = (self.text_scale + dir * TEXT_STEP).clamp(0.8, 1.6),
+            _ => {}
+        }
+    }
+}
+
+#item adjust v4 @high-contrast "Add a high-contrast theme"
+impl Settings {
+    /// Moves the focused setting one step up or down, or flips a switch.
+    fn adjust(&mut self, up: bool) {
+        let dir = if up { 1.0 } else { -1.0 };
+        match self.row() {
+            Row::Music => {
+                self.music_percent = if up {
+                    (self.music_percent + MUSIC_STEP).min(100)
+                } else {
+                    self.music_percent.saturating_sub(MUSIC_STEP)
+                };
+            }
+            Row::Light => {
+                self.light_angle = (self.light_angle + dir * LIGHT_STEP).rem_euclid(360.0)
+            }
+            Row::Text => self.text_scale = (self.text_scale + dir * TEXT_STEP).clamp(0.8, 1.6),
+            Row::HighContrast => self.high_contrast = !self.high_contrast,
+            _ => {}
+        }
+    }
+}
+
+#item adjust v5 @colour-blind "Add a colour-blind palette for the orbit map"
+impl Settings {
+    /// Moves the focused setting one step up or down, or flips a switch.
+    fn adjust(&mut self, up: bool) {
+        let dir = if up { 1.0 } else { -1.0 };
+        match self.row() {
+            Row::Music => {
+                self.music_percent = if up {
+                    (self.music_percent + MUSIC_STEP).min(100)
+                } else {
+                    self.music_percent.saturating_sub(MUSIC_STEP)
+                };
+            }
+            Row::Light => {
+                self.light_angle = (self.light_angle + dir * LIGHT_STEP).rem_euclid(360.0)
+            }
+            Row::Text => self.text_scale = (self.text_scale + dir * TEXT_STEP).clamp(0.8, 1.6),
+            Row::HighContrast => self.high_contrast = !self.high_contrast,
+            Row::ColourBlind => self.colour_blind = !self.colour_blind,
+            _ => {}
+        }
+    }
+}
+
+#item label v1 @settings-menu "Add a settings menu for volume and keys"
+impl Settings {
+    /// The text a row shows: its name and its value.
+    fn label(&self, row: Row) -> String {
+        match row {
+            Row::Music => format!("MUSIC {}%", self.music_percent),
+            Row::Thrust => String::from("THRUST KEY"),
+            Row::Back => String::from("BACK"),
+        }
+    }
+}
+
+#item label v2 @light-direction "Add a light direction setting for the planets"
+impl Settings {
+    /// The text a row shows: its name and its value.
+    fn label(&self, row: Row) -> String {
+        match row {
+            Row::Music => format!("MUSIC {}%", self.music_percent),
+            Row::Light => format!("LIGHT {}", self.light_angle),
+            Row::Thrust => String::from("THRUST KEY"),
+            Row::Back => String::from("BACK"),
+        }
+    }
+}
+
+#item label v3 @text-scale "Scale the interface text from the settings menu"
+impl Settings {
+    /// The text a row shows: its name and its value.
+    fn label(&self, row: Row) -> String {
+        match row {
+            Row::Music => format!("MUSIC {}%", self.music_percent),
+            Row::Light => format!("LIGHT {}", self.light_angle),
+            Row::Text => format!("TEXT {:.1}", self.text_scale),
+            Row::Thrust => String::from("THRUST KEY"),
+            Row::Back => String::from("BACK"),
+        }
+    }
+}
+
+#item label v4 @high-contrast "Add a high-contrast theme"
+impl Settings {
+    /// The text a row shows: its name and its value.
+    fn label(&self, row: Row) -> String {
+        let on_off = |on: bool| if on { "ON" } else { "OFF" };
+        match row {
+            Row::Music => format!("MUSIC {}%", self.music_percent),
+            Row::Light => format!("LIGHT {}", self.light_angle),
+            Row::Text => format!("TEXT {:.1}", self.text_scale),
+            Row::HighContrast => format!("CONTRAST {}", on_off(self.high_contrast)),
+            Row::Thrust => String::from("THRUST KEY"),
+            Row::Back => String::from("BACK"),
+        }
+    }
+}
+
+#item label v5 @colour-blind "Add a colour-blind palette for the orbit map"
+impl Settings {
+    /// The text a row shows: its name and its value.
+    fn label(&self, row: Row) -> String {
+        let on_off = |on: bool| if on { "ON" } else { "OFF" };
+        match row {
+            Row::Music => format!("MUSIC {}%", self.music_percent),
+            Row::Light => format!("LIGHT {}", self.light_angle),
+            Row::Text => format!("TEXT {:.1}", self.text_scale),
+            Row::HighContrast => format!("CONTRAST {}", on_off(self.high_contrast)),
+            Row::ColourBlind => format!("COLOUR BLIND {}", on_off(self.colour_blind)),
+            Row::Thrust => String::from("THRUST KEY"),
+            Row::Back => String::from("BACK"),
+        }
+    }
+}
+
+#item label v6 @strings-table "Read the settings labels from the strings table"
+impl Settings {
+    /// The text a row shows: its name, from the strings table, and its value.
+    fn label(&self, row: Row) -> String {
+        let on_off = |on: bool| {
+            if on {
+                tr("settings.on")
+            } else {
+                tr("settings.off")
+            }
+        };
+        match row {
+            Row::Music => format!("{} {}%", tr("settings.music"), self.music_percent),
+            Row::Light => format!("{} {}", tr("settings.light"), self.light_angle),
+            Row::Text => format!("{} {:.1}", tr("settings.text"), self.text_scale),
+            Row::HighContrast => {
+                format!("{} {}", tr("settings.contrast"), on_off(self.high_contrast))
+            }
+            Row::ColourBlind => format!(
+                "{} {}",
+                tr("settings.colour_blind"),
+                on_off(self.colour_blind)
+            ),
+            Row::Thrust => tr("settings.thrust_key").to_string(),
+            Row::Back => tr("settings.back").to_string(),
+        }
+    }
+}
+
+#item draw v1 @settings-menu "Add a settings menu for volume and keys"
+impl Settings {
+    /// Draws each row's text down the screen, the focused row in full white.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        for (index, row) in ROWS.iter().enumerate() {
+            let at = Vec2::new(120.0, 160.0 + index as f32 * 32.0);
+            let colour = if index == self.focus {
+                [1.0; 4]
+            } else {
+                [0.6, 0.6, 0.6, 1.0]
+            };
+            font.draw(glyphs, &self.label(*row), at, colour);
+        }
+    }
+}
+
+#item light_dir v1 @light-direction "Add a light direction setting for the planets"
+impl Settings {
+    /// The direction the planets' light comes from, as a unit vector.
+    pub fn light_dir(&self) -> [f32; 2] {
+        let angle = self.light_angle.to_radians();
+        [angle.cos(), angle.sin()]
+    }
+}
+
+#item to_text v1 @settings-save "Keep the settings when the game updates"
+impl Settings {
+    /// The settings as text, one `key=value` line each.
+    fn to_text(&self) -> String {
+        format!("music={}\n", self.music_percent)
+    }
+}
+
+#item to_text v2 @light-direction "Add a light direction setting for the planets"
+impl Settings {
+    /// The settings as text, one `key=value` line each.
+    fn to_text(&self) -> String {
+        format!("music={}\nlight={}\n", self.music_percent, self.light_angle)
+    }
+}
+
+#item to_text v3 @text-scale "Scale the interface text from the settings menu"
+impl Settings {
+    /// The settings as text, one `key=value` line each.
+    fn to_text(&self) -> String {
+        format!(
+            "music={}\nlight={}\ntext={}\n",
+            self.music_percent, self.light_angle, self.text_scale
+        )
+    }
+}
+
+#item to_text v4 @high-contrast "Add a high-contrast theme"
+impl Settings {
+    /// The settings as text, one `key=value` line each.
+    fn to_text(&self) -> String {
+        format!(
+            "music={}\nlight={}\ntext={}\ncontrast={}\n",
+            self.music_percent, self.light_angle, self.text_scale, self.high_contrast
+        )
+    }
+}
+
+#item to_text v5 @colour-blind "Add a colour-blind palette for the orbit map"
+impl Settings {
+    /// The settings as text, one `key=value` line each.
+    fn to_text(&self) -> String {
+        format!(
+            "music={}\nlight={}\ntext={}\ncontrast={}\nblind={}\n",
+            self.music_percent,
+            self.light_angle,
+            self.text_scale,
+            self.high_contrast,
+            self.colour_blind
+        )
+    }
+}
+
+#item parse v1 @settings-save "Keep the settings when the game updates"
+impl Settings {
+    /// Reads settings back from text. A key the text doesn't have keeps its default, and so does a
+    /// line that doesn't parse, so a newer file can't reset the rest.
+    fn parse(text: &str) -> Self {
+        let mut settings = Self::default();
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("music=") {
+                settings.music_percent = value.parse().unwrap_or(settings.music_percent);
+            }
+        }
+        settings
+    }
+}
+
+#item parse v2 @light-direction "Add a light direction setting for the planets"
+impl Settings {
+    /// Reads settings back from text. A key the text doesn't have keeps its default, and so does a
+    /// line that doesn't parse, so a newer file can't reset the rest.
+    fn parse(text: &str) -> Self {
+        let mut settings = Self::default();
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("music=") {
+                settings.music_percent = value.parse().unwrap_or(settings.music_percent);
+            } else if let Some(value) = line.strip_prefix("light=") {
+                settings.light_angle = value.parse().unwrap_or(settings.light_angle);
+            }
+        }
+        settings
+    }
+}
+
+#item parse v3 @text-scale "Scale the interface text from the settings menu"
+impl Settings {
+    /// Reads settings back from text. A key the text doesn't have keeps its default, and so does a
+    /// line that doesn't parse, so a newer file can't reset the rest.
+    fn parse(text: &str) -> Self {
+        let mut settings = Self::default();
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("music=") {
+                settings.music_percent = value.parse().unwrap_or(settings.music_percent);
+            } else if let Some(value) = line.strip_prefix("light=") {
+                settings.light_angle = value.parse().unwrap_or(settings.light_angle);
+            } else if let Some(value) = line.strip_prefix("text=") {
+                settings.text_scale = value.parse().unwrap_or(settings.text_scale);
+            }
+        }
+        settings
+    }
+}
+
+#item parse v4 @high-contrast "Add a high-contrast theme"
+impl Settings {
+    /// Reads settings back from text. A key the text doesn't have keeps its default, and so does a
+    /// line that doesn't parse, so a newer file can't reset the rest.
+    fn parse(text: &str) -> Self {
+        let mut settings = Self::default();
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("music=") {
+                settings.music_percent = value.parse().unwrap_or(settings.music_percent);
+            } else if let Some(value) = line.strip_prefix("light=") {
+                settings.light_angle = value.parse().unwrap_or(settings.light_angle);
+            } else if let Some(value) = line.strip_prefix("text=") {
+                settings.text_scale = value.parse().unwrap_or(settings.text_scale);
+            } else if let Some(value) = line.strip_prefix("contrast=") {
+                settings.high_contrast = value.parse().unwrap_or(settings.high_contrast);
+            }
+        }
+        settings
+    }
+}
+
+#item parse v5 @colour-blind "Add a colour-blind palette for the orbit map"
+impl Settings {
+    /// Reads settings back from text. A key the text doesn't have keeps its default, and so does a
+    /// line that doesn't parse, so a newer file can't reset the rest.
+    fn parse(text: &str) -> Self {
+        let mut settings = Self::default();
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("music=") {
+                settings.music_percent = value.parse().unwrap_or(settings.music_percent);
+            } else if let Some(value) = line.strip_prefix("light=") {
+                settings.light_angle = value.parse().unwrap_or(settings.light_angle);
+            } else if let Some(value) = line.strip_prefix("text=") {
+                settings.text_scale = value.parse().unwrap_or(settings.text_scale);
+            } else if let Some(value) = line.strip_prefix("contrast=") {
+                settings.high_contrast = value.parse().unwrap_or(settings.high_contrast);
+            } else if let Some(value) = line.strip_prefix("blind=") {
+                settings.colour_blind = value.parse().unwrap_or(settings.colour_blind);
+            }
+        }
+        settings
+    }
+}
+
+#item parse v6 @music-cap "Hold an edited music level to 100 percent\n\nThe settings file took any number for the music, so an edited file could play it louder than the slider goes."
+impl Settings {
+    /// Reads settings back from text. A key the text doesn't have keeps its default, and so does a
+    /// line that doesn't parse, so a newer file can't reset the rest. The music stops at 100
+    /// percent, as the slider does.
+    fn parse(text: &str) -> Self {
+        let mut settings = Self::default();
+        for line in text.lines() {
+            if let Some(value) = line.strip_prefix("music=") {
+                settings.music_percent = value
+                    .parse()
+                    .map_or(settings.music_percent, |v: u32| v.min(100));
+            } else if let Some(value) = line.strip_prefix("light=") {
+                settings.light_angle = value.parse().unwrap_or(settings.light_angle);
+            } else if let Some(value) = line.strip_prefix("text=") {
+                settings.text_scale = value.parse().unwrap_or(settings.text_scale);
+            } else if let Some(value) = line.strip_prefix("contrast=") {
+                settings.high_contrast = value.parse().unwrap_or(settings.high_contrast);
+            } else if let Some(value) = line.strip_prefix("blind=") {
+                settings.colour_blind = value.parse().unwrap_or(settings.colour_blind);
+            }
+        }
+        settings
+    }
+}
+
+#item save v1 @settings-save "Keep the settings when the game updates"
+impl Settings {
+    /// Writes the settings to the settings file.
+    pub fn save(&self) -> std::io::Result<()> {
+        std::fs::write(SETTINGS_PATH, self.to_text())
+    }
+}
+
+#item load v1 @settings-save "Keep the settings when the game updates"
+impl Settings {
+    /// Reads the settings from the settings file, or the defaults if it is missing or unreadable.
+    pub fn load() -> Self {
+        std::fs::read_to_string(SETTINGS_PATH)
+            .map_or_else(|_| Self::default(), |text| Self::parse(&text))
+    }
+}
+
+#test music_steps_stay_in_range v1 @settings-menu "Test that the music volume stops at both ends"
+#[test]
+fn music_steps_stay_in_range() {
+    let mut settings = Settings::default();
+    for _ in 0..30 {
+        settings.handle(Action::Right);
+    }
+    assert_eq!(settings.music_percent, 100);
+    for _ in 0..30 {
+        settings.handle(Action::Left);
+    }
+    assert_eq!(settings.music_percent, 0);
+}
+
+#test the_default_music_is_40_percent v1 @volume-sliders "Test that the default music volume is 40 percent"
+#[test]
+fn the_default_music_is_40_percent() {
+    assert_eq!(Settings::default().music_percent, 40);
+}
+
+#test settings_survive_a_round_trip v1 @settings-save "Test that settings read back as they were saved"
+#[test]
+fn settings_survive_a_round_trip() {
+    let settings = Settings {
+        music_percent: 65,
+        ..Settings::default()
+    };
+    assert_eq!(Settings::parse(&settings.to_text()).music_percent, 65);
+}
+
+#test light_points_across_the_sky v1 @light-direction "Test that the light direction is a unit vector"
+#[test]
+fn light_points_across_the_sky() {
+    let [x, y] = Settings::default().light_dir();
+    assert!((x * x + y * y - 1.0).abs() < 1e-5);
+}
+
+#test an_edited_music_level_stops_at_100 v1 @music-cap "Test that an edited music level stops at 100 percent"
+#[test]
+fn an_edited_music_level_stops_at_100() {
+    assert_eq!(Settings::parse("music=250\n").music_percent, 100);
+    assert_eq!(Settings::parse("music=65\n").music_percent, 65);
+}

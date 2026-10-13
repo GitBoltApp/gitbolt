@@ -57,11 +57,18 @@ automatically.
 5. **Publish** the draft. GitHub marks a published release as the latest unless it's a
    pre-release.
 
+6. **The website's downloads update by themselves.** Publishing starts the Site downloads
+   workflow: it writes `site/data/release.json` for the release, commits it to main as
+   "Site: downloads for 0.1.0" and deploys the website. A pre-release is offered only while
+   there's no other release. Pull main (`git pull --rebase`) before you next push
+   it. See [docs/website.md](website.md#downloads).
+
 ## Asset names are an API
 
 Installed GitBolts find their update by these names (`crates/gitbolt-core/src/updates/release.rs`),
 so keep them exactly as they are, and keep `SHA256SUMS` in every release: an update whose
-package `SHA256SUMS` doesn't list is never installed.
+package `SHA256SUMS` doesn't list is never installed. The website's downloads
+(`scripts/site-release.py`) find the packages by these names too.
 
 | Install | Asset |
 |---|---|

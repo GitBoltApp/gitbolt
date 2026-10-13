@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "space name.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "5626abf0f72e58d7a153368ba57db4c673c0e171",
+      "index": "5626abf0f72e58d7a153368ba57db4c673c0e171",
+      "worktree": "814f4a422927b82f5f8a43f8fab6d3839e3983f2"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          2
+        ],
+        "del": [],
+        "newLines": 2,
+        "newStart": 1,
+        "oldLines": 1,
+        "oldStart": 1
+      }
+    ],
+    "refused": null
+  }
+}

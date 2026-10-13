@@ -1,0 +1,106 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "lfsStatus",
+  "params": {
+   "repo": "$repo"
+  }
+ },
+ {
+  "method": "lfsTracked",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "paths": [
+    "art/title.png",
+    "README.md",
+    "art/ships.psd"
+   ]
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "art/title.png",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:art/title.png"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:art/title.png"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "art/ships.psd",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^:art/ships.psd"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:art/ships.psd"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "art/title.png",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": ":art/title.png"
+    }
+   },
+   "new": {
+    "kind": "worktree",
+    "worktree": "$wt"
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "art/title.png",
+   "staged": false
+  }
+ }
+]

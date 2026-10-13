@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "findText",
+    "params": {
+      "query": "login",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "9ca365ee5aa057c07a3d39385eb10310b7be9cdc"
+  ]
+}

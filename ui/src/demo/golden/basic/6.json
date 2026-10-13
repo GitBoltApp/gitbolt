@@ -1,0 +1,134 @@
+{
+  "request": {
+    "method": "sidebar",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "locals": [
+      {
+        "ahead": 0,
+        "author": "Lars Tidemann",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/feature/login",
+        "gone": false,
+        "isHead": false,
+        "name": "feature/login",
+        "pushBehind": 0,
+        "pushTarget": "origin/feature/login",
+        "rewritten": null,
+        "summary": "Login validation",
+        "target": "e4c6d940a4965218a12ccdb06eb44eac2ad6a747",
+        "tipTime": 1767226620,
+        "upstream": "refs/remotes/origin/feature/login",
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Grace Hopper",
+        "behind": 0,
+        "checkedOut": "/demo/.extra/basic/wt-hotfix",
+        "fullName": "refs/heads/hotfix",
+        "gone": false,
+        "isHead": false,
+        "name": "hotfix",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Hotfix: null check",
+        "target": "2e44250bec93fcd4bb1ae583e583b5b1cb576d3e",
+        "tipTime": 1767227340,
+        "upstream": null,
+        "worktree": "/demo/.extra/basic/wt-hotfix"
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": "/demo/basic",
+        "fullName": "refs/heads/main",
+        "gone": false,
+        "isHead": true,
+        "name": "main",
+        "pushBehind": 0,
+        "pushTarget": "origin/main",
+        "rewritten": null,
+        "summary": "Merge branch 'feature/login'",
+        "target": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+        "tipTime": 1767227040,
+        "upstream": "refs/remotes/origin/main",
+        "worktree": null
+      }
+    ],
+    "remotes": [
+      {
+        "branches": [
+          {
+            "author": "Lars Tidemann",
+            "fullName": "refs/remotes/origin/feature/login",
+            "name": "feature/login",
+            "summary": "Login validation",
+            "target": "e4c6d940a4965218a12ccdb06eb44eac2ad6a747",
+            "tipTime": 1767226620
+          },
+          {
+            "author": "Ada Lovelace",
+            "fullName": "refs/remotes/origin/main",
+            "name": "main",
+            "summary": "Merge branch 'feature/login'",
+            "target": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+            "tipTime": 1767227040
+          }
+        ],
+        "defaultBranch": "refs/remotes/origin/main",
+        "host": null,
+        "hostKind": "generic",
+        "name": "origin"
+      }
+    ],
+    "stashes": [
+      {
+        "id": "eeb9e8f775bdbda7386fbbd7889d6b342839771b",
+        "index": 0,
+        "message": "On main: Experiment",
+        "time": 1767227520
+      }
+    ],
+    "tags": [
+      {
+        "annotation": {
+          "message": "v1.0",
+          "tagger": "Ada Lovelace",
+          "time": 1767226260,
+          "truncated": false
+        },
+        "fullName": "refs/tags/v1.0",
+        "name": "v1.0",
+        "target": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "time": 1767225900
+      }
+    ],
+    "worktrees": [
+      {
+        "branch": "main",
+        "head": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+        "isCurrent": true,
+        "isMain": true,
+        "locked": false,
+        "name": "basic",
+        "path": "/demo/basic"
+      },
+      {
+        "branch": "hotfix",
+        "head": "2e44250bec93fcd4bb1ae583e583b5b1cb576d3e",
+        "isCurrent": false,
+        "isMain": false,
+        "locked": false,
+        "name": "wt-hotfix",
+        "path": "/demo/.extra/basic/wt-hotfix"
+      }
+    ]
+  }
+}

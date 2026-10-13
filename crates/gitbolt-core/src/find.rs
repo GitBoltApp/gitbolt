@@ -9,6 +9,7 @@
 use crate::api::Api;
 use crate::error::{GbError, GbErrorKind};
 use crate::git::GitInvocation;
+use crate::graph::{to_oid, Oid};
 use crate::refs::read_refs;
 use crate::snapshot::graph_tips;
 use crate::walk::{walk_by_date, WalkOptions};
@@ -340,11 +341,12 @@ impl Api {
                 return Ok(LocateResult { found: true, limit: None, id, ambiguous: false });
             }
             let refs = read_refs(&repo)?;
-            let stash_ids: HashSet<ObjectId> = refs.stashes.iter().map(|x| x.id).collect();
-            let tips = graph_tips(&refs, &worktrees);
+            let stash_ids: HashSet<Oid> = refs.stashes.iter().map(|x| to_oid(x.id)).collect();
+            let tips = graph_tips(refs, &worktrees);
             // The order the graph's walk collects commits in: a window of `i + 1` holds commit `i`.
             let (collected, _) = walk_by_date(&repo, &tips, &WalkOptions { limit: LOCATE_LIMIT, first_parent_only: stash_ids })?;
-            Ok(match collected.iter().position(|c| c.id == target) {
+            let wanted = to_oid(target);
+            Ok(match collected.iter().position(|c| c.id == wanted) {
                 Some(i) => LocateResult { found: true, limit: Some((i + 1).max(s.ids.len()) as u32), id, ambiguous: false },
                 None => LocateResult { found: false, limit: None, id, ambiguous: false },
             })

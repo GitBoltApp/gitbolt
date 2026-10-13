@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "worktreeFiles",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt:wt-hotfix"
+    }
+  },
+  "response": [
+    "file_0.txt",
+    "file_1.txt",
+    "file_2.txt",
+    "file_3.txt",
+    "file_4.txt",
+    "file_5.txt"
+  ]
+}

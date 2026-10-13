@@ -1,0 +1,384 @@
+#file crates/orbital-game/src/audio.rs
+#header v1 @engine-hum
+//! Audio: the sounds the game asks for, queued for the audio device.
+
+#header v2 @menu-music
+//! Audio: the sounds the game asks for, queued for the audio device, and the gain of the menu
+//! music.
+
+#const MAX_QUEUED v1 @mixer
+/// Most sounds the mixer holds for the audio device. Past this, new sounds are dropped.
+pub const MAX_QUEUED: usize = 16;
+
+#const MAX_QUEUED v2 @audio-balance !removed
+
+#const MUSIC_VOLUME v1 @menu-music "Loop the menu track under the title screen"
+/// The menu music's gain before the settings scale it, as a fraction of full volume.
+pub const MUSIC_VOLUME: f32 = 0.4;
+
+#const MUSIC_VOLUME v2 @audio-balance
+/// The menu music's gain before the settings scale it, as a fraction of full volume.
+pub const MUSIC_VOLUME: f32 = 0.35;
+
+#const EFFECTS_GAIN v1 @audio-balance
+/// The effects bus's gain, as a fraction of full volume: the menu music sits about 6 dB under it.
+pub const EFFECTS_GAIN: f32 = 0.7;
+
+#const INTERFACE_GAIN v1 @audio-balance
+/// The interface bus's gain, as a fraction of full volume, so a click stays under the engine.
+pub const INTERFACE_GAIN: f32 = 0.5;
+
+#const MUSIC_FADE_RATE v1 @music-fade "Fade the menu music out when a game starts"
+/// How fast the menu music fades out once a game starts, in fractions of full volume a second.
+pub const MUSIC_FADE_RATE: f32 = 0.5;
+
+#item Sound v1 @engine-hum "Queue the engine hum for the audio device"
+/// A sound effect the game asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// The engine's hum, for every frame the drive fires.
+    Hum,
+}
+
+#item Sound v2 @laser-sound "Play a laser sound while mining"
+/// A sound effect the game asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// The engine's hum, for every frame the drive fires.
+    Hum,
+    /// The mining laser, for every frame it cuts a rock.
+    Laser,
+}
+
+#item Sound v3 @docking-chime "Play the chime when the ship docks"
+/// A sound effect the game asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// The engine's hum, for every frame the drive fires.
+    Hum,
+    /// The mining laser, for every frame it cuts a rock.
+    Laser,
+    /// The docking chime, when a ship latches on to a station.
+    Chime,
+}
+
+#item Sound v4 @ui-click "Click when a menu entry is picked"
+/// A sound effect the game asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// The engine's hum, for every frame the drive fires.
+    Hum,
+    /// The mining laser, for every frame it cuts a rock.
+    Laser,
+    /// The docking chime, when a ship latches on to a station.
+    Chime,
+    /// The click on a menu button.
+    Click,
+}
+
+#item Sound v5 @cargo-clank "Clank the hold when the last slot fills"
+/// A sound effect the game asks for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sound {
+    /// The engine's hum, for every frame the drive fires.
+    Hum,
+    /// The mining laser, for every frame it cuts a rock.
+    Laser,
+    /// The docking chime, when a ship latches on to a station.
+    Chime,
+    /// The click on a menu button.
+    Click,
+    /// The clank of a hold that has just filled up.
+    Clank,
+}
+
+#item Bus v1 @audio-buses "Route each sound to the effects or the interface bus"
+/// The bus a sound plays on, so each can have its own level. The music has its own gain in the
+/// mixer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Bus {
+    /// The flight's sounds: the engine, the docking and the cargo.
+    Effects,
+    /// The menus' sounds.
+    Interface,
+}
+
+#item bus v1 @audio-buses "Route each sound to the effects or the interface bus"
+impl Sound {
+    /// The bus this sound plays on.
+    pub fn bus(self) -> Bus {
+        match self {
+            Sound::Click => Bus::Interface,
+            Sound::Hum | Sound::Laser | Sound::Chime | Sound::Clank => Bus::Effects,
+        }
+    }
+}
+
+#item gain v1 @audio-balance "Balance the sound effects against the music"
+impl Bus {
+    /// The bus's gain, as a fraction of full volume.
+    pub fn gain(self) -> f32 {
+        match self {
+            Bus::Effects => EFFECTS_GAIN,
+            Bus::Interface => INTERFACE_GAIN,
+        }
+    }
+}
+
+#item Mixer v1 @engine-hum "Queue the engine hum for the audio device"
+/// The mixer: the sounds waiting for the audio device.
+#[derive(Debug, Default)]
+pub struct Mixer {
+    pending: Vec<Sound>,
+}
+
+#item Mixer v2 @chime-twice "Chime once per visit to a station\n\nUndocking left the ship in the port's reach, so it latched on again and the chime played a second time."
+/// The mixer: the sounds waiting for the audio device, and whether the docking chime has played
+/// for the current visit to a station.
+#[derive(Debug, Default)]
+pub struct Mixer {
+    pending: Vec<Sound>,
+    chimed: bool,
+}
+
+#item Mixer v3 @menu-music "Loop the menu track under the title screen"
+/// The mixer: the sounds waiting for the audio device, whether the docking chime has played for
+/// the current visit to a station, and the menu music's fade level.
+#[derive(Debug)]
+pub struct Mixer {
+    pending: Vec<Sound>,
+    chimed: bool,
+    music: f32,
+}
+
+#item default v1 @menu-music "Loop the menu track under the title screen"
+impl Default for Mixer {
+    fn default() -> Self {
+        Self {
+            pending: Vec::new(),
+            chimed: false,
+            music: 1.0,
+        }
+    }
+}
+
+#item play v1 @engine-hum "Queue the engine hum for the audio device"
+impl Mixer {
+    /// Queues a sound for the audio device to play on the next frame.
+    pub fn play(&mut self, sound: Sound) {
+        self.pending.push(sound);
+    }
+}
+
+#item play v2 @mixer "Cap the sounds the mixer holds for the device\n\nA minimised window stops drawing, so nothing took the queue and the engine hum piled up in it."
+impl Mixer {
+    /// Queues a sound for the audio device to play on the next frame, unless the queue is full.
+    pub fn play(&mut self, sound: Sound) {
+        if self.pending.len() < MAX_QUEUED {
+            self.pending.push(sound);
+        }
+    }
+}
+
+#item play v3 @audio-balance "Drop a sound that is already queued"
+impl Mixer {
+    /// Queues a sound to play on the next frame, unless the same sound is already waiting. The
+    /// queue holds each sound once, so it can't grow past them.
+    pub fn play(&mut self, sound: Sound) {
+        if !self.pending.contains(&sound) {
+            self.pending.push(sound);
+        }
+    }
+}
+
+#item take_pending v1 @engine-hum "Hand queued sounds to the audio device"
+impl Mixer {
+    /// Takes the queued sounds for the audio device, leaving the queue empty.
+    pub fn take_pending(&mut self) -> Vec<Sound> {
+        std::mem::take(&mut self.pending)
+    }
+}
+
+#item output v1 @engine-hum "Hand queued sounds to the audio device"
+/// Hands the frame's sounds to the audio device. The device is a stub until the game has an output
+/// stream: each sound is logged, so its trigger shows in a trace log.
+pub fn output(sounds: &[Sound]) {
+    for sound in sounds {
+        log::trace!("play {sound:?}");
+    }
+}
+
+#item output v2 @menu-music "Loop the menu track under the title screen"
+/// Hands the frame's sounds and the music's gain to the audio device. The device is a stub until
+/// the game has an output stream: each sound is logged, so its trigger shows in a trace log.
+pub fn output(sounds: &[Sound], music_gain: f32) {
+    log::trace!("music at {music_gain:.2}");
+    for sound in sounds {
+        log::trace!("play {sound:?}");
+    }
+}
+
+#item output v3 @audio-buses "Route each sound to the effects or the interface bus"
+/// Hands the frame's sounds and the music's gain to the audio device, each sound on its bus. The
+/// device is a stub until the game has an output stream: each sound is logged, so its trigger
+/// shows in a trace log.
+pub fn output(sounds: &[Sound], music_gain: f32) {
+    log::trace!("music at {music_gain:.2}");
+    for sound in sounds {
+        log::trace!("play {sound:?} on the {:?} bus", sound.bus());
+    }
+}
+
+#item output v4 @audio-balance "Balance the sound effects against the music"
+/// Hands the frame's sounds and the music's gain to the audio device, each sound on its bus at the
+/// bus's gain. The device is a stub until the game has an output stream: each sound is logged, so
+/// its trigger shows in a trace log.
+pub fn output(sounds: &[Sound], music_gain: f32) {
+    log::trace!("music at {music_gain:.2}");
+    for sound in sounds {
+        let bus = sound.bus();
+        log::trace!("play {sound:?} on the {bus:?} bus at {:.2}", bus.gain());
+    }
+}
+
+#item music_gain v1 @menu-music "Loop the menu track under the title screen"
+impl Mixer {
+    /// The music's gain: the menu track's volume scaled by the fade.
+    pub fn music_gain(&self) -> f32 {
+        MUSIC_VOLUME * self.music
+    }
+}
+
+#item music_gain v2 @audio-balance "Balance the sound effects against the music"
+impl Mixer {
+    /// The music's gain: the menu track's volume scaled by the fade, and kept within full volume.
+    pub fn music_gain(&self) -> f32 {
+        (MUSIC_VOLUME * self.music).clamp(0.0, 1.0)
+    }
+}
+
+#item fade_music v1 @music-fade "Fade the menu music out when a game starts"
+impl Mixer {
+    /// Lowers the music by `dt` seconds' worth of fade, down to silence.
+    pub fn fade_music(&mut self, dt: f32) {
+        self.music = (self.music - dt * MUSIC_FADE_RATE).max(0.0);
+    }
+}
+
+#item docked v1 @chime-twice "Chime once per visit to a station\n\nUndocking left the ship in the port's reach, so it latched on again and the chime played a second time."
+impl Mixer {
+    /// Queues the docking chime, unless it has already played for this visit.
+    pub fn docked(&mut self) {
+        if !self.chimed {
+            self.chimed = true;
+            self.play(Sound::Chime);
+        }
+    }
+}
+
+#item docked v2 @chime-2 "Start the chime as the ship first touches the port\n\nThe new chime is longer, so it starts at the first touch and ends as the clamps close."
+impl Mixer {
+    /// Queues the docking chime as the ship first touches a port, unless it has already played for
+    /// this visit.
+    pub fn docked(&mut self) {
+        if !self.chimed {
+            self.chimed = true;
+            self.play(Sound::Chime);
+        }
+    }
+}
+
+#item undocked v1 @chime-twice "Chime once per visit to a station\n\nUndocking left the ship in the port's reach, so it latched on again and the chime played a second time."
+impl Mixer {
+    /// Ends the visit once the ship has left the port's reach, so the next dock chimes again.
+    pub fn undocked(&mut self) {
+        self.chimed = false;
+    }
+}
+
+#item resume_docked v1 @fix-1-0-chime "Count a continued dock's chime as played\n\nA game saved at a station chimed again when it was continued, so the player heard the docking chime twice."
+impl Mixer {
+    /// Counts the chime as played for this visit, for a game continued at a station: the player
+    /// heard it when the ship docked, before the game was saved.
+    pub fn resume_docked(&mut self) {
+        self.chimed = true;
+    }
+}
+
+#test play_queues_a_sound v1 @engine-hum "Test that play queues a sound until it is taken"
+#[test]
+fn play_queues_a_sound() {
+    let mut mixer = Mixer::default();
+    mixer.play(Sound::Hum);
+    assert_eq!(mixer.take_pending(), vec![Sound::Hum]);
+    assert!(mixer.take_pending().is_empty());
+}
+
+#test the_queue_stops_at_its_limit v1 @mixer "Test that the queue stops growing at its limit"
+#[test]
+fn the_queue_stops_at_its_limit() {
+    let mut mixer = Mixer::default();
+    for _ in 0..MAX_QUEUED + 5 {
+        mixer.play(Sound::Hum);
+    }
+    assert_eq!(mixer.take_pending().len(), MAX_QUEUED);
+}
+
+#test the_queue_stops_at_its_limit v2 @audio-balance "Drop the queue limit test with the limit" !removed
+
+#test chime_plays_once_per_dock v1 @chime-twice "Test that the docking chime plays once per visit"
+#[test]
+fn chime_plays_once_per_dock() {
+    let mut mixer = Mixer::default();
+    mixer.docked();
+    mixer.docked();
+    assert_eq!(mixer.take_pending(), vec![Sound::Chime]);
+    mixer.undocked();
+    mixer.docked();
+    assert_eq!(mixer.take_pending(), vec![Sound::Chime]);
+}
+
+#test music_fades_to_silence v1 @music-fade "Test that the music fades to silence"
+#[test]
+fn music_fades_to_silence() {
+    let mut mixer = Mixer::default();
+    mixer.fade_music(1.0);
+    assert!((mixer.music_gain() - MUSIC_VOLUME * 0.5).abs() < 1e-4);
+    mixer.fade_music(10.0);
+    assert_eq!(mixer.music_gain(), 0.0);
+}
+
+#test music_sits_under_the_effects v1 @audio-balance "Test that the music sits 6 dB under the effects"
+#[test]
+fn music_sits_under_the_effects() {
+    let under = 20.0 * (EFFECTS_GAIN / MUSIC_VOLUME).log10();
+    assert!(
+        (under - 6.0).abs() < 0.1,
+        "the music sits {under:.1} dB under the effects"
+    );
+}
+
+#test music_gain_starts_at_the_menu_volume v1 @menu-music "Test that the menu music starts at its volume"
+#[test]
+fn music_gain_starts_at_the_menu_volume() {
+    assert!((Mixer::default().music_gain() - MUSIC_VOLUME).abs() < 1e-4);
+}
+
+#test clicks_play_on_the_interface_bus v1 @audio-buses "Test that clicks play on the interface bus"
+#[test]
+fn clicks_play_on_the_interface_bus() {
+    assert_eq!(Sound::Click.bus(), Bus::Interface);
+    assert_eq!(Sound::Chime.bus(), Bus::Effects);
+}
+
+#test a_continued_dock_does_not_chime v1 @fix-1-0-chime "Test that a game continued at a station doesn't chime"
+#[test]
+fn a_continued_dock_does_not_chime() {
+    let mut mixer = Mixer::default();
+    mixer.resume_docked();
+    mixer.docked();
+    assert!(mixer.take_pending().is_empty());
+    mixer.undocked();
+    mixer.docked();
+    assert_eq!(mixer.take_pending(), vec![Sound::Chime]);
+}

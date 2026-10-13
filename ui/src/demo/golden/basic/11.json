@@ -1,0 +1,16 @@
+{
+  "request": {
+    "method": "remotes",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "host": null,
+      "hostKind": "generic",
+      "name": "origin",
+      "path": null
+    }
+  ]
+}

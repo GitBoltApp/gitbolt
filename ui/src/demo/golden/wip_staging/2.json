@@ -1,0 +1,97 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": false,
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 8,
+    "deleted": 5,
+    "files": [
+      {
+        "additions": 0,
+        "deletions": 1,
+        "new": {
+          "kind": "absent"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "b023018cabc396e7692c70bbf5784a93d3f738ab"
+        },
+        "oldPath": null,
+        "path": "gone.txt",
+        "status": "D",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 0,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/wip_staging"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "new.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/wip_staging"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "f7f85885ad66b414e127cc856fe7c24ca87d39ac"
+        },
+        "oldPath": null,
+        "path": "notes.txt",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/wip_staging"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "5626abf0f72e58d7a153368ba57db4c673c0e171"
+        },
+        "oldPath": null,
+        "path": "space name.txt",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 3,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/wip_staging"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "7d41442ae0e6e9fd46beb44c3aab95b5ad42a930"
+        },
+        "oldPath": null,
+        "path": "src/app.txt",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

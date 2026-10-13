@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "locateCommit",
+    "params": {
+      "repo": "$repo",
+      "sha": "1f37672"
+    }
+  },
+  "response": {
+    "ambiguous": false,
+    "found": true,
+    "id": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+    "limit": 7
+  }
+}

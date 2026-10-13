@@ -1,0 +1,334 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "e622a19057b08b0b0f73b475465a11238542ae9f",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 103,
+    "deleted": 0,
+    "files": [
+      {
+        "additions": 3,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "42d18aa95ed74e949fbebe7959bff809e629ca74"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "README.md",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "00205977a4fc09162a7c5e5deea94518a9b8cc3e"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "audio/docking-chime.opus",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "9d948f62134a533a5d5bc16342df12985640a349"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "audio/laser.wav",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "d7eb1afac3e356cf3395b541e39d2870c8e9c4e0"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "audio/menu-loop.ogg",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 9,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "c43edc9b58fb360a06ee0b74625c5bad93417529"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "data/commodities.csv",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 6,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "f727d04e35880950b42539b848456377cad22f11"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "data/stations.tsv",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "5961e399a0fad9ef0f36727bed97b3ab83490baa"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "docs/design.pdf",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "4321c8b5b4c5b97b7c8a4a0f6d2a59af850ddbed"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "fonts/OrbitalHud.ttf",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 39,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "94c95923d5e13f804621a924655d1487c3e5654c"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "images/fuel.svg",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "bb242c7979500c6e926bb01126fa6580bcdfbaad"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "images/orbital.ico",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "c8d369bcc5c8aa10f466c7c496cf6a15c29574ed"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "images/scout.png",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "9f7068193b924108f4db0ae90a4231262ad8b9a8"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "images/thruster.gif",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "1f5564d66cb9179224126e5b9f5cb238f58bab0f"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "images/title.png",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "92aab403d530e62bbd718f958bb4ca5610776ccb"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "media/trailer.webm",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 13,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "9ea6fab64b499e6be4b4ab7714d23cdf6c97c8a6"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "notes/devlog.md",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "b560391932604b5ccf3b8bd28b906967d97dd788"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "saves/slot1.orbsave",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 4,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "150206b5e28fa2d7be015a8cd89ff7a9e71540fe"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "scripts/pack-assets.sh",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "ce87490c81fc841f79b609fa96e5b1cec9bac3a0"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "site/hero.png",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 13,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "97dc33117bc95fe53a0625204bb7dfefdb2aba0e"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "site/index.html",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 13,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "0f1ea4ffdae85182b3a1996cdd2f735b33c8a110"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "site/leaderboard.html",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "c6b2b3a63933cf88dda7cc84ff87a52269390ab4"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "site/style.css",
+        "status": "A",
+        "submodule": false
+      }
+    ]
+  }
+}

@@ -1,0 +1,54 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "6d09d3b741dea2f6b4c74b37a54eea08eaa07aab"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "7e2b3e9c4e3f70600dac42763c57efff48146664"
+      },
+      "path": "art/ships.psd",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "lfs": true,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "",
+      "eol": "none",
+      "hash": "6d09d3b741dea2f6b4c74b37a54eea08eaa07aab",
+      "lfs": {
+        "downloaded": false,
+        "oid": "8793a6d3a7b8cd77a5322f1a282e7a72d5ade0bd2c90154a5076fc03aca4f42d",
+        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:8793a6d3a7b8cd77a5322f1a282e7a72d5ade0bd2c90154a5076fc03aca4f42d\nsize 300004\n",
+        "size": 300004
+      },
+      "size": 300004,
+      "text": null
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "",
+      "eol": "none",
+      "hash": "7e2b3e9c4e3f70600dac42763c57efff48146664",
+      "lfs": {
+        "downloaded": false,
+        "oid": "5b4b00ca1f8589c05e1f4e984a7f9936a9fc97741875f769152c1b9d1d84f3e7",
+        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:5b4b00ca1f8589c05e1f4e984a7f9936a9fc97741875f769152c1b9d1d84f3e7\nsize 300004\n",
+        "size": 300004
+      },
+      "size": 300004,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

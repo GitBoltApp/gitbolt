@@ -2,18 +2,7 @@
 
 use gix::bstr::ByteSlice;
 use gix::remote::Direction;
-use serde::{Deserialize, Serialize};
-use ts_rs::TS;
-
-// `Deserialize` and `Ord`: the profile's host-type overrides are a map keyed by host (§14.4).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
-#[serde(rename_all = "lowercase")]
-#[ts(export)]
-pub enum HostKind {
-    GitLab,
-    GitHub,
-    Generic,
-}
+pub use gitbolt_graph::HostKind;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RemoteUrl {

@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "581bf3fe693aa4403d41c2450092f1d7f6207a34"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "5961e399a0fad9ef0f36727bed97b3ab83490baa"
+      },
+      "path": "docs/design.pdf",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": "sha256:d7ee493c7d1d572fc2ea13e394267e66a3df91bc5b1801535f2bf6361594871f:59096",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "581bf3fe693aa4403d41c2450092f1d7f6207a34",
+      "size": 44322,
+      "text": null
+    },
+    "old": {
+      "base64": "sha256:824dd5ded1d5c9724cd0dc4f26f45b54c430fe9f418ea1bb261ff41365679693:50352",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "5961e399a0fad9ef0f36727bed97b3ab83490baa",
+      "size": 37763,
+      "text": null
+    },
+    "pdf": true,
+    "tooLarge": false
+  }
+}

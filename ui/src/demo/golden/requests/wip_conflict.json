@@ -1,0 +1,46 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": true
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": false
+   }
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "c.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "worktreeFiles",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt"
+  }
+ }
+]

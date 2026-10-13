@@ -1,0 +1,487 @@
+#file crates/orbital-core/src/ship.rs
+#header v1 @thrust-fuel
+//! Ships: the player's hull, its fuel and its thrust.
+
+use crate::body::Body;
+use crate::math::clamp_length;
+use glam::Vec2;
+
+#header v2 @docking
+//! Ships: the player's hull, its fuel and thrust, and whether it is flying, latching or docked.
+
+use crate::body::Body;
+use crate::math::clamp_length;
+use glam::Vec2;
+
+#header v3 @repair-price
+//! Ships: the player's hull, its fuel and thrust, and whether it is flying, latching or docked.
+
+use crate::body::{Body, SHIP_HULL};
+use crate::math::clamp_length;
+use glam::Vec2;
+
+#const FUEL_BURN_RATE v1 @thrust-fuel "Burn fuel to thrust the ship"
+/// Fuel a ship burns per unit of thrust and per second.
+pub const FUEL_BURN_RATE: f32 = 0.8;
+
+#const MAX_FUEL v1 @thrust-fuel "Give every ship a tank that holds sixty tonnes"
+/// Fuel a scout's full tank holds, in tonnes: the tank of a ship made with `Ship::new`.
+pub const MAX_FUEL: f32 = 60.0;
+
+#const MAX_THRUST v1 @thrust-fuel "Cap the drive at its full-throttle thrust"
+/// A scout's thrust at full throttle, in tonne-kilometres per second squared: the drive of a ship
+/// made with `Ship::new`.
+pub const MAX_THRUST: f32 = 0.6;
+
+#const KN_PER_THRUST v1 @scout-art
+/// Kilonewtons in one unit of thrust, a tonne-kilometre per second squared: the ship table's
+/// `thrust_kn` over this is a drive's thrust.
+pub const KN_PER_THRUST: f32 = 1_000.0;
+
+#const DOCK_TIME v1 @docking "Latch a ship onto a port over four seconds"
+/// Seconds a ship takes to latch onto a port once it can dock.
+pub const DOCK_TIME: f32 = 4.0;
+
+#item Ship v1 @thrust-fuel "Add the ship with its body and fuel tank"
+/// The player's ship: its body in the system, and the fuel in its tank.
+#[derive(Clone, Debug)]
+pub struct Ship {
+    pub body: Body,
+    pub fuel: f32,
+}
+
+#item Ship v2 @scout-art "Give each ship its own tank and drive"
+/// The player's ship: its body in the system, the fuel in its tank, what the tank holds, and the
+/// thrust its drive gives at full throttle.
+#[derive(Clone, Debug)]
+pub struct Ship {
+    pub body: Body,
+    pub fuel: f32,
+    pub tank: f32,
+    pub drive: f32,
+}
+
+#item Ship v3 @docking "Track whether the ship is flying, latching or docked"
+/// The player's ship: its body in the system, the fuel in its tank, what the tank holds, the thrust
+/// its drive gives at full throttle, and its docking state.
+#[derive(Clone, Debug)]
+pub struct Ship {
+    pub body: Body,
+    pub fuel: f32,
+    pub tank: f32,
+    pub drive: f32,
+    pub dock: Dock,
+}
+
+#item Dock v1 @docking "Track whether the ship is flying, latching or docked"
+/// Where a ship is in a docking: flying free, latching onto a port, or docked.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Dock {
+    Flying,
+    /// Latching on, from `0.0` at the first touch to `1.0` when docked.
+    Latching(f32),
+    Docked,
+}
+
+#item new v1 @thrust-fuel "Start a ship with a full tank"
+impl Ship {
+    /// A ship with a full tank, not yet docked.
+    pub fn new(body: Body) -> Self {
+        Self {
+            body,
+            fuel: MAX_FUEL,
+        }
+    }
+}
+
+#item new v2 @scout-art "Give each ship its own tank and drive"
+impl Ship {
+    /// A ship with a scout's tank and drive, `MAX_FUEL` and `MAX_THRUST`, and the tank full.
+    pub fn new(body: Body) -> Self {
+        Self {
+            body,
+            fuel: MAX_FUEL,
+            tank: MAX_FUEL,
+            drive: MAX_THRUST,
+        }
+    }
+}
+
+#item new v3 @docking "Start every ship flying free"
+impl Ship {
+    /// A ship with a scout's tank and drive, `MAX_FUEL` and `MAX_THRUST`, the tank full, flying
+    /// free.
+    pub fn new(body: Body) -> Self {
+        Self {
+            body,
+            fuel: MAX_FUEL,
+            tank: MAX_FUEL,
+            drive: MAX_THRUST,
+            dock: Dock::Flying,
+        }
+    }
+}
+
+#item ShipClass v1 @scout-art "Read the ship classes from the ship table"
+/// One row of the ship table: a class of ship and its numbers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShipClass {
+    pub name: String,
+    /// The empty hull's mass, in tonnes.
+    pub mass_t: f32,
+    /// What the hold carries, in tonnes.
+    pub cargo_t: f32,
+    /// The drive's full thrust, in kilonewtons.
+    pub thrust_kn: f32,
+    /// What a full tank holds, in tonnes.
+    pub fuel_t: f32,
+}
+
+#item ShipClass v2 @courier-art "Read each ship class's price"
+/// One row of the ship table: a class of ship and its numbers.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ShipClass {
+    pub name: String,
+    /// The empty hull's mass, in tonnes.
+    pub mass_t: f32,
+    /// What the hold carries, in tonnes.
+    pub cargo_t: f32,
+    /// The drive's full thrust, in kilonewtons.
+    pub thrust_kn: f32,
+    /// What a full tank holds, in tonnes.
+    pub fuel_t: f32,
+    /// What the class costs at a shipyard, in credits.
+    pub price: f32,
+}
+
+#item parse_class v1 @scout-art "Read the ship classes from the ship table"
+/// One row of the ship table, `class,mass_t,cargo_t,thrust_kn,fuel_t`, if it names a class and
+/// every number in it reads.
+pub fn parse_class(line: &str) -> Option<ShipClass> {
+    let mut cells = line.split(',').map(str::trim);
+    let name = cells.next().filter(|name| !name.is_empty())?.to_string();
+    let mut number = || cells.next()?.parse::<f32>().ok();
+    Some(ShipClass {
+        name,
+        mass_t: number()?,
+        cargo_t: number()?,
+        thrust_kn: number()?,
+        fuel_t: number()?,
+    })
+}
+
+#item parse_class v2 @courier-art "Read each ship class's price"
+/// One row of the ship table, `class,mass_t,cargo_t,thrust_kn,fuel_t,price`, if it names a class
+/// and every number in it reads.
+pub fn parse_class(line: &str) -> Option<ShipClass> {
+    let mut cells = line.split(',').map(str::trim);
+    let name = cells.next().filter(|name| !name.is_empty())?.to_string();
+    let mut number = || cells.next()?.parse::<f32>().ok();
+    Some(ShipClass {
+        name,
+        mass_t: number()?,
+        cargo_t: number()?,
+        thrust_kn: number()?,
+        fuel_t: number()?,
+        price: number()?,
+    })
+}
+
+#item parse_classes v1 @scout-art "Read the ship classes from the ship table"
+/// Reads the ship table, one class a row under a header row. A row that doesn't read is left out.
+pub fn parse_classes(csv: &str) -> Vec<ShipClass> {
+    csv.lines().skip(1).filter_map(parse_class).collect()
+}
+
+#item of_class v1 @scout-art "Build a ship from its class in the ship table"
+impl Ship {
+    /// A ship of `class` at `position` with `velocity`: the class's hull mass, tank and drive, and
+    /// the tank full.
+    pub fn of_class(class: &ShipClass, position: Vec2, velocity: Vec2) -> Self {
+        Self {
+            fuel: class.fuel_t,
+            tank: class.fuel_t,
+            drive: class.thrust_kn / KN_PER_THRUST,
+            ..Self::new(Body::ship(&class.name, position, velocity, class.mass_t))
+        }
+    }
+}
+
+#item fuel_fraction v1 @thrust-fuel "Show the tank as a fraction for the fuel readout"
+impl Ship {
+    /// The share of the tank that is full, from zero to one.
+    pub fn fuel_fraction(&self) -> f32 {
+        self.fuel / MAX_FUEL
+    }
+}
+
+#item fuel_fraction v2 @scout-art "Measure the fuel against the ship's own tank"
+impl Ship {
+    /// The share of the tank that is full, from zero to one.
+    pub fn fuel_fraction(&self) -> f32 {
+        self.fuel / self.tank
+    }
+}
+
+#item burn_fuel v1 @thrust-fuel "Burn fuel to thrust the ship"
+impl Ship {
+    /// Burns the fuel that `thrust` needs for `dt` seconds, and returns the thrust the tank could
+    /// give. The tank can run dry partway through a burn, so the thrust given can be less.
+    pub fn burn_fuel(&mut self, thrust: f32, dt: f32) -> f32 {
+        let wanted = FUEL_BURN_RATE * thrust * dt;
+        if wanted <= self.fuel {
+            self.fuel -= wanted;
+            thrust
+        } else {
+            let given = self.fuel / (FUEL_BURN_RATE * dt);
+            self.fuel = 0.0;
+            given
+        }
+    }
+}
+
+#item thrust v1 @thrust-fuel "Turn a thrust command into velocity, within the drive's limit"
+impl Ship {
+    /// Applies a thrust command for `dt` seconds. The drive gives at most `MAX_THRUST`, and burns
+    /// the fuel for what it gives. Returns the thrust given.
+    pub fn thrust(&mut self, command: Vec2, dt: f32) -> f32 {
+        let wanted = clamp_length(command, MAX_THRUST);
+        let given = self.burn_fuel(wanted.length(), dt);
+        if given > 0.0 {
+            self.body.velocity += wanted.normalize_or_zero() * (given / self.body.mass) * dt;
+        }
+        given
+    }
+}
+
+#item thrust v2 @scout-art "Cap the thrust at the ship's own drive"
+impl Ship {
+    /// Applies a thrust command for `dt` seconds. The drive gives at most its full thrust, and
+    /// burns the fuel for what it gives. Returns the thrust given.
+    pub fn thrust(&mut self, command: Vec2, dt: f32) -> f32 {
+        let wanted = clamp_length(command, self.drive);
+        let given = self.burn_fuel(wanted.length(), dt);
+        if given > 0.0 {
+            self.body.velocity += wanted.normalize_or_zero() * (given / self.body.mass) * dt;
+        }
+        given
+    }
+}
+
+#item dock_step v1 @docking "Latch on while a ship can dock, and let go when it drifts off"
+impl Ship {
+    /// Moves the docking on by `dt` seconds. A ship that can dock starts latching on, one that
+    /// drifts out of reach lets go, and one that finishes latching stops dead and is docked.
+    pub fn dock_step(&mut self, can_dock: bool, dt: f32) {
+        self.dock = match self.dock {
+            Dock::Flying if can_dock => Dock::Latching(0.0),
+            Dock::Latching(_) if !can_dock => Dock::Flying,
+            Dock::Latching(progress) if progress + dt / DOCK_TIME >= 1.0 => {
+                self.body.velocity = Vec2::ZERO;
+                Dock::Docked
+            }
+            Dock::Latching(progress) => Dock::Latching(progress + dt / DOCK_TIME),
+            other => other,
+        };
+    }
+}
+
+#item undock v1 @docking "Let a docked ship go, so it flies free again"
+impl Ship {
+    /// Lets a ship go, so it flies free again.
+    pub fn undock(&mut self) {
+        self.dock = Dock::Flying;
+    }
+}
+
+#item refuel v1 @station-services "Fill the tank when a ship refuels at a station"
+impl Ship {
+    /// Fills the tank.
+    pub fn refuel(&mut self) {
+        self.fuel = self.tank;
+    }
+}
+
+#item hull_lost v1 @repair-price "Price repairs by the share of hull lost"
+impl Ship {
+    /// The share of the hull that is gone, as a percentage.
+    pub fn hull_lost(&self) -> f32 {
+        (SHIP_HULL - self.body.hull).max(0.0) / SHIP_HULL * 100.0
+    }
+}
+
+#item repair v1 @repair-price "Restore the hull when a ship is repaired"
+impl Ship {
+    /// Restores the hull to full.
+    pub fn repair(&mut self) {
+        self.body.hull = SHIP_HULL;
+    }
+}
+
+#test a_new_ship_has_a_full_tank v1 @thrust-fuel "Test that a new ship starts with a full tank"
+#[test]
+fn a_new_ship_has_a_full_tank() {
+    let ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    assert_eq!(ship.fuel, MAX_FUEL);
+    assert!((ship.fuel_fraction() - 1.0).abs() < 1e-4);
+}
+
+#test a_new_ship_has_a_full_tank v2 @docking "Test that a new ship starts flying free"
+#[test]
+fn a_new_ship_has_a_full_tank() {
+    let ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    assert_eq!(ship.fuel, MAX_FUEL);
+    assert!((ship.fuel_fraction() - 1.0).abs() < 1e-4);
+    assert_eq!(ship.dock, Dock::Flying);
+}
+
+#test burning_fuel_gives_the_thrust_asked_for v1 @thrust-fuel "Test a burn with fuel to spare"
+#[test]
+fn burning_fuel_gives_the_thrust_asked_for() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = 10.0;
+    assert!((ship.burn_fuel(1.0, 1.0) - 1.0).abs() < 1e-4);
+    assert!((ship.fuel - (10.0 - FUEL_BURN_RATE)).abs() < 1e-4);
+}
+
+#test a_short_tank_gives_part_of_the_thrust v1 @thrust-fuel "Test a burn that runs the tank dry"
+#[test]
+fn a_short_tank_gives_part_of_the_thrust() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = 0.4;
+    assert!((ship.burn_fuel(1.0, 1.0) - 0.5).abs() < 1e-4);
+    assert_eq!(ship.fuel, 0.0);
+}
+
+#test a_short_tank_gives_part_of_the_thrust v2 @fuel-rework "Test a dry-tank burn with half a second's fuel, whatever the rate"
+#[test]
+fn a_short_tank_gives_part_of_the_thrust() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = FUEL_BURN_RATE / 2.0;
+    assert!((ship.burn_fuel(1.0, 1.0) - 0.5).abs() < 1e-4);
+    assert_eq!(ship.fuel, 0.0);
+}
+
+#test an_empty_tank_gives_no_thrust v1 @thrust-fuel "Test that an empty tank gives no thrust"
+#[test]
+fn an_empty_tank_gives_no_thrust() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = 0.0;
+    assert!(ship.burn_fuel(1.0, 1.0).abs() < 1e-4);
+}
+
+#test thrust_is_capped_at_the_drive_limit v1 @thrust-fuel "Test that thrust stops at the limit"
+#[test]
+fn thrust_is_capped_at_the_drive_limit() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    let given = ship.thrust(Vec2::new(10.0, 0.0), 1.0);
+    assert!((given - MAX_THRUST).abs() < 1e-4);
+}
+
+#test thrust_moves_the_ship_along_the_command v1 @thrust-fuel "Test that thrust pushes along the command"
+#[test]
+fn thrust_moves_the_ship_along_the_command() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.thrust(Vec2::new(0.0, 1.0), 1.0);
+    assert!(ship.body.velocity.y > 0.0);
+    assert!(ship.body.velocity.x.abs() < 1e-6);
+}
+
+#test the_scout_in_the_ship_table_is_the_drive v1 @scout-art "Test that the ship table's scout has the scout's drive"
+#[test]
+fn the_scout_in_the_ship_table_is_the_drive() {
+    let classes = parse_classes(include_str!("../../../assets/data/ships.csv"));
+    let scout = classes
+        .iter()
+        .find(|class| class.name == "scout")
+        .expect("the ship table lists the scout");
+    let ship = Ship::of_class(scout, Vec2::ZERO, Vec2::ZERO);
+    assert!((ship.body.mass - 2.0).abs() < 1e-6);
+    assert!((ship.drive - MAX_THRUST).abs() < 1e-6);
+    assert!((ship.tank - MAX_FUEL).abs() < 1e-6);
+}
+
+#test a_row_that_does_not_read_is_left_out v1 @scout-art "Test that a broken row of the ship table is skipped"
+#[test]
+fn a_row_that_does_not_read_is_left_out() {
+    let classes = parse_classes(
+        "class,mass_t,cargo_t,thrust_kn,fuel_t\nscout,2,120,600,60\nwreck,2,lots,600,60\n",
+    );
+    assert_eq!(classes.len(), 1);
+    assert_eq!(classes[0].name, "scout");
+}
+
+#test a_row_that_does_not_read_is_left_out v2 @courier-art "Test the ship table's rows with their prices"
+#[test]
+fn a_row_that_does_not_read_is_left_out() {
+    let classes = parse_classes(
+        "class,mass_t,cargo_t,thrust_kn,fuel_t,price\nscout,2,120,600,60,1200\nwreck,2,120,600,60\n",
+    );
+    assert_eq!(classes.len(), 1);
+    assert!((classes[0].price - 1200.0).abs() < 1e-3);
+}
+
+#test a_ship_latches_on_while_it_can_dock v1 @docking "Test that a ship starts latching on"
+#[test]
+fn a_ship_latches_on_while_it_can_dock() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.dock_step(true, 0.1);
+    assert_eq!(ship.dock, Dock::Latching(0.0));
+    ship.dock_step(true, 0.1);
+    assert!(matches!(ship.dock, Dock::Latching(p) if (p - 0.1 / DOCK_TIME).abs() < 1e-4));
+}
+
+#test a_ship_that_drifts_off_lets_go v1 @docking "Test that a ship drifting off stops latching"
+#[test]
+fn a_ship_that_drifts_off_lets_go() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.dock_step(true, 0.1);
+    ship.dock_step(false, 0.1);
+    assert_eq!(ship.dock, Dock::Flying);
+}
+
+#test a_latched_ship_docks_and_stops v1 @docking "Test that a latched ship docks and stops"
+#[test]
+fn a_latched_ship_docks_and_stops() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::new(1.0, 0.0), 2.0));
+    for _ in 0..5 {
+        ship.dock_step(true, 1.0);
+    }
+    assert_eq!(ship.dock, Dock::Docked);
+    assert_eq!(ship.body.velocity, Vec2::ZERO);
+}
+
+#test a_docked_ship_can_undock v1 @docking "Test that undocking frees a docked ship"
+#[test]
+fn a_docked_ship_can_undock() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.dock = Dock::Docked;
+    ship.undock();
+    assert_eq!(ship.dock, Dock::Flying);
+}
+
+#test hull_lost_is_a_percent_of_the_hull v1 @repair-price "Test the share of hull that is gone"
+#[test]
+fn hull_lost_is_a_percent_of_the_hull() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.body.hull = SHIP_HULL * 0.75;
+    assert!((ship.hull_lost() - 25.0).abs() < 1e-3);
+}
+
+#test repair_restores_the_hull v1 @repair-price "Test that repairs restore the whole hull"
+#[test]
+fn repair_restores_the_hull() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.body.hull = 10.0;
+    ship.repair();
+    assert!(ship.hull_lost() < 1e-4);
+}
+
+#test refuel_fills_the_tank v1 @station-services "Test that refuelling fills the tank"
+#[test]
+fn refuel_fills_the_tank() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    ship.fuel = 5.0;
+    ship.refuel();
+    assert_eq!(ship.fuel, MAX_FUEL);
+}

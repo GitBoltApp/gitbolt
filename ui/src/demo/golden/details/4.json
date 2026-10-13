@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "commitMessage",
+    "params": {
+      "id": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "body": "Refs !42 and group/sub/project!7, fixes #12.\nSee https://example.com/docs for details.\n\nCo-authored-by: Maren Holt <maren@example.com>\nco-authored-by: Lars Tidemann <lars@example.com>",
+    "id": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+    "summary": "Rename guide and update assets"
+  }
+}

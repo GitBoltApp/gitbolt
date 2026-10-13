@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "worktreePathKind",
+    "params": {
+      "path": "docs",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": "dir"
+}

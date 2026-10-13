@@ -1,0 +1,991 @@
+#; The devlog: one entry a month from October 2024, each signed by its author.
+#file docs/devlog/template.md
+#whole v1 @devlog-style "Add a devlog template with image slots"
+---
+title: 
+date: 
+author: 
+tags: []
+---
+
+# Title of the entry
+
+Two or three sentences on what changed and why it matters for the player.
+
+Image slots, one per picture, written as:
+
+    ![Describe the image here](img/your-image.png)
+
+## What changed
+
+- A short item for each thing that landed.
+- Keep each item to one line where you can.
+
+## What comes next
+
+One or two sentences. Say what is not done yet, so nobody reads a partial feature as finished.
+
+Sign off with your first name.
+#file docs/devlog/2024-10-first-devlog.md
+#whole v1 @devlog "Publish the first devlog"
+---
+title: The first devlog
+date: 2024-10-21
+author: Rafe
+tags: [devlog, core]
+---
+
+# The first devlog
+
+We said we would write one of these every month. This is the first, and there is not much to
+show yet, so it is short and has no pictures. There is nothing to take a picture of.
+
+What exists is a Cargo workspace with a licence (MIT), a pinned toolchain (Rust 1.85) and
+rustfmt set to the 2024 edition. Ilse set that up before anything else, so nobody has to argue
+about formatting later. The core crate is there with its manifest, and the game and render crates
+come after it.
+
+The only code in review is Teodor's maths helpers, on `feature/core-math`: wrapping an angle into
+one turn, linear interpolation, smoothstep, each with a test. It is the dullest merge request we
+will ever have, and the orbit code will lean on all of it.
+
+I added the template you can see in `docs/devlog/`. It has a slot for an image, and a reminder to
+say what is not done, so nobody reads a half-built feature as finished.
+
+## What comes next
+
+- Wen picks up CI, so every push runs the tests and clippy.
+- Noor starts on the bodies: a position, a velocity, a mass and a radius for each.
+- I will write down the units in the core's docs. Kilometres, seconds and tonnes, with angles in
+  radians, so that a number in the code means one thing.
+
+Rafe
+#file docs/devlog/2024-11-a-world-that-steps.md
+#whole v1 @devlog "Post the November devlog: A world that steps"
+---
+title: A world that steps
+date: 2024-11-18
+author: Teodor
+tags: [core, physics]
+---
+
+# A world that steps
+
+There is still nothing to fly, but the core can run a world now. Bodies exist (a planet, a moon
+and a ship, each with a position, a velocity, a mass and a radius), and the world keeps them in
+one list. Ilse added gravity, summed over every body, and I put the fixed-step clock and the
+integrator under it.
+
+The clock matters more than it sounds. Frame time goes in and whole physics ticks come out, with a
+cap on the ticks one frame may run, so a long stall can't freeze the window. The leftover is
+capped as well, because it grew without bound while the tick cap held the ticks back.
+Noor also fixed the drift on long runs: the integrator moved the position from the old velocity,
+and orbits spiralled outwards. The velocity updates first now.
+
+Gravity got a softening term. A ship that passed through the middle of a planet used to come out
+at an absurd speed, because the force goes to infinity at zero distance. Now it stays finite.
+
+A few things around the physics landed too:
+
+- CI runs the tests and clippy on every push (Wen).
+- Clippy's pedantic lints are on for the core.
+- Kasimir's window opens, runs the game loop and clears to a dark colour each frame. That is the
+  whole picture, for now.
+- Rafe's note on the units is in the crate docs.
+
+## What comes next
+
+The camera is next, following the ship, and then Ilse's first planet sprite so the window has
+something in it. I want to predict an orbit a few hundred ticks ahead, which needs the orbit's
+elements worked out from a ship's state. No MR for that yet.
+
+Teodor
+#file docs/devlog/2024-12-the-camera-finds-the-ship.md
+#whole v1 @devlog "Post the December devlog: The camera finds the ship"
+---
+title: The camera finds the ship
+date: 2024-12-16
+author: Kasimir
+tags: [render, camera]
+---
+
+# The camera finds the ship
+
+The window has something in it now. The orbit view follows the ship: the camera eases towards it
+rather than snapping, which looks much better when the ship changes course. A parallax starfield
+sits behind it, in layers, so the stars move at different speeds as you go.
+
+Verdant is on screen, the first planet sprite, drawn through a sprite atlas that Ilse wrote.
+
+![The verdant planet](../../assets/sprites/planets/verdant.png)
+
+The scroll wheel zooms, with limits at both ends and culling, so what the window can't see isn't
+drawn (Rafe). Teodor's orbit prediction is in as well. It works out the orbit elements for a ship
+around its parent, the period (tested against Kepler's law), and a few hundred ticks of path
+ahead.
+
+Fixes along the way:
+
+- the predicted orbit jumped at the edge of the camera (Wen)
+- a wrapped angle could come out at exactly one full turn (Teodor)
+- sprites flickered in the batch when two had the same layer (Teodor)
+
+Ilse has `feature/thrust-fuel` open: a ship with a tank that holds sixty tonnes, a drive limit and
+a table of keys for turning and thrust. Thrust burning fuel is the part still to come, so the
+ship can't fly in main yet.
+
+## What comes next
+
+The fuel branch, then the first ship sprite and a flame under thrust, then the first thing to
+bump into.
+
+Kasimir
+#file docs/devlog/2025-01-a-scout-with-a-flame.md
+#whole v1 @devlog "Post the January devlog: A scout with a flame"
+---
+title: A scout with a flame
+date: 2025-01-20
+author: Noor
+tags: [art, ships]
+---
+
+# A scout with a flame
+
+The ship flies. W thrusts, A and D turn, and thrust burns fuel from the tank, which stops it when
+it runs out. Coasting burns nothing. Ilse's fuel branch landed in the new year, and mine followed
+on top of it: ships come from a table now, so the scout is a row in a file rather than numbers in
+the code.
+
+![The scout](../../assets/sprites/ships/scout.png)
+
+The thruster flame appears under thrust and grows with the throttle. The recording is rough, but it
+shows the idea:
+
+![The thruster flame under thrust](img/thruster.gif)
+
+The first obstacles are in. Wen's asteroids spawn on the outer orbits, and in an inner belt, and
+Teodor's collisions detect a ship hitting one. Cinder, the second planet, is on the view as well.
+
+Two bugs went with them. A was bound to both turn left and turn right, so the ship could only turn
+left (Kasimir, in the input table). And a ship that hit a rock stuck to it. Rafe's fix pushes the two
+apart along the contact, and it is going in this week as direct commits.
+
+## What comes next
+
+I have the HUD font open for review: a font drawn from the atlas, and the fuel as a percentage. The
+mining laser comes after that, and the first sounds. The scout is the only ship, and the hauler and
+the prospector are being drawn.
+
+Noor
+#file docs/devlog/2025-02-the-engine-hum-in-the-log.md
+#whole v1 @devlog "Post the February devlog: The engine hum, in the log"
+---
+title: The engine hum, in the log
+date: 2025-02-17
+author: Wen
+tags: [audio, hud]
+---
+
+# The engine hum, in the log
+
+The ship has an engine hum, with a catch. There is a sample, `engine_hum.wav`, and the game has a
+mixer that queues sounds for an audio device while the drive fires. But there is no real audio
+device yet. What exists is a stub that writes each sound it is handed to the log, so for now the
+hum is a line of text. The queue is capped, so a stalled device can't make it grow without end.
+
+The HUD got its font in January, and this month it got two fixes:
+
+- Text blurred at fractional zoom. Glyphs now land on whole pixels (Teodor).
+- The fuel readout's digits had uneven widths. Every digit takes the same advance now (Ilse).
+
+Two new sprites are in the repository, the hauler and the glacier planet. The planet is on the
+orbit view, and the hauler is only a sprite for now.
+
+Rafe's first design document is in review, and Ilse has the cargo hold open: a fixed number of
+slots, each holding a single good, with an error when the hold is full. It also weighs the hold, so
+cargo counts towards the ship's mass.
+
+## What comes next
+
+Stations. Teodor has the ring station planned for the inner orbit, and docking comes after it. A
+real audio device is on the list, but nobody has picked it up.
+
+Wen
+#file docs/devlog/2025-03-docking-at-the-ring.md
+#whole v1 @devlog "Post the March devlog: Docking at the Ring"
+---
+title: Docking at the Ring
+date: 2025-03-14
+author: Wen
+tags: [stations, docking]
+---
+
+# Docking at the Ring
+
+You can dock now. The Ring Station sits on the inner orbit, with four docking ports, and a ship
+that is close enough and slow enough to a free port starts to latch. After a few seconds of
+holding that, it docks and stops, and the docked screen opens. U undocks, and the port is free
+again. A ship that drifts off while latching stops latching, so a bad approach just means trying
+again.
+
+The speed limit was the argument. Ilse made it a named constant with a test, and it has been
+nudged since, so check the constant, not this post.
+
+Around it:
+
+- Noor drew the ring station sprite, which went in with Teodor's station code.
+- The cargo hold is in, with ten tonnes to a slot, and so is the first design document (Rafe).
+- The explosion sprite and sound are in the repository, and so is the mining laser sound. None
+  of them plays yet, because nothing explodes or mines.
+- The prospector sprite is drawn. It is in the repository and has no shipyard to stand in.
+
+Kasimir's mining laser is the open branch. It cuts the laser's range to 40 units, and so far it
+picks the rocks in range. Taking ore out of them and into the hold is the next commit. It is
+not in main yet.
+
+## What comes next
+
+Mining, then rocks that break when you hit them hard enough. Docking will want a chime, which I have planned.
+
+Wen
+#file docs/devlog/2025-04-rocks-that-break.md
+#whole v1 @devlog "Post the April devlog: Rocks that break"
+---
+title: Rocks that break
+date: 2025-04-11
+author: Kasimir
+tags: [mining, explosions]
+---
+
+# Rocks that break
+
+The mining laser is in main. Hold it on a rock within range and ore comes out of the rock and
+into the hold, and the laser sound plays while it does. Range is the thing we tuned most. It
+started far too long, and it is a short reach now, so you have to fly in among the rocks.
+
+Rocks wear down, and now they break. Teodor gave every body a hull: ships wear down, planets,
+moons and stations never do, and an asteroid's hull scales with its size. A hard enough hit wears
+a rock through, and it explodes, with Noor's sprite and Wen's sound.
+
+![A rock destroyed, mid-flash](../../assets/sprites/fx/explosion.png)
+
+Two more things landed:
+
+- Depot stations on the outer orbits (Noor), so there is somewhere to dock past the belt.
+- The docking chime plays when the ship docks (Wen). It plays once per dock, we hope. It's the
+  kind of thing you find out by docking forty times.
+
+Ilse's market is the open branch. It has a table of goods, markets whose prices move with their
+stock, and selling out of the hold. Buying isn't written. It is not in main, so nothing sells yet,
+though the hold now has something to hold.
+
+## What comes next
+
+Trading is next, and a screen to do it on. Noor starts on the UI icons, which are a month's work on their own.
+
+Kasimir
+#file docs/devlog/2025-05-buying-and-selling.md
+#whole v1 @devlog "Post the May devlog: Buying and selling"
+---
+title: Buying and selling
+date: 2025-05-16
+author: Ilse
+tags: [economy, trade]
+---
+
+# Buying and selling
+
+There is an economy, a small one. The market is in main: a commodity table of twelve goods, and a
+market at each station that prices a good from its stock. Buy a tonne and the price rises a
+little. Sell one and it falls. A station that has been sold a lot of ore pays less for the next
+tonne, which is the whole game in one sentence.
+
+Kasimir's trade screen is how you use it. Dock at a station and it shows the goods, with the
+prices from the commodity table. The ship carries its credits.
+
+| Key | What it does |
+| --- | --- |
+| B | buy a tonne of the selected good |
+| S | sell a tonne of it |
+| U | undock |
+
+Teodor fixed a small thing: the docking chime played twice on one visit. It plays once per visit
+now.
+
+Two branches are open as I write:
+
+- **save-files** (Teodor) writes the game to a file. It starts with the magic `ORBS`, carries a
+  checksum so a damaged file can't load, and is written through a temporary file and then
+  renamed, so a crash mid-save leaves the old save alone. It is not in main yet.
+- **ui-icons** (Noor) is eight icons for the HUD: fuel, cargo, map, trade, dock, mine, target and
+  settings. The painter and the colours they need came with it.
+
+The prices have not been balanced. Anyone can find a loop that pays too well, and we would like to
+hear about it, so we know which one to close first.
+
+## What comes next
+
+Saving, the icons, and a title screen so there is a front door.
+
+Ilse
+#file docs/devlog/2025-06-saves-a-title-screen-and-the-map.md
+#whole v1 @devlog "Post the June devlog: Saves, a title screen and the map"
+---
+title: Saves, a title screen and the map
+date: 2025-06-13
+author: Teodor
+tags: [saves, map]
+---
+
+# Saves, a title screen and the map
+
+A busy month. The game saves and loads: the tick, the credits, the ship and what is in the hold.
+Each file starts with `ORBS`, then a format version, which a build checks and refuses if it does
+not know it. Ilse added that last part, so a future format can't be loaded by accident.
+
+There is a title screen as well (Kasimir), with a menu you move through by keys. It keeps its
+focus when the window is resized, the click sound is Wen's, and Rafe fixed focus wrapping at the
+last item.
+
+![The title screen](../../assets/title/title.png)
+
+The orbit map is mine. Press M and every body draws as a dot where it sits, with the ship on top.
+The flight keeps running while the map is open, so you can watch a burn take you somewhere.
+
+![The orbit map of the whole system](img/orbit-map.png)
+
+Noor's eight UI icons are in. The system filled out too, with the tempest and dustball planets, the outpost on the outer belt,
+and the tanker sprite. Wen fixed the map's far edge, which wasn't drawn, and the zoom, which now
+stays centred on the cursor. The starfield is half as dense at low zoom.
+
+The map has no legend and no colours, so a planet and a rock look the same from far out.
+
+## What comes next
+
+Wen's cargo clank, for when the hold fills, is in review. After that, a settings menu, since the
+keys are fixed in the code, and a look at how the game's objects are stored.
+
+Teodor
+#file docs/devlog/2025-07-the-settings-menu.md
+#whole v1 @devlog "Post the July devlog: The settings menu"
+---
+title: The settings menu
+date: 2025-07-18
+author: Teodor
+tags: [settings, audio]
+---
+
+# The settings menu
+
+There is a settings menu now, on the title screen. It is small on purpose, with three rows:
+
+- **Music**: a volume in percent. Left and right move it, and it starts at forty.
+- **Thrust key**: press Enter on it and the next key you press becomes the thrust key.
+- **Back**: leaves the screen.
+
+The thrust key reads from a copy of the key table that the menu can change, so the key you pick is
+the key the flight uses. Rebinding moves only that control. If the key you choose is already bound to
+something else, the table has two rows for it, and that needs a rule.
+
+The music row has nothing to play yet. The menu track isn't written, and the audio device is still
+a stub that logs what it would play. We put the row in now so the settings file has the key from
+the start.
+
+The first version forgot everything when you quit. Wen fixed it: the settings are written to
+`saves/settings.cfg` when you leave the screen.
+
+Elsewhere in July:
+
+- The HUD digits are wider, and the fuel readout is right-aligned so it stops jumping when a digit
+  changes (Noor, Ilse).
+- The cargo clank plays when the last slot fills (Wen).
+- The game has an icon (Noor).
+
+Two branches are open. **ecs-world** is mine: it replaces a list of bodies with entities, a way to
+spawn and despawn them and to visit each one. **interceptor-art** is Noor's new ship sprite.
+
+## What comes next
+
+Systems on top of the world. Rafe is going to run physics and mining as systems.
+
+Teodor
+#file docs/devlog/2025-08-systems-run-the-world.md
+#whole v1 @devlog "Post the August devlog: Systems run the world"
+---
+title: Systems run the world
+date: 2025-08-15
+author: Rafe
+tags: [core, ecs, saves]
+---
+
+# Systems run the world
+
+The world is a set of tables, one per kind of data, and every object is an id that indexes into
+each table. Before this, the bodies were one list that every piece of code walked in its own way.
+That made the mining code reach into the ship, and the ship code reach into the rocks, and neither
+could be tested alone.
+
+Physics and mining are systems now, along with thrust, collisions, docking and the market's drift
+back towards its usual stock. Each one takes the tables it needs, and the game calls them once a
+tick, in a fixed order, so the result doesn't depend on which object a loop happened to visit
+first. Each can also be tested against a world built in three lines. The first test we wrote that
+way found the bug below.
+
+Ilse found it. The loop over the table stopped one short, so the last entity in it was never
+visited. The rocks are spawned last, so the last rock never pulled on the ship. Nobody would have
+noticed, which is the worrying part.
+
+Saving got three things:
+
+- An autosave, every five minutes, into its own slot, so it never overwrites a save you made.
+  Continue on the title screen reads that slot (Kasimir).
+- A file that ends early is now an error, not a crash (Wen). A file too short to hold a checksum is
+  refused before it is read.
+- A sample save, `saves/sample.orbsave`, and a document of the format, `docs/saves.md`. Attach the
+  sample to a bug report if you cannot reproduce something.
+
+The diff is larger than the change: most of the lines moved, and few of them changed meaning.
+
+## What comes next
+
+The economy and contracts can be systems too. Contracts are not designed yet. Teodor has an idea
+for a multiplayer prototype and will start on it on a branch.
+
+Rafe
+#file docs/devlog/2025-09-bloom-trails-and-a-branch.md
+#whole v1 @devlog "Post the September devlog: Bloom, trails and a branch"
+---
+title: Bloom, trails and a branch
+date: 2025-09-19
+author: Teodor
+tags: [render, trails, multiplayer]
+---
+
+# Bloom, trails and a branch
+
+The render crate had a good month. A bloom pass now glows over the bright parts of the frame,
+mostly the thruster. It was washing out the ship at full thrust, so the glow is dimmer, and Rafe
+capped it at two passes a frame to keep it cheap on the laptops we test on.
+
+Wen made shaders reload without restarting the game: F5 rebuilds the sprite pipeline from
+`sprite.wgsl` on disk. Only the sprite shader reloads so far, and a shader that doesn't compile
+still stops the game with the compiler's message. Catching that and keeping the old pipeline is
+the next step.
+
+Bodies leave a trail. Each body's orbit trail holds its last 300 ticks, and the oldest point
+drops off as a new one is added, so it can't grow over a long session. A bug went in with it and
+came out again. When the fade's two edges matched, the fade range was zero, and every point
+vanished. Rafe found it, and a zero-width range draws at full strength now.
+
+F3 toggles a frame-time overlay, a bar against the 60 frames a second budget, green under and red
+over. The app loop doesn't draw it yet, so F3 changes nothing you can see.
+
+## The experiment branch
+
+`experiment/multiplayer` is mine, and it is not going to main. It is a lockstep prototype. Each
+peer sends its inputs a few ticks ahead, and every peer steps the same simulation, so the
+state only has to agree and doesn't need sending. There is a checksum of the simulation, so a
+desync shows up at once. A longer delay is there for slow links.
+
+## What comes next
+
+Menu music and sound routing (Wen, Kasimir), and a second look at the debug overlay.
+
+Teodor
+#file docs/devlog/2025-10-the-menu-track.md
+#whole v1 @devlog "Post the October devlog: The menu track"
+---
+title: The menu track
+date: 2025-10-17
+author: Wen
+tags: [audio]
+---
+
+# The menu track
+
+The title screen has music, at least on paper: a short loop, `menu-loop.ogg`, with a
+sample-accurate loop point so it doesn't click when it comes round. The mixer holds its level, the
+music slider in the settings scales it, and it fades out over two seconds once a game starts
+(Rafe's part).
+
+That last part has a catch we should say out loud. The audio device is still the stub from the
+engine hum: it writes what it would play to the log, at trace level. So the mixing work this month
+is real, and you can watch it in the log, but you can't hear it in the build yet. The loop itself
+we tested the old way, in an audio editor, for longer than anyone should listen to a loop.
+
+Sounds are routed to buses now (Kasimir). The music has its own level, and every effect plays on
+one of two buses:
+
+| Bus | Sounds |
+| --- | --- |
+| Effects | the engine hum, the laser, the docking chime, the cargo clank |
+| Interface | the menu click |
+
+So the click on a menu button no longer shares a level with the engine.
+
+![The title screen the track plays under](../../assets/title/title.png)
+
+Ilse added the courier to the ship table, with its own sprite. The table gained a price column for
+every class, ready for the day there is a shipyard.
+
+On the multiplayer branch, Teodor has a lobby: two players at most, each with a name and a ready
+flag, and the game starts when both are ready. It is on `experiment/multiplayer`, not in main.
+
+## What comes next
+
+The levels need a balance pass, so the music sits under the effects. Ilse's HUD panels are
+next.
+
+Wen
+#file docs/devlog/2025-11-planet-shading-and-belts.md
+#whole v1 @devlog "Post the November devlog: Planet shading and thinner belts"
+---
+title: Planet shading and thinner belts
+date: 2025-11-14
+author: Noor
+tags: [art, planets, balance]
+---
+
+# Planet shading and thinner belts
+
+The planets are shaded from one light direction now. Every planet in the system is lit from the
+same side, so they agree on where the light comes from and the night sides line up when you look
+across the system. All five planet sprites are new: the verdant, cinder, glacier, tempest and
+dustball worlds.
+
+![The verdant planet, lit from the side](../../assets/sprites/planets/verdant.png)
+
+The direction is a setting. The settings screen has a Light row, and left and right turn it
+fifteen degrees a step (Teodor). We argued about whether a player would ever want this, and kept it
+because it costs one row and it helps when a screenshot needs the lit side towards the camera. The
+dark side had banding, hard steps where the shading ran out of precision, and a dithering pass
+now hides them.
+
+The HUD has a second bar under the fuel gauge, for how full the hold is (Ilse). It is gold, like
+everything else about money, and it shows a full hold before the next dock rather than after the
+trip is wasted.
+
+Wen thinned each asteroid belt to 24 rocks, and the asteroid sprites are redrawn as a belt set.
+Two fixes went with it, both in Teodor's code and both about where rocks start:
+
+- Every rock started at the same point on the belt's radius, so a belt was one pile. Each rock
+  starts a random way outside the radius now.
+- They also all started along one axis. They now spread around the belt, so it reads as a ring.
+
+Mining pays more per rock, too (Ilse). And F3 finally draws the frame-time overlay, which has
+toggled since September without showing anything (Kasimir).
+
+The multiplayer prototype is still on its branch.
+
+## What comes next
+
+The thruster flame and the explosion are the old sprites. They are next for me.
+
+Noor
+#file docs/devlog/2025-12-a-shake-on-impact.md
+#whole v1 @devlog "Post the December devlog: A shake on impact"
+---
+title: A shake on impact
+date: 2025-12-09
+author: Kasimir
+tags: [render, flight, art]
+---
+
+# A shake on impact
+
+Hitting a rock shakes the camera now. The shake grows with the speed of the hit and dies away
+afterwards: a slow nudge barely moves the view, and a fast collision throws it around for a
+moment and then settles. Hits did damage before this, and you just couldn't feel them. The shake
+is also a warning that the hull is going.
+
+Speed is on the HUD, in kilometres a second, read from the ship's velocity every frame. It was the
+number we kept asking for during testing, and it is the one to watch on the way in to a station.
+
+Noor redrew the explosion with a shorter flash, so a rock worn through reads as a bang rather than
+a lingering glow, and redrew the thruster flame too:
+
+![The new explosion, with its shorter flash](../../assets/sprites/fx/explosion.png)
+
+Teodor fixed the explosion's lifetime. The sprite used to stay where the rock had been for as long
+as the game ran, which made a busy belt look like a fireworks show afterwards. Each explosion now
+shrinks away over 0.6 seconds and is gone. Wen stopped the flame flickering at low fuel.
+
+Two branches are open:
+
+- **ship-rework** (Noor) redraws the scout, the hauler and the interceptor on one hull.
+  It is in review.
+- **save-v2** (Ilse) moves the save format to version two. It records when each game was started,
+  and the fuel and hull, which version one left out. Teodor will write the migration for old
+  saves, so nothing is lost.
+
+The lobby for the multiplayer branch has a host now, and names capped at twelve characters. That
+is on `experiment/multiplayer`, and not in main.
+
+## What comes next
+
+The ship art lands first, then the save format. Audio levels are overdue.
+
+Kasimir
+#file docs/devlog/2026-01-sound-levels-and-a-save-format.md
+#whole v1 @devlog "Post the January devlog: Sound levels and a save format"
+---
+title: Sound levels and a save format
+date: 2026-01-22
+author: Teodor
+tags: [audio, saves]
+---
+
+# Sound levels and a save format
+
+We balanced the sounds against each other. The menu music now sits about six decibels under the
+effects. The numbers are constants at the top of `audio.rs`, `MUSIC_VOLUME`, `EFFECTS_GAIN` and
+`INTERFACE_GAIN`, with a comment on each, so the next person who wants to change one can see the
+reason behind it. A test checks the six decibels.
+
+Wen reworked three of the samples:
+
+- **The engine hum** has a pitch that follows the load.
+- **The mining laser** is shorter, so it doesn't drone while you hold on a rock.
+- **The docking chime** starts as the ship first touches the port, so it ends as the clamps close
+  rather than after them.
+
+The mixer also stopped queueing a sound twice: a sound asked for again before the device takes
+the queue now plays once. As before, the device is a stub, so all of this shows in the trace log
+and not in your speakers.
+
+The save format moved to version two. A version two file stores the time the game was started, and
+the ship's fuel and hull. Version one left those out, so a loaded game used to come back with a
+full tank and a fresh hull. Old saves still load. I wrote the migration: they are upgraded in
+memory and written back as version two the next time the game saves. Rafe updated the sample save
+to match.
+
+The scout, the hauler and the interceptor have their new hull (Noor), and the Ring Station has
+been redrawn to match it.
+
+## In review
+
+Noor's faction tint for the scout is open. It also gives each station a faction, which does
+nothing yet. Ilse has market price drift open too: each good's stock wanders by its volatility,
+then drifts back, once a game day. Rafe's updated design document covers the economy.
+
+Teodor
+#file docs/devlog/2026-02-a-colour-blind-palette.md
+#whole v1 @devlog "Post the February devlog: A colour-blind palette"
+---
+title: A colour-blind palette
+date: 2026-02-19
+author: Wen
+tags: [accessibility, map]
+---
+
+# A colour-blind palette
+
+The game has two palettes now, the default one and a colour-blind one, and a row in the settings
+to switch between them. The colour-blind palette moves the two colours that matter most off the
+red-green axis:
+
+| | Default | Colour-blind |
+| --- | --- | --- |
+| Planets on the orbit map | green | blue |
+| Rocks on the orbit map | red | orange |
+| Fuel gauge, healthy | green | blue |
+| Fuel gauge, low | red | orange |
+
+The orbit map colours its markers by kind as part of this: green planets, gold stations, red
+rocks. We checked the pairs with a simulator and with a person who has a red-green deficiency.
+The simulator was not enough on its own. The first orange we picked looked fine on it, and too
+close to the gold to her.
+
+The high-contrast theme is another row. It frames the HUD gauges in gold instead of grey and dims
+the starfield behind them, so the gauges stand out against a busy sky (Teodor).
+
+Text scales in the settings, a tenth at a time (Kasimir). The text grows, but the rows it sits
+in don't move, so at the largest sizes the trade panel's lines touch. Laying the rows out from the
+text size is next.
+
+Rafe fixed the focus ring so it shows on every button. A keyboard player could not tell where they
+were before.
+
+Noor redrew the title screen, and the HUD font is hinted for small sizes. Ilse's price drift is in
+the build: every market takes a small shake once a game day and drifts back, and Teodor stopped
+prices going below zero.
+
+Two branches are open. Noor's new game icon is in review, and Teodor has contracts, which are
+only in the core for now.
+
+Wen
+#file docs/devlog/2026-03-contracts.md
+#whole v1 @devlog "Post the March devlog: Contracts"
+---
+title: Contracts
+date: 2026-03-18
+author: Teodor
+tags: [contracts, economy]
+---
+
+# Contracts
+
+Contracts are in the core. A contract asks for some tonnes of one good at another station by a
+deadline, pays on delivery, and expires when the deadline passes. Missing one costs you the pay
+and nothing else, so a missed contract is a lesson rather than a punishment. A station keeps at
+most five open at once.
+
+Docking at the destination pays out every contract due there whose goods are in the hold, and takes
+the goods.
+
+The pay follows the distance and the urgency (Ilse). A far delivery pays more than a near one, and
+a short deadline pays more than a long one, up to twice the distance rate for a rush job. A
+contract with six days or fewer left counts as urgent. We tuned it on a few routes and then left
+the numbers alone, because a route nobody tries is not worth tuning for.
+
+Deadlines count in game days, which are a little under fifteen minutes of flying. They do not
+count while the game is paused, and P pauses the flight now. Rafe caught that one: a player who
+paused to read something could come back to a contract that had expired while they were away.
+
+The rest of the month:
+
+- The game has a new icon with a heavier outline, and the fuel icon is redrawn (Noor).
+- Wen's screen for taking a contract is open, as a branch, and not in main. It lists a station's
+  contracts on the docked screen and C accepts the first one.
+- The multiplayer prototype is on its own branch. It now only steps a tick once every peer's input
+  has arrived.
+
+## What comes next
+
+The screen, then some tests that count contract payouts in the trade total.
+
+Teodor
+#file docs/devlog/2026-04-contracts-on-the-screen.md
+#whole v1 @devlog "Post the April devlog: Contracts on the screen"
+---
+title: Contracts on the screen
+date: 2026-04-15
+author: Rafe
+tags: [contracts, press, release]
+---
+
+# Contracts on the screen
+
+Contracts are on the docked screen now. A station offers a few, each to another station and paid
+by the distance there, and C accepts the first one on the list. The trade panel lists the ones you
+have open, with the good, the tonnes, the pay and the days left, and it now has a line for what
+they will pay out. That sounds obvious, and it was missing, so the panel showed what the hold was
+worth and not what the trip would earn. And it says so when no contracts are open, rather than
+leaving an empty space. It is a small thing, and it was the first thing a tester asked about.
+
+The payout cases each have a test of their own:
+
+1. A contract with no distance pays the base.
+2. Pay rises with the distance and with the urgency.
+3. An urgent contract pays twice the distance rate.
+4. A station never offers a contract to itself.
+5. A station with nobody to deliver to offers nothing.
+
+The first version of the change had one test for all of it, and it passed for the wrong reason.
+Splitting the cases found the wrong reason at once.
+
+The press kit is in too. It has the title art, three screenshots taken at the default palette, and
+a forty second trailer (Noor), as a page of plain HTML in `press/` that opens from a folder as
+well as from a server.
+
+![The orbit screenshot from the press kit](../../press/img/screenshot-orbit.png)
+
+Kasimir cut `release/1.0` on the 3rd. Release branches take only fixes from here, and they are
+merged back into main.
+
+## What comes next
+
+The map needs labels, and a legend. Kasimir has gamepad support lined up.
+
+Rafe
+#file docs/devlog/2026-05-thrust-on-the-stick.md
+#whole v1 @devlog "Post the May devlog: Thrust on the stick"
+---
+title: Thrust on the stick
+date: 2026-05-13
+author: Kasimir
+tags: [input, map, modding]
+---
+
+# Thrust on the stick
+
+The left stick steers and thrusts now. Push it forward to thrust, and left or right to turn.
+Thrust is analogue, so a half press gives half thrust, and the ship responds to the stick the way
+the keys cannot. Keyboard players lose nothing: the keys still work, and they still give full
+thrust, because a key has no half press.
+
+The stick has a deadzone, so a worn stick that rests slightly off centre doesn't drift the ship
+(Rafe). Past it the range is stretched back out, so you lose no travel at the top. The gamepad
+library starts once, with the game, and with no pad connected the stick reads as centred.
+
+The orbit map got its labels and its legend. Each planet and station has its name beside its dot,
+and the ship is marked YOU. A label that would land on another one moves down a line, so the
+names stop overlapping when two bodies share an orbit, which happens more often than you would
+think: the dustball shares the cinder's orbit. The legend sits in a corner and shows the colour of
+each kind of body, and it follows the colour-blind setting like the markers do.
+
+![The orbit map, with the planets on their orbits](img/orbit-map.png)
+
+The modding notes went in, and so did the loader they describe (Noor, Wen). At startup the game
+reads every folder under `mods/`, adds the ship classes from each folder's `ships.csv`, and logs
+any line it can't read or any class whose name is taken. The docked screen lists the classes in a
+shipyard section with their prices, the mods' included. You can't buy one yet, but you can see
+that your mod loaded.
+
+Teodor's multiplayer prototype has stopped moving: it sends its packets as JSON now, refuses ones
+over 64 KiB, and the branch is parked.
+
+## What comes next
+
+Saving the open contracts, which Ilse has on her list, and moving the interface strings into a
+table.
+
+Kasimir
+#file docs/devlog/2026-06-contracts-in-the-save.md
+#whole v1 @devlog "Post the June devlog: Contracts in the save"
+---
+title: Contracts in the save
+date: 2026-06-17
+author: Ilse
+tags: [saves, contracts, performance]
+---
+
+# Contracts in the save
+
+Open contracts are saved now. The save format is version three. Contracts are stored as a list,
+with their deadlines in ticks, so a loaded game picks up exactly where the clock was. A contract
+that was due in an hour is still due in an hour after a reload.
+
+Older saves still load. A version two file gains an empty contract list on load, and a version one
+file does the same after its own upgrade (Teodor wrote the migration). Nothing is lost, because
+nothing was stored in them. The sample save has two open contracts now, and the documentation for
+the format has a table, because a table is easier to check against the code than a paragraph.
+
+Interface strings moved into one table (Wen). The title menu, the settings screen and the HUD
+look their text up by key, and a key with no text shows itself on screen, so a missing string is
+easy to spot. Rafe wrote how to add a translation. The docked screen and the trade panel still
+have their text in the code.
+
+Teodor's performance work is in as well:
+
+- Far bodies are summed on a coarser grid, which halves the cost of the gravity step. Near bodies
+  are summed exactly. It is an approximation, so a long orbit drifts a little more than a short
+  one. That is the trade we chose.
+- Asteroid sprites go into the main draw with the rest of the scene.
+- Ships skip the square root in the speed clamp when the vector is short.
+
+We cut `release/1.1` last week, and Kasimir has stations refuelling ships in review: R fills the
+tank and bills the ship for it. Repairs are to follow it.
+
+Ilse
+#file docs/devlog/2026-07-four-k-screenshots-and-a-recut-trailer.md
+#whole v1 @devlog "Post the July devlog: Four-K screenshots and a recut trailer"
+---
+title: Four-K screenshots and a recut trailer
+date: 2026-07-20
+author: Noor
+tags: [press, trailer, stations]
+---
+
+# Four-K screenshots and a recut trailer
+
+The press screenshots were retaken at 4K, and the press page lays them out in a responsive grid.
+The old ones were 1080p and looked soft on a big monitor. The orbit, trade and dock shots are all
+new, taken on the current build.
+
+The trailer has been recut with the new ships, the scout first, in the colours of the faction
+tint. We cut it from the same footage as the first, plus a few sessions recorded on the new build.
+Two of the shots in the first trailer were out of date by then, and they went. The music is still
+the menu track, with a new ending so it does not stop on the loop point.
+
+![The scout, in the new tint](../../assets/sprites/ships/scout.png)
+
+Stations do two more things, and both went in this month (Kasimir, Ilse). R refuels and T repairs.
+Refuelling fills the tank at a price per unit of fuel, and repairs are priced by the share of the
+hull lost. Both can be done in one visit.
+
+The press kit's text is not changed. It still has the title art, three screenshots and the
+trailer. We will refresh it for 1.2, when there is something new to put in it.
+
+Teodor opened a branch today for a Verlet integrator, for the orbit predictor, and it will be
+interesting to see whether it fixes the drift on a long orbit.
+
+## What comes next
+
+The ships at twice the resolution, after Teodor's integrator. Then an autopilot, which needs a
+planner.
+
+Noor
+#file docs/devlog/2026-08-verlet-and-a-stub-planner.md
+#whole v1 @devlog "Post the August devlog: Verlet and a stub planner"
+---
+title: Verlet and a stub planner
+date: 2026-08-14
+author: Teodor
+tags: [physics, autopilot]
+---
+
+# Verlet and a stub planner
+
+The orbit predictor and gravity run on a velocity Verlet step now. Each body remembers its last
+acceleration, and the step uses it for the next position. The step before it was a plain Euler
+one with the velocity updated first, which is stable enough for orbits, but its error is first
+order, so a long orbit wanders. Verlet's is second order. The first version ignored the
+timestep, and Kasimir caught it. Rafe's test is the one that checks the energy over a long orbit.
+
+The autopilot needs a path planner, and the planner is not finished. For now it is a stub. It
+returns a straight-line route from the ship to the target, and it does that every time, without
+looking at the bodies in the way. That is wrong, and we know it is wrong. A straight line through
+a planet is a bad route. The stub is there so the rest of the autopilot can be written against a
+real interface, and the planner can land behind it without touching the callers.
+
+| | Euler, velocity first | Velocity Verlet |
+| --- | --- | --- |
+| Error per step | first order | second order |
+| Force sums per tick | one | one |
+| Extra state per body | none | the last acceleration |
+
+We also cut `release/1.2` this month. Fixes for it go onto that branch and come back to main.
+
+Nothing is open as a branch right now. The next one is the transfer burns, which is what the
+planner will need. I plan to use the vis-viva speed at both ends of an orbit.
+
+Teodor
+#file docs/devlog/2026-09-transfer-burns.md
+#whole v1 @devlog "Post the September devlog: Transfer burns"
+---
+title: Transfer burns
+date: 2026-09-18
+author: Teodor
+tags: [autopilot, orbits]
+---
+
+# Transfer burns
+
+The core can plan a transfer now. Given the radius of the orbit you are on and the one you want,
+it works out the two burns of a Hohmann transfer: one to leave the first orbit and one to join the
+second, each from the vis-viva speeds at the two ends. The sums are small and old, and they have
+tests against the circular speeds they should give.
+
+The clock gained a time warp for the coast between the burns, in four steps, so a long transfer
+doesn't mean watching the ship drift for ten real minutes. The autopilot can set it.
+
+The autopilot that flies the burns is not in main. Kasimir has two commits of it on his machine,
+unpushed. It plans the burns from the orbit the ship is actually in, and it stops firing once the
+burn is paid. It comes in when it handles the drift a long transfer picks up. The planner stub
+stays until then.
+
+What else is open:
+
+- **trade-routes** (Wen) plans multi-stop trade routes, up to eight stops, refuses a stop that
+  repeats the one before it, and breaks distance ties by the station order. It has diverged from
+  main since he started it, so it needs a rebase.
+- **station-ui** (Wen) reworks the station screen to show its ports. The remote has two commits
+  he has not pulled yet.
+- **hd-sprites** (Noor) draws the ships at twice the resolution. Only the scout is done.
+
+## What comes next
+
+The autopilot, then the routes. Both want to know about fuel.
+
+Teodor

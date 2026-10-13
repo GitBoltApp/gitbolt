@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/gitbolt-core", "crates/gitbolt-forge", "crates/gitbolt-app", "crates/gitbolt-harness"]
+members = ["crates/gitbolt-graph", "crates/gitbolt-graph-wasm", "crates/gitbolt-core", "crates/gitbolt-forge", "crates/gitbolt-app", "crates/gitbolt-harness"]
 
 [workspace.package]
 version = "0.6.0"
@@ -11,6 +11,7 @@ license = "MIT"
 [workspace.dependencies]
 gitbolt-core = { path = "crates/gitbolt-core" }
 gitbolt-forge = { path = "crates/gitbolt-forge" }
+gitbolt-graph = { path = "crates/gitbolt-graph" }
 gix = "0.88"
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "process", "time", "sync", "fs", "net", "io-util"] }
 tokio-util = "0.7.19"
@@ -50,6 +51,9 @@ tauri-runtime-cef = "=3.0.0-alpha.5"
 tauri-plugin-clipboard-manager = "=3.0.0-alpha.2"
 # Avatars and URL opening (plan 1B Task 5).
 sha2 = "0.11.0"
+# The harness's generated showcase media (PNG, PDF and ICO streams). Already in the tree through
+# gix; same version. The harness is never shipped.
+flate2 = "1.1"
 ureq = "3.4.2"
 dirs = "7.0.0"
 # The GLib program name (WM_CLASS) for the app window; already in the tree through gtk4.
@@ -84,3 +88,7 @@ debug = false
 # dependencies stay non-incremental (and cached by sccache). Still opt-level 3, no LTO.
 [profile.release]
 incremental = true
+
+# The website demo's WebAssembly graph: small over fast (it downloads with the page).
+[profile.release.package.gitbolt-graph-wasm]
+opt-level = "s"

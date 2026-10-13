@@ -1,0 +1,51 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "c60c45c75d92a01085f23c0eb90da701778aaa2e",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 3,
+    "deleted": 3,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "object",
+          "oid": "6d09d3b741dea2f6b4c74b37a54eea08eaa07aab"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "7e2b3e9c4e3f70600dac42763c57efff48146664"
+        },
+        "oldPath": null,
+        "path": "art/ships.psd",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 2,
+        "deletions": 2,
+        "new": {
+          "kind": "object",
+          "oid": "48c1468715c3f71a70e1622cd994d79446296f59"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "32c4d0c72406ab107dcd0f40ab78348b7c1368f8"
+        },
+        "oldPath": null,
+        "path": "art/title.png",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

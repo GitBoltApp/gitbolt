@@ -1,0 +1,318 @@
+#file crates/orbital-render/src/starfield.rs
+#header v1 @camera-follow "Add a parallax starfield behind the orbit view"
+//! The parallax starfield: three layers of stars that move at different rates against the camera,
+//! so the view has depth as the ship flies.
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use crate::camera::Camera;
+#const STARS_PER_LAYER v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// Stars in each layer, the same for every seed.
+pub const STARS_PER_LAYER: u32 = 240;
+#const STAR_CAPACITY v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// The most stars the GPU buffer holds; a field of three layers never comes near it.
+pub const STAR_CAPACITY: usize = 4096;
+#item Star v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// One star: a point in the system and how bright it is, from 0 to 1.
+#[derive(Clone, Copy, Debug)]
+pub struct Star {
+    pub pos: Vec2,
+    pub brightness: f32,
+}
+#item noise v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// A hash of `seed` onto 0 to 1, so the same seed always lays out the same stars.
+fn noise(seed: u32) -> f32 {
+    let mut x = seed.wrapping_mul(0x9E37_79B9);
+    x ^= x >> 16;
+    x = x.wrapping_mul(0x85EB_CA6B);
+    x ^= x >> 13;
+    x as f32 / u32::MAX as f32
+}
+#item Layer v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// A layer of stars at one parallax depth: 1 moves with the camera, and smaller depths lag behind.
+#[derive(Debug)]
+pub struct Layer {
+    pub depth: f32,
+    pub stars: Vec<Star>,
+}
+#item Starfield v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// Three layers of stars, from the far field to the near.
+#[derive(Debug)]
+pub struct Starfield {
+    layers: Vec<Layer>,
+}
+#item Starfield v2 @high-contrast "Add a high-contrast theme"
+/// Three layers of stars, from the far field to the near, and how much they are dimmed.
+#[derive(Debug)]
+pub struct Starfield {
+    layers: Vec<Layer>,
+    dim: f32,
+}
+#item new v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl Starfield {
+    /// A starfield of [`STARS_PER_LAYER`] stars per layer, laid out from `seed`.
+    #[must_use]
+    pub fn new(seed: u32) -> Self {
+        let layers = [0.2, 0.5, 0.8]
+            .into_iter()
+            .enumerate()
+            .map(|(layer, depth)| {
+                let stars = (0..STARS_PER_LAYER)
+                    .map(|i| {
+                        let salt = seed.wrapping_add(layer as u32 * 100_000).wrapping_add(i);
+                        Star {
+                            pos: Vec2::new(
+                                noise(salt.wrapping_mul(2)) * 10_000.0 - 5_000.0,
+                                noise(salt.wrapping_mul(2) + 1) * 10_000.0 - 5_000.0,
+                            ),
+                            brightness: 0.3 + 0.7 * noise(salt ^ 0x5BD1_E995),
+                        }
+                    })
+                    .collect();
+                Layer { depth, stars }
+            })
+            .collect();
+        Self { layers }
+    }
+}
+#item new v2 @high-contrast "Add a high-contrast theme"
+impl Starfield {
+    /// A starfield of [`STARS_PER_LAYER`] stars per layer, laid out from `seed`.
+    #[must_use]
+    pub fn new(seed: u32) -> Self {
+        let layers = [0.2, 0.5, 0.8]
+            .into_iter()
+            .enumerate()
+            .map(|(layer, depth)| {
+                let stars = (0..STARS_PER_LAYER)
+                    .map(|i| {
+                        let salt = seed.wrapping_add(layer as u32 * 100_000).wrapping_add(i);
+                        Star {
+                            pos: Vec2::new(
+                                noise(salt.wrapping_mul(2)) * 10_000.0 - 5_000.0,
+                                noise(salt.wrapping_mul(2) + 1) * 10_000.0 - 5_000.0,
+                            ),
+                            brightness: 0.3 + 0.7 * noise(salt ^ 0x5BD1_E995),
+                        }
+                    })
+                    .collect();
+                Layer { depth, stars }
+            })
+            .collect();
+        Self { layers, dim: 1.0 }
+    }
+}
+#item points v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl Starfield {
+    /// Where every star lands on screen for this camera, with its brightness, each layer moving at its
+    /// own depth.
+    #[must_use]
+    pub fn points(&self, camera: &Camera, screen: Vec2) -> Vec<(Vec2, f32)> {
+        self.layers
+            .iter()
+            .flat_map(|layer| {
+                let view = Camera {
+                    centre: camera.centre * layer.depth,
+                    ..*camera
+                };
+                layer
+                    .stars
+                    .iter()
+                    .map(move |s| (view.to_screen(s.pos, screen), s.brightness))
+            })
+            .collect()
+    }
+}
+#item points v2 @starfield "Halve the starfield density at low zoom"
+impl Starfield {
+    /// Where every star lands on screen for this camera, with its brightness, each layer moving at its
+    /// own depth. Zoomed right out, only half of each layer is drawn.
+    #[must_use]
+    pub fn points(&self, camera: &Camera, screen: Vec2) -> Vec<(Vec2, f32)> {
+        self.layers
+            .iter()
+            .flat_map(|layer| {
+                let view = Camera {
+                    centre: camera.centre * layer.depth,
+                    ..*camera
+                };
+                layer
+                    .stars
+                    .iter()
+                    .take(stars_for(camera.zoom))
+                    .map(move |s| (view.to_screen(s.pos, screen), s.brightness))
+            })
+            .collect()
+    }
+}
+#item points v3 @high-contrast "Add a high-contrast theme"
+impl Starfield {
+    /// Where every star lands on screen for this camera, with its brightness after the theme's dimming.
+    /// Zoomed right out, only half of each layer is drawn.
+    #[must_use]
+    pub fn points(&self, camera: &Camera, screen: Vec2) -> Vec<(Vec2, f32)> {
+        self.layers
+            .iter()
+            .flat_map(|layer| {
+                let view = Camera {
+                    centre: camera.centre * layer.depth,
+                    ..*camera
+                };
+                layer
+                    .stars
+                    .iter()
+                    .take(stars_for(camera.zoom))
+                    .map(move |s| (view.to_screen(s.pos, screen), s.brightness * self.dim))
+            })
+            .collect()
+    }
+}
+#const LOW_ZOOM v1 @starfield "Halve the starfield density at low zoom"
+/// Below this zoom, in pixels per kilometre, the starfield thins out.
+pub const LOW_ZOOM: f32 = 0.5;
+#item stars_for v1 @starfield "Halve the starfield density at low zoom"
+/// How many stars of each layer to draw at this zoom: half as many when zoomed right out.
+fn stars_for(zoom: f32) -> usize {
+    let full = STARS_PER_LAYER as usize;
+    if zoom < LOW_ZOOM { full / 2 } else { full }
+}
+#const HIGH_CONTRAST_DIM v1 @high-contrast "Add a high-contrast theme"
+/// How bright the stars are under the high-contrast theme, so the interface reads over them.
+pub const HIGH_CONTRAST_DIM: f32 = 0.35;
+#item set_high_contrast v1 @high-contrast "Add a high-contrast theme"
+impl Starfield {
+    /// Dims the stars for the high-contrast theme, or brings them back to full brightness.
+    pub fn set_high_contrast(&mut self, on: bool) {
+        self.dim = if on { HIGH_CONTRAST_DIM } else { 1.0 };
+    }
+}
+#item GpuStar v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// One star as the GPU reads it: its pixel position, its brightness, and padding to a 16-byte row.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct GpuStar {
+    pub point: [f32; 2],
+    pub brightness: f32,
+    pub pad: f32,
+}
+#item StarPass v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// The starfield's GPU pass: its pipeline, its bind group, and the buffer its stars are uploaded to.
+pub struct StarPass {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+    points: wgpu::Buffer,
+}
+#item pass_new v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl StarPass {
+    /// Builds the starfield pass for a surface of `format`, reading the camera uniform from `camera`.
+    #[must_use]
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, camera: &wgpu::Buffer) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("starfield"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/starfield.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("starfield"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let points = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("stars"),
+            size: (STAR_CAPACITY * std::mem::size_of::<GpuStar>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("stars"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: points.as_entire_binding(),
+                },
+            ],
+        });
+        Self {
+            pipeline,
+            group,
+            points,
+        }
+    }
+}
+#item pass_draw v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl StarPass {
+    /// Draws every star in `stars` for `camera` into the open `pass`, as a two-pixel quad each.
+    pub fn pass_draw(
+        &self,
+        queue: &wgpu::Queue,
+        pass: &mut wgpu::RenderPass<'_>,
+        stars: &Starfield,
+        camera: &Camera,
+        screen: Vec2,
+    ) {
+        let points: Vec<GpuStar> = stars
+            .points(camera, screen)
+            .into_iter()
+            .take(STAR_CAPACITY)
+            .map(|(point, brightness)| GpuStar {
+                point: point.to_array(),
+                brightness,
+                pad: 0.0,
+            })
+            .collect();
+        queue.write_buffer(&self.points, 0, bytemuck::cast_slice(&points));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.group, &[]);
+        pass.draw(0..4, 0..points.len() as u32);
+    }
+}
+#test layers_hold_the_star_count v1 @camera-follow "Test that every layer gets its full set of stars"
+#[test]
+fn layers_hold_the_star_count() {
+    let field = Starfield::new(7);
+    assert_eq!(field.layers.len(), 3);
+    assert!(
+        field
+            .layers
+            .iter()
+            .all(|l| l.stars.len() == STARS_PER_LAYER as usize)
+    );
+}
+#test halves_at_low_zoom v1 @starfield "Test that a zoomed-out view draws half the stars"
+#[test]
+fn halves_at_low_zoom() {
+    assert_eq!(stars_for(0.1), STARS_PER_LAYER as usize / 2);
+    assert_eq!(stars_for(1.0), STARS_PER_LAYER as usize);
+}
+#test dim_scales_brightness v1 @high-contrast "Test that the high-contrast theme dims every star"
+#[test]
+fn dim_scales_brightness() {
+    let mut field = Starfield::new(3);
+    field.set_high_contrast(true);
+    let (_, lit) = field.points(&Camera::default(), Vec2::new(800.0, 600.0))[0];
+    assert!(lit <= HIGH_CONTRAST_DIM + 1e-6);
+}

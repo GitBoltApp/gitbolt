@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "openRepo",
+    "params": {
+      "path": "$wt"
+    }
+  },
+  "response": {
+    "id": 1,
+    "name": "long_history",
+    "path": "/demo/long_history",
+    "worktree": "/demo/long_history"
+  }
+}

@@ -46,3 +46,14 @@ export function e2eCsp(conf: TauriConf, html: string, harnessWs: string): string
   policy['connect-src'] = [...(policy['connect-src'] ?? ["'self'"]), new URL(harnessWs).origin];
   return Object.entries(policy).map(([d, v]) => [d, ...v].join(' ')).join('; ');
 }
+
+/** The website demo's policy, a <meta> in demo.html (GitHub Pages sends no headers): the app's,
+ * plus demo.html's inline script hashes, without the app's IPC origins, and without
+ * `frame-ancestors`, which a <meta> can't carry (the site's page frames the demo). */
+export function demoCsp(conf: TauriConf, html: string): string {
+  const policy = parseCsp(appCsp(conf));
+  policy['script-src'] = [...(policy['script-src'] ?? ["'self'"]), ...inlineScriptHashes(html)];
+  policy['connect-src'] = (policy['connect-src'] ?? ["'self'"]).filter((s) => s !== 'ipc:' && !s.startsWith('http://ipc.'));
+  delete policy['frame-ancestors'];
+  return Object.entries(policy).map(([d, v]) => [d, ...v].join(' ')).join('; ');
+}

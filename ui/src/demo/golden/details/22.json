@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "422f7409e96fd14f500715919a3eceb3b96d7207"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "big.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "",
+      "eol": "none",
+      "hash": null,
+      "size": 2160000,
+      "text": null
+    },
+    "old": null,
+    "tooLarge": true
+  }
+}

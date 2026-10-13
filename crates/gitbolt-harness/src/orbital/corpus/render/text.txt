@@ -1,0 +1,438 @@
+#file crates/orbital-render/src/text.rs
+#header v1 @hud-font "Add the HUD font"
+//! Bitmap text: glyphs cut from the HUD font atlas, laid out along lines and drawn by the text pass.
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use crate::atlas::{ATLAS_SIZE, Region};
+#const GLYPH_HEIGHT v1 @hud-font "Add the HUD font"
+/// The height of one glyph in the HUD's design size, in pixels.
+pub const GLYPH_HEIGHT: f32 = 12.0;
+#const GLYPH_HEIGHT v2 @hud-font-3 "Hint the HUD font for small sizes"
+/// The height of one glyph in the HUD's design size, in pixels.
+pub const GLYPH_HEIGHT: f32 = 11.0;
+#const GLYPH_CAPACITY v1 @hud-font "Add the HUD font"
+/// The most glyphs one frame uploads; a full readout and its labels never come near it.
+pub const GLYPH_CAPACITY: usize = 2048;
+#const DIGIT_ADVANCE v1 @digit-kerning "Fix kerning on the digits in the fuel readout\n\nDigits now share one advance width."
+/// The pen advance for every digit, so a column of digits lines up.
+pub const DIGIT_ADVANCE: f32 = 7.0;
+#const DIGIT_ADVANCE v2 @hud-font-2 "Widen the HUD digits"
+/// The pen advance for every digit, so a column of digits lines up.
+pub const DIGIT_ADVANCE: f32 = 8.0;
+#item Glyph v1 @hud-font "Add the HUD font"
+/// One glyph ready to draw: its quad in pixels, the atlas region it shows, and its colour.
+#[derive(Clone, Copy, Debug)]
+pub struct Glyph {
+    pub centre: Vec2,
+    pub size: Vec2,
+    pub region: Region,
+    pub colour: [f32; 4],
+}
+#item Font v1 @hud-font "Add the HUD font"
+/// The HUD's bitmap font: each character's region in the atlas.
+#[derive(Debug)]
+pub struct Font {
+    glyphs: Vec<(char, Region)>,
+}
+#item Font v2 @text-scale "Scale the interface text from the settings menu"
+/// The HUD's bitmap font: each character's region in the atlas, and the scale it is drawn at.
+#[derive(Debug)]
+pub struct Font {
+    glyphs: Vec<(char, Region)>,
+    scale: f32,
+}
+#item new v1 @hud-font "Add the HUD font"
+impl Font {
+    /// A font over the atlas regions of its characters.
+    #[must_use]
+    pub fn new(glyphs: Vec<(char, Region)>) -> Self {
+        Self { glyphs }
+    }
+}
+#item new v2 @text-scale "Scale the interface text from the settings menu"
+impl Font {
+    /// A font over the atlas regions of its characters, drawn at its design size.
+    #[must_use]
+    pub fn new(glyphs: Vec<(char, Region)>) -> Self {
+        Self { glyphs, scale: 1.0 }
+    }
+}
+#item scaled v1 @text-scale "Scale the interface text from the settings menu"
+impl Font {
+    /// The same font drawn `scale` times its design size.
+    #[must_use]
+    pub fn scaled(self, scale: f32) -> Self {
+        Self { scale, ..self }
+    }
+}
+#item glyph v1 @hud-font "Add the HUD font"
+impl Font {
+    /// The atlas region of `ch`, if the font has that character.
+    #[must_use]
+    fn glyph(&self, ch: char) -> Option<Region> {
+        self.glyphs.iter().find(|(c, _)| *c == ch).map(|(_, r)| *r)
+    }
+}
+#item advance v1 @hud-font "Add the HUD font"
+impl Font {
+    /// How far the pen moves after `ch`, in pixels.
+    #[must_use]
+    pub fn advance(&self, ch: char) -> f32 {
+        self.glyph(ch).map_or(GLYPH_HEIGHT * 0.5, |r| r.w as f32)
+    }
+}
+#item advance v2 @digit-kerning "Fix kerning on the digits in the fuel readout\n\nDigits now share one advance width."
+impl Font {
+    /// How far the pen moves after `ch`, in pixels.
+    #[must_use]
+    pub fn advance(&self, ch: char) -> f32 {
+        if ch.is_ascii_digit() {
+            return DIGIT_ADVANCE;
+        }
+        self.glyph(ch).map_or(GLYPH_HEIGHT * 0.5, |r| r.w as f32)
+    }
+}
+#item advance v3 @text-scale "Scale the interface text from the settings menu"
+impl Font {
+    /// How far the pen moves after `ch`, in pixels at this font's scale.
+    #[must_use]
+    pub fn advance(&self, ch: char) -> f32 {
+        let design = if ch.is_ascii_digit() {
+            DIGIT_ADVANCE
+        } else {
+            self.glyph(ch).map_or(GLYPH_HEIGHT * 0.5, |r| r.w as f32)
+        };
+        design * self.scale
+    }
+}
+#item draw v1 @hud-font "Add the HUD font"
+impl Font {
+    /// Lays `text` out along a line starting at `at`, with its top edge on `at.y`, adding one glyph
+    /// per character to `glyphs`.
+    pub fn draw(&self, glyphs: &mut Vec<Glyph>, text: &str, at: Vec2, colour: [f32; 4]) {
+        let mut x = at.x;
+        for ch in text.chars() {
+            if let Some(region) = self.glyph(ch) {
+                let size = Vec2::new(region.w as f32, region.h as f32);
+                let centre = Vec2::new(x + size.x * 0.5, at.y + size.y * 0.5);
+                glyphs.push(Glyph {
+                    centre,
+                    size,
+                    region,
+                    colour,
+                });
+            }
+            x += self.advance(ch);
+        }
+    }
+}
+#item draw v2 @text-render "Fix text blurring at fractional zoom\n\nGlyph origins now land on whole pixels, so the atlas is never sampled between texels."
+impl Font {
+    /// Lays `text` out along a line starting at `at`, with its top edge on `at.y`, adding one glyph
+    /// per character to `glyphs`. Every glyph lands on a whole pixel.
+    pub fn draw(&self, glyphs: &mut Vec<Glyph>, text: &str, at: Vec2, colour: [f32; 4]) {
+        let mut x = at.x.round();
+        let y = (at.y + GLYPH_HEIGHT * 0.5).round();
+        for ch in text.chars() {
+            if let Some(region) = self.glyph(ch) {
+                let size = Vec2::new(region.w as f32, region.h as f32);
+                let centre = Vec2::new((x + size.x * 0.5).round(), y);
+                glyphs.push(Glyph {
+                    centre,
+                    size,
+                    region,
+                    colour,
+                });
+            }
+            x += self.advance(ch).round();
+        }
+    }
+}
+#item draw v3 @text-scale "Scale the interface text from the settings menu"
+impl Font {
+    /// Lays `text` out along a line starting at `at`, with its top edge on `at.y`, at this font's scale,
+    /// adding one glyph per character to `glyphs`. Every glyph lands on a whole pixel.
+    pub fn draw(&self, glyphs: &mut Vec<Glyph>, text: &str, at: Vec2, colour: [f32; 4]) {
+        let mut x = at.x.round();
+        let y = (at.y + GLYPH_HEIGHT * self.scale * 0.5).round();
+        for ch in text.chars() {
+            if let Some(region) = self.glyph(ch) {
+                let size = Vec2::new(region.w as f32, region.h as f32) * self.scale;
+                let centre = Vec2::new((x + size.x * 0.5).round(), y);
+                glyphs.push(Glyph {
+                    centre,
+                    size,
+                    region,
+                    colour,
+                });
+            }
+            x += self.advance(ch).round();
+        }
+    }
+}
+#item width v1 @hud-jitter "Right-align the fuel readout so changing digits don't shift it"
+impl Font {
+    /// The width `text` takes up, in pixels.
+    #[must_use]
+    pub fn width(&self, text: &str) -> f32 {
+        text.chars().map(|c| self.advance(c)).sum()
+    }
+}
+#item draw_right v1 @hud-jitter "Right-align the fuel readout so changing digits don't shift it"
+impl Font {
+    /// Lays `text` out so its right edge sits at `right`, so a readout's digits stay put as it grows.
+    pub fn draw_right(&self, glyphs: &mut Vec<Glyph>, text: &str, right: Vec2, colour: [f32; 4]) {
+        let left = Vec2::new(right.x - self.width(text), right.y);
+        self.draw(glyphs, text, left, colour);
+    }
+}
+#item GpuGlyph v1 @hud-font "Add the HUD font"
+/// One glyph as the GPU reads it: its quad, the atlas coordinates of its region, and its colour.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct GpuGlyph {
+    pub centre: [f32; 2],
+    pub size: [f32; 2],
+    pub uv_min: [f32; 2],
+    pub uv_max: [f32; 2],
+    pub colour: [f32; 4],
+}
+#item from_glyph v1 @hud-font "Add the HUD font"
+impl GpuGlyph {
+    /// The GPU's copy of a glyph, with the atlas coordinates of its region.
+    #[must_use]
+    pub fn from_glyph(glyph: &Glyph) -> Self {
+        let size = ATLAS_SIZE as f32;
+        let r = glyph.region;
+        Self {
+            centre: glyph.centre.to_array(),
+            size: glyph.size.to_array(),
+            uv_min: [r.x as f32 / size, r.y as f32 / size],
+            uv_max: [(r.x + r.w) as f32 / size, (r.y + r.h) as f32 / size],
+            colour: glyph.colour,
+        }
+    }
+}
+#item TextPass v1 @hud-font "Add the HUD font"
+/// The text's GPU pass: its pipeline, its bind group, and the buffer its glyphs are uploaded to.
+pub struct TextPass {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+    glyphs: wgpu::Buffer,
+}
+#item pass_new v1 @hud-font "Add the HUD font"
+impl TextPass {
+    /// Builds the text pass for a surface of `format`, reading the camera uniform from `camera` and the
+    /// glyphs from the atlas at `font`.
+    #[must_use]
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        camera: &wgpu::Buffer,
+        font: &wgpu::TextureView,
+    ) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("text"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/text.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("text"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let glyphs = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("glyphs"),
+            size: (GLYPH_CAPACITY * std::mem::size_of::<GpuGlyph>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("text"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(font),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: glyphs.as_entire_binding(),
+                },
+            ],
+        });
+        Self {
+            pipeline,
+            group,
+            glyphs,
+        }
+    }
+}
+#item pass_new v2 @text-render "Fix text blurring at fractional zoom\n\nGlyph origins now land on whole pixels, so the atlas is never sampled between texels."
+impl TextPass {
+    /// Builds the text pass for a surface of `format`, reading the camera uniform from `camera` and the
+    /// glyphs from the atlas at `font`, sampled texel by texel.
+    #[must_use]
+    pub fn new(
+        device: &wgpu::Device,
+        format: wgpu::TextureFormat,
+        camera: &wgpu::Buffer,
+        font: &wgpu::TextureView,
+    ) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("text"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/text.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("text"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            mag_filter: wgpu::FilterMode::Nearest,
+            min_filter: wgpu::FilterMode::Nearest,
+            ..Default::default()
+        });
+        let glyphs = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("glyphs"),
+            size: (GLYPH_CAPACITY * std::mem::size_of::<GpuGlyph>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("text"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(font),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(&sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: glyphs.as_entire_binding(),
+                },
+            ],
+        });
+        Self {
+            pipeline,
+            group,
+            glyphs,
+        }
+    }
+}
+#item pass_draw v1 @hud-font "Add the HUD font"
+impl TextPass {
+    /// Draws `glyphs` into the open `pass`, one quad per glyph.
+    pub fn pass_draw(
+        &self,
+        queue: &wgpu::Queue,
+        pass: &mut wgpu::RenderPass<'_>,
+        glyphs: &[Glyph],
+    ) {
+        let gpu: Vec<GpuGlyph> = glyphs
+            .iter()
+            .take(GLYPH_CAPACITY)
+            .map(GpuGlyph::from_glyph)
+            .collect();
+        queue.write_buffer(&self.glyphs, 0, bytemuck::cast_slice(&gpu));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.group, &[]);
+        pass.draw(0..4, 0..gpu.len() as u32);
+    }
+}
+#test digits_advance_evenly v1 @digit-kerning "Test that every digit takes the same advance"
+#[test]
+fn digits_advance_evenly() {
+    let font = Font::new(Vec::new());
+    assert_eq!(font.advance('1'), font.advance('8'));
+    assert_eq!(font.advance('1'), DIGIT_ADVANCE);
+}
+#test snaps_to_whole_pixels v1 @text-render "Test that drawn glyphs land on whole pixels"
+#[test]
+fn snaps_to_whole_pixels() {
+    let region = Region {
+        x: 0,
+        y: 0,
+        w: 5,
+        h: 5,
+    };
+    let font = Font::new(vec![('A', region)]);
+    let mut glyphs = Vec::new();
+    font.draw(&mut glyphs, "A", Vec2::new(10.4, 3.6), [1.0; 4]);
+    let centre = glyphs[0].centre;
+    assert_eq!(centre.x, centre.x.round());
+    assert_eq!(centre.y, centre.y.round());
+}
+#test width_adds_each_advance v1 @hud-jitter "Test that a readout's width is the sum of its advances"
+#[test]
+fn width_adds_each_advance() {
+    let font = Font::new(Vec::new());
+    let expected = font.advance('4') + font.advance('2');
+    assert!((font.width("42") - expected).abs() < 1e-6);
+}
+#test scaled_grows_the_advance v1 @text-scale "Test that scaling the font scales its advances"
+#[test]
+fn scaled_grows_the_advance() {
+    let font = Font::new(Vec::new()).scaled(2.0);
+    assert!((font.advance('7') - 2.0 * DIGIT_ADVANCE).abs() < 1e-6);
+}

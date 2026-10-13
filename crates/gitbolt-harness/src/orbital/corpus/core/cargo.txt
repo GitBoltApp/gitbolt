@@ -1,0 +1,457 @@
+#file crates/orbital-core/src/cargo.rs
+#header v1 @cargo-hold
+//! Cargo: the goods a ship carries, one stack of one good per slot.
+
+use crate::error::Error;
+
+#const CARGO_SLOTS v1 @cargo-hold "Add a cargo hold with a fixed number of slots"
+/// Slots in a hold. Slots are fixed at twelve for now; upgrades come later.
+pub const CARGO_SLOTS: usize = 12;
+
+#const SLOT_TONNES v1 @cargo-hold "Cap each slot at ten tonnes of one good"
+/// Most tonnes one slot holds, of one good.
+pub const SLOT_TONNES: f32 = 10.0;
+
+#item Commodity v1 @cargo-hold "Add cargo hold goods as commodity ids"
+/// A good a ship can carry. The discriminant is the good's id in save files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Commodity {
+    Ore = 0,
+    Ice = 1,
+    Alloy = 2,
+    Food = 3,
+    Medicine = 4,
+}
+
+#item Commodity v2 @market "List every good in the commodity table"
+/// A good a ship can carry, in the order of the commodity table. The discriminant is the good's id
+/// in save files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Commodity {
+    Ore = 0,
+    Ice = 1,
+    Alloy = 2,
+    Food = 3,
+    Medicine = 4,
+    FuelCells = 5,
+    Water = 6,
+    Polymers = 7,
+    Electronics = 8,
+    Textiles = 9,
+    Seeds = 10,
+    Luxuries = 11,
+}
+
+#item Commodity v3 @economy-drift "Add machine parts to the goods"
+/// A good a ship can carry, in the order of the commodity table. The discriminant is the good's id
+/// in save files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Commodity {
+    Ore = 0,
+    Ice = 1,
+    Alloy = 2,
+    Food = 3,
+    Medicine = 4,
+    FuelCells = 5,
+    Water = 6,
+    Polymers = 7,
+    Electronics = 8,
+    Textiles = 9,
+    Seeds = 10,
+    Luxuries = 11,
+    MachineParts = 12,
+}
+
+#item Commodity v4 @station-services "Add rare earths to the goods"
+/// A good a ship can carry, in the order of the commodity table. The discriminant is the good's id
+/// in save files.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[repr(u8)]
+pub enum Commodity {
+    Ore = 0,
+    Ice = 1,
+    Alloy = 2,
+    Food = 3,
+    Medicine = 4,
+    FuelCells = 5,
+    Water = 6,
+    Polymers = 7,
+    Electronics = 8,
+    Textiles = 9,
+    Seeds = 10,
+    Luxuries = 11,
+    MachineParts = 12,
+    RareEarths = 13,
+}
+
+#item all v1 @cargo-hold "List every good in id order"
+impl Commodity {
+    /// Every good, in id order.
+    pub const ALL: [Commodity; 5] = [
+        Commodity::Ore,
+        Commodity::Ice,
+        Commodity::Alloy,
+        Commodity::Food,
+        Commodity::Medicine,
+    ];
+}
+
+#item all v2 @market "List every good in the commodity table"
+impl Commodity {
+    /// Every good, in id order.
+    pub const ALL: [Commodity; 12] = [
+        Commodity::Ore,
+        Commodity::Ice,
+        Commodity::Alloy,
+        Commodity::Food,
+        Commodity::Medicine,
+        Commodity::FuelCells,
+        Commodity::Water,
+        Commodity::Polymers,
+        Commodity::Electronics,
+        Commodity::Textiles,
+        Commodity::Seeds,
+        Commodity::Luxuries,
+    ];
+}
+
+#item all v3 @economy-drift "Add machine parts to the goods"
+impl Commodity {
+    /// Every good, in id order.
+    pub const ALL: [Commodity; 13] = [
+        Commodity::Ore,
+        Commodity::Ice,
+        Commodity::Alloy,
+        Commodity::Food,
+        Commodity::Medicine,
+        Commodity::FuelCells,
+        Commodity::Water,
+        Commodity::Polymers,
+        Commodity::Electronics,
+        Commodity::Textiles,
+        Commodity::Seeds,
+        Commodity::Luxuries,
+        Commodity::MachineParts,
+    ];
+}
+
+#item all v4 @station-services "Add rare earths to the goods"
+impl Commodity {
+    /// Every good, in id order.
+    pub const ALL: [Commodity; 14] = [
+        Commodity::Ore,
+        Commodity::Ice,
+        Commodity::Alloy,
+        Commodity::Food,
+        Commodity::Medicine,
+        Commodity::FuelCells,
+        Commodity::Water,
+        Commodity::Polymers,
+        Commodity::Electronics,
+        Commodity::Textiles,
+        Commodity::Seeds,
+        Commodity::Luxuries,
+        Commodity::MachineParts,
+        Commodity::RareEarths,
+    ];
+}
+
+#item key v1 @market "Name each good by its id in the data tables"
+impl Commodity {
+    /// The good's id in the data tables, such as `fuel_cells`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Commodity::Ore => "ore",
+            Commodity::Ice => "ice",
+            Commodity::Alloy => "alloy",
+            Commodity::Food => "food",
+            Commodity::Medicine => "medicine",
+            Commodity::FuelCells => "fuel_cells",
+            Commodity::Water => "water",
+            Commodity::Polymers => "polymers",
+            Commodity::Electronics => "electronics",
+            Commodity::Textiles => "textiles",
+            Commodity::Seeds => "seeds",
+            Commodity::Luxuries => "luxuries",
+        }
+    }
+}
+
+#item key v2 @economy-drift "Add machine parts to the goods"
+impl Commodity {
+    /// The good's id in the data tables, such as `fuel_cells`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Commodity::Ore => "ore",
+            Commodity::Ice => "ice",
+            Commodity::Alloy => "alloy",
+            Commodity::Food => "food",
+            Commodity::Medicine => "medicine",
+            Commodity::FuelCells => "fuel_cells",
+            Commodity::Water => "water",
+            Commodity::Polymers => "polymers",
+            Commodity::Electronics => "electronics",
+            Commodity::Textiles => "textiles",
+            Commodity::Seeds => "seeds",
+            Commodity::Luxuries => "luxuries",
+            Commodity::MachineParts => "machine_parts",
+        }
+    }
+}
+
+#item key v3 @station-services "Add rare earths to the goods"
+impl Commodity {
+    /// The good's id in the data tables, such as `fuel_cells`.
+    pub fn key(self) -> &'static str {
+        match self {
+            Commodity::Ore => "ore",
+            Commodity::Ice => "ice",
+            Commodity::Alloy => "alloy",
+            Commodity::Food => "food",
+            Commodity::Medicine => "medicine",
+            Commodity::FuelCells => "fuel_cells",
+            Commodity::Water => "water",
+            Commodity::Polymers => "polymers",
+            Commodity::Electronics => "electronics",
+            Commodity::Textiles => "textiles",
+            Commodity::Seeds => "seeds",
+            Commodity::Luxuries => "luxuries",
+            Commodity::MachineParts => "machine_parts",
+            Commodity::RareEarths => "rare_earths",
+        }
+    }
+}
+
+#item from_key v1 @market "Find a good by its id in the data tables"
+impl Commodity {
+    /// The good with this id in the data tables, if there is one.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|good| good.key() == key)
+    }
+}
+
+#item Stack v1 @cargo-hold "Add stacks of one good in a slot"
+/// Tonnes of one good, held in one slot.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Stack {
+    pub commodity: Commodity,
+    pub tonnes: f32,
+}
+
+#item CargoHold v1 @cargo-hold "Add a cargo hold with a fixed number of slots"
+/// The goods a ship carries: a fixed row of slots, each holding one stack.
+#[derive(Clone, Debug)]
+pub struct CargoHold {
+    slots: Vec<Option<Stack>>,
+}
+
+#item new v1 @cargo-hold "Start every hold empty"
+impl CargoHold {
+    /// An empty hold.
+    pub fn new() -> Self {
+        Self {
+            slots: vec![None; CARGO_SLOTS],
+        }
+    }
+}
+
+#item default v1 @cargo-hold "Give the hold a Default that is empty"
+impl Default for CargoHold {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#item room_for v1 @cargo-hold "Tell how many tonnes of a good the hold can still take"
+impl CargoHold {
+    /// The tonnes of `commodity` the hold can still take.
+    pub fn room_for(&self, commodity: Commodity) -> f32 {
+        self.slots
+            .iter()
+            .map(|slot| match slot {
+                None => SLOT_TONNES,
+                Some(stack) if stack.commodity == commodity => SLOT_TONNES - stack.tonnes,
+                Some(_) => 0.0,
+            })
+            .sum()
+    }
+}
+
+#item add v1 @cargo-hold "Load goods into the slots that hold them or are free"
+impl CargoHold {
+    /// Loads `tonnes` of `commodity`, filling stacks of that good before empty slots.
+    ///
+    /// # Errors
+    ///
+    /// `Error::CargoFull` when the hold can't take all of it. Nothing is loaded then.
+    pub fn add(&mut self, commodity: Commodity, tonnes: f32) -> Result<(), Error> {
+        if self.room_for(commodity) < tonnes {
+            return Err(Error::CargoFull);
+        }
+        let mut left = tonnes;
+        for slot in &mut self.slots {
+            if left <= 0.0 {
+                break;
+            }
+            let stack = slot.get_or_insert(Stack {
+                commodity,
+                tonnes: 0.0,
+            });
+            if stack.commodity == commodity {
+                let take = (SLOT_TONNES - stack.tonnes).min(left);
+                stack.tonnes += take;
+                left -= take;
+            }
+        }
+        Ok(())
+    }
+}
+
+#item mass v1 @cargo-hold "Weigh the hold, so the ship's mass includes its cargo"
+impl CargoHold {
+    /// The tonnes of cargo in the hold, across every slot.
+    pub fn mass(&self) -> f32 {
+        self.slots.iter().flatten().map(|stack| stack.tonnes).sum()
+    }
+}
+
+#item tonnes_of v1 @market "Tell how much of one good the hold carries"
+impl CargoHold {
+    /// The tonnes of `commodity` in the hold.
+    pub fn tonnes_of(&self, commodity: Commodity) -> f32 {
+        self.slots
+            .iter()
+            .flatten()
+            .filter(|stack| stack.commodity == commodity)
+            .map(|stack| stack.tonnes)
+            .sum()
+    }
+}
+
+#item remove v1 @market "Sell goods out of the hold, up to what it holds"
+impl CargoHold {
+    /// Takes up to `tonnes` of `commodity` out of the hold, and returns how much came out.
+    pub fn remove(&mut self, commodity: Commodity, tonnes: f32) -> f32 {
+        let mut taken = 0.0;
+        for stack in self.slots.iter_mut().flatten() {
+            if stack.commodity == commodity {
+                let take = (tonnes - taken).min(stack.tonnes);
+                stack.tonnes -= take;
+                taken += take;
+            }
+        }
+        for slot in &mut self.slots {
+            if matches!(slot, Some(stack) if stack.tonnes <= 0.0) {
+                *slot = None;
+            }
+        }
+        taken
+    }
+}
+
+#item is_full v1 @cargo-clank "Tell when every slot is full, so the hold can clank"
+impl CargoHold {
+    /// Whether every slot is full to its limit, so nothing more fits.
+    pub fn is_full(&self) -> bool {
+        self.slots
+            .iter()
+            .all(|slot| matches!(slot, Some(stack) if stack.tonnes >= SLOT_TONNES))
+    }
+}
+
+#item from_id v1 @save-files "Read a good back from its id in a save file"
+impl Commodity {
+    /// The good with this id, if there is one.
+    pub fn from_id(id: u8) -> Option<Self> {
+        Self::ALL.into_iter().find(|good| *good as u8 == id)
+    }
+}
+
+#item slots v1 @save-files "Let a save file read each slot of the hold"
+impl CargoHold {
+    /// The hold's slots, in order: `None` for an empty one.
+    pub fn slots(&self) -> &[Option<Stack>] {
+        &self.slots
+    }
+}
+
+#item from_slots v1 @save-files "Rebuild a hold from the slots a save file holds"
+impl CargoHold {
+    /// A hold with these slots, one entry per slot.
+    pub fn from_slots(slots: Vec<Option<Stack>>) -> Self {
+        Self { slots }
+    }
+}
+
+#test loads_add_up_to_the_mass v1 @cargo-hold "Test that loads of one good add up"
+#[test]
+fn loads_add_up_to_the_mass() {
+    let mut hold = CargoHold::new();
+    hold.add(Commodity::Ore, 3.0).unwrap();
+    hold.add(Commodity::Ore, 2.0).unwrap();
+    assert!((hold.mass() - 5.0).abs() < 1e-4);
+    assert!((hold.room_for(Commodity::Ore) - 115.0).abs() < 1e-4);
+}
+
+#test a_hold_refuses_what_it_cannot_fit v1 @cargo-hold "Test that a full hold refuses more cargo"
+#[test]
+#[allow(clippy::cast_precision_loss, reason = "twelve slots")]
+fn a_hold_refuses_what_it_cannot_fit() {
+    let mut hold = CargoHold::new();
+    let room = hold.room_for(Commodity::Ice);
+    assert!((room - CARGO_SLOTS as f32 * SLOT_TONNES).abs() < 1e-4);
+    hold.add(Commodity::Ice, room).unwrap();
+    assert!(hold.add(Commodity::Ice, 1.0).is_err());
+    assert!(hold.add(Commodity::Ore, 1.0).is_err());
+}
+
+#test room_for_counts_the_free_tonnes v1 @cargo-hold "Test the room left for each good"
+#[test]
+fn room_for_counts_the_free_tonnes() {
+    let mut hold = CargoHold::new();
+    hold.add(Commodity::Alloy, 4.0).unwrap();
+    assert!((hold.room_for(Commodity::Alloy) - 116.0).abs() < 1e-4);
+    assert!((hold.room_for(Commodity::Ore) - 110.0).abs() < 1e-4);
+}
+
+#test remove_takes_up_to_what_is_held v1 @market "Test that selling takes goods out of the hold"
+#[test]
+fn remove_takes_up_to_what_is_held() {
+    let mut hold = CargoHold::new();
+    hold.add(Commodity::Food, 4.0).unwrap();
+    assert!((hold.remove(Commodity::Food, 6.0) - 4.0).abs() < 1e-4);
+    assert!(hold.tonnes_of(Commodity::Food) < 1e-4);
+    assert!((hold.room_for(Commodity::Food) - CARGO_SLOTS as f32 * SLOT_TONNES).abs() < 1e-4);
+}
+
+#test every_good_reads_back_from_its_key v1 @market "Test that every good reads back from its table id"
+#[test]
+fn every_good_reads_back_from_its_key() {
+    for good in Commodity::ALL {
+        assert_eq!(Commodity::from_key(good.key()), Some(good));
+    }
+    assert_eq!(Commodity::from_key("gold"), None);
+}
+
+#test a_full_hold_clanks v1 @cargo-clank "Test that a full hold reports itself full"
+#[test]
+#[allow(clippy::cast_precision_loss, reason = "twelve slots")]
+fn a_full_hold_clanks() {
+    let mut hold = CargoHold::new();
+    assert!(!hold.is_full());
+    let capacity = CARGO_SLOTS as f32 * SLOT_TONNES;
+    hold.add(Commodity::Ore, capacity).unwrap();
+    assert!(hold.is_full());
+}
+
+#test commodity_ids_round_trip v1 @save-files "Test that good ids read back to their goods"
+#[test]
+fn commodity_ids_round_trip() {
+    for good in Commodity::ALL {
+        assert_eq!(Commodity::from_id(good as u8), Some(good));
+    }
+    assert_eq!(Commodity::from_id(200), None);
+}

@@ -1,0 +1,214 @@
+#file crates/orbital-render/src/atlas.rs
+#header v1 @verdant-art "Show the verdant planet in the orbit view"
+//! The texture atlas: every sprite packed into one texture, so a frame binds it once.
+
+use glam::Vec2;
+#const ATLAS_SIZE v1 @verdant-art
+/// The atlas's side in texels: room for a few hundred sprites.
+pub const ATLAS_SIZE: u32 = 512;
+#item Region v1 @verdant-art "Show the verdant planet in the orbit view"
+/// Where one sprite sits in the atlas, in texels.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Region {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+#item Atlas v1 @verdant-art "Show the verdant planet in the orbit view"
+/// A square texture that sprites are packed into, one after another along a single row.
+#[derive(Debug)]
+pub struct Atlas {
+    size: u32,
+    cursor: u32,
+    regions: Vec<(String, Region)>,
+}
+#item Atlas v2 @asteroid-art "Draw the asteroid field sprite"
+/// A square texture that sprites are packed into, shelf by shelf: a shelf is as tall as its tallest sprite.
+#[derive(Debug)]
+pub struct Atlas {
+    size: u32,
+    x: u32,
+    y: u32,
+    shelf: u32,
+    regions: Vec<(String, Region)>,
+}
+#item new v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Atlas {
+    /// An empty atlas `size` texels square.
+    #[must_use]
+    pub fn new(size: u32) -> Self {
+        Self {
+            size,
+            cursor: 0,
+            regions: Vec::new(),
+        }
+    }
+}
+#item new v2 @asteroid-art "Draw the asteroid field sprite"
+impl Atlas {
+    /// An empty atlas `size` texels square.
+    #[must_use]
+    pub fn new(size: u32) -> Self {
+        Self {
+            size,
+            x: 0,
+            y: 0,
+            shelf: 0,
+            regions: Vec::new(),
+        }
+    }
+}
+#item default v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Default for Atlas {
+    /// An empty atlas of the standard size.
+    fn default() -> Self {
+        Self::new(ATLAS_SIZE)
+    }
+}
+#item pack v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Atlas {
+    /// Packs a `w` by `h` sprite called `name` onto the row, or `None` when it no longer fits.
+    pub fn pack(&mut self, name: &str, w: u32, h: u32) -> Option<Region> {
+        if self.cursor + w > self.size || h > self.size {
+            return None;
+        }
+        let region = Region {
+            x: self.cursor,
+            y: 0,
+            w,
+            h,
+        };
+        self.cursor += w;
+        self.regions.push((name.to_string(), region));
+        Some(region)
+    }
+}
+#item pack v2 @asteroid-art "Draw the asteroid field sprite"
+impl Atlas {
+    /// Packs a `w` by `h` sprite called `name`, starting a new shelf when the row is full.
+    pub fn pack(&mut self, name: &str, w: u32, h: u32) -> Option<Region> {
+        if self.x + w > self.size {
+            self.x = 0;
+            self.y += self.shelf;
+            self.shelf = 0;
+        }
+        if self.y + h > self.size || w > self.size {
+            return None;
+        }
+        let region = Region {
+            x: self.x,
+            y: self.y,
+            w,
+            h,
+        };
+        self.x += w;
+        self.shelf = self.shelf.max(h);
+        self.regions.push((name.to_string(), region));
+        Some(region)
+    }
+}
+#item pack v3 @asteroid-art-2 "Pad atlas regions by two texels so sprites don't bleed"
+impl Atlas {
+    /// Packs a `w` by `h` sprite called `name` with padding around it, starting a new shelf when
+    /// the row is full.
+    pub fn pack(&mut self, name: &str, w: u32, h: u32) -> Option<Region> {
+        let (padded_w, padded_h) = (w + PADDING * 2, h + PADDING * 2);
+        if self.x + padded_w > self.size {
+            self.x = 0;
+            self.y += self.shelf;
+            self.shelf = 0;
+        }
+        if self.y + padded_h > self.size || padded_w > self.size {
+            return None;
+        }
+        let region = Region {
+            x: self.x + PADDING,
+            y: self.y + PADDING,
+            w,
+            h,
+        };
+        self.x += padded_w;
+        self.shelf = self.shelf.max(padded_h);
+        self.regions.push((name.to_string(), region));
+        Some(region)
+    }
+}
+#item region v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Atlas {
+    /// The region a sprite was packed into, found by its name.
+    #[must_use]
+    pub fn region(&self, name: &str) -> Option<Region> {
+        self.regions
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, r)| *r)
+    }
+}
+#item uv v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Atlas {
+    /// The texture coordinates of a region's corners, from 0 to 1.
+    #[must_use]
+    pub fn uv(&self, r: Region) -> (Vec2, Vec2) {
+        let size = self.size as f32;
+        (
+            Vec2::new(r.x as f32, r.y as f32) / size,
+            Vec2::new((r.x + r.w) as f32, (r.y + r.h) as f32) / size,
+        )
+    }
+}
+#const PADDING v1 @asteroid-art-2
+/// Empty texels around each sprite, so filtering at a sprite's edge can't pick up its neighbour.
+pub const PADDING: u32 = 2;
+#test packs_sprites_in_rows v1 @verdant-art "Test that sprites pack left to right in a row"
+#[test]
+fn packs_sprites_in_rows() {
+    let mut atlas = Atlas::new(64);
+    let a = atlas.pack("a", 16, 16).unwrap();
+    let b = atlas.pack("b", 16, 8).unwrap();
+    assert_eq!((a.x, b.x), (0, 16));
+    assert_eq!(b.y, 0);
+}
+#test packs_sprites_in_rows v2 @asteroid-art-2 "Test that padding keeps neighbouring sprites apart"
+#[test]
+fn packs_sprites_in_rows() {
+    let mut atlas = Atlas::new(64);
+    let a = atlas.pack("a", 16, 16).unwrap();
+    let b = atlas.pack("b", 16, 8).unwrap();
+    assert!(b.x >= a.x + a.w + PADDING);
+    assert_eq!(b.y, PADDING);
+}
+#test region_is_found_by_name v1 @verdant-art "Test that a packed sprite can be found by name"
+#[test]
+fn region_is_found_by_name() {
+    let mut atlas = Atlas::new(64);
+    let placed = atlas.pack("planet", 16, 16).unwrap();
+    assert_eq!(atlas.region("planet"), Some(placed));
+    assert_eq!(atlas.region("moon"), None);
+}
+#test wraps_to_a_new_shelf v1 @asteroid-art "Test that a full row wraps to a new shelf"
+#[test]
+fn wraps_to_a_new_shelf() {
+    let mut atlas = Atlas::new(32);
+    atlas.pack("a", 20, 10).unwrap();
+    let b = atlas.pack("b", 20, 6).unwrap();
+    assert_eq!((b.x, b.y), (0, 10));
+}
+#test wraps_to_a_new_shelf v2 @asteroid-art-2 "Test that padded sprites still wrap to a new shelf"
+#[test]
+fn wraps_to_a_new_shelf() {
+    let mut atlas = Atlas::new(64);
+    atlas.pack("a", 40, 10).unwrap();
+    let b = atlas.pack("b", 40, 6).unwrap();
+    assert_eq!(b.x, PADDING);
+    assert_eq!(b.y, 10 + 2 * PADDING + PADDING);
+}
+#test pads_each_region v1 @asteroid-art-2 "Test that each region keeps a gap of padding"
+#[test]
+fn pads_each_region() {
+    let mut atlas = Atlas::new(64);
+    let a = atlas.pack("a", 8, 8).unwrap();
+    assert_eq!((a.x, a.y), (PADDING, PADDING));
+    let b = atlas.pack("b", 8, 8).unwrap();
+    assert!(b.x >= a.x + a.w + PADDING);
+}

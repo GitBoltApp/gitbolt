@@ -1,0 +1,28 @@
+{
+  "request": {
+    "method": "fileHistory",
+    "params": {
+      "limit": 200,
+      "path": "file_0.txt",
+      "repo": "$repo",
+      "skip": 0,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "more": false,
+    "rows": [
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [],
+        "path": "file_0.txt",
+        "sha": "370cb169b524d4c233bc244f82fcf9a3ba1caecb",
+        "status": "A",
+        "summary": "Initial commit",
+        "time": 1767225720
+      }
+    ]
+  }
+}

@@ -1,0 +1,67 @@
+{
+  "schema": 1,
+  "release": {
+    "version": "0.6.0",
+    "tag": "v0.6.0",
+    "prerelease": false,
+    "published": "2026-10-13T03:04:03Z",
+    "url": "https://github.com/GitBoltApp/gitbolt/releases/tag/v0.6.0",
+    "sums": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/SHA256SUMS",
+    "downloads": [
+      {
+        "os": "linux",
+        "kind": "deb",
+        "arch": "x86_64",
+        "file": "GitBolt_0.6.0_amd64.deb",
+        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt_0.6.0_amd64.deb",
+        "bytes": 165800042,
+        "sha256": "264c81a9a1876b207419b5c906874d2be8cfb4508d9b484525e0525360b9e914"
+      },
+      {
+        "os": "linux",
+        "kind": "rpm",
+        "arch": "x86_64",
+        "file": "GitBolt-0.6.0-1.x86_64.rpm",
+        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt-0.6.0-1.x86_64.rpm",
+        "bytes": 129052622,
+        "sha256": "7bd4d598a9f464ad5eee4a164ca02035d688bf6d5f381bb34c16bfdc89ad0e2d"
+      },
+      {
+        "os": "linux",
+        "kind": "arch",
+        "arch": "x86_64",
+        "file": "GitBolt-0.6.0-1-x86_64.pkg.tar.zst",
+        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt-0.6.0-1-x86_64.pkg.tar.zst",
+        "bytes": 129028317,
+        "sha256": "3ecc8a1197379b5396213167534e9cdcd354a0cb9a96dc8cb15f7e4cac188c8c"
+      },
+      {
+        "os": "macos",
+        "kind": "dmg",
+        "arch": "aarch64",
+        "file": "GitBolt_0.6.0_aarch64.dmg",
+        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt_0.6.0_aarch64.dmg",
+        "bytes": 166752102,
+        "sha256": "759f5194e4694cff5922526df817500ef04f213586c9af476e7cce704d49fc6c"
+      },
+      {
+        "os": "windows",
+        "kind": "nsis",
+        "arch": "x86_64",
+        "file": "GitBolt_0.6.0_x64-setup.exe",
+        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt_0.6.0_x64-setup.exe",
+        "bytes": 189570284,
+        "sha256": "521677737541ef790be9bae910e53df297e8365af0556b3939d3b62b42e34751"
+      },
+      {
+        "os": "windows",
+        "kind": "msi",
+        "arch": "x86_64",
+        "file": "GitBolt_0.6.0_x64.msi",
+        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt_0.6.0_x64.msi",
+        "bytes": 169140224,
+        "sha256": "8d69c5129b5c1e09269c57c43ce5f6d0efc79b42d6b178b5f2d2ad7c7fa9dcc4"
+      }
+    ]
+  }
+}

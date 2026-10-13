@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "hexDump",
+    "params": {
+      "new": {
+        "kind": "object",
+        "oid": "3345c8509c958e5ec6ac3d10bf37035f8d5f3080"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "9d948f62134a533a5d5bc16342df12985640a349"
+      },
+      "path": "audio/laser.wav",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "cap": 262144,
+    "new": {
+      "dump": "sha256:21b925d7e7b8614da971e9d9463d85827ae2fd3480bd96e9fd4c9a985aa13638:76464",
+      "shown": 15480,
+      "size": 15480
+    },
+    "old": {
+      "dump": "sha256:b1efc3c4cc8d5808971e9b304388799c4528b562da57d593720f17cdc5841da9:76464",
+      "shown": 15480,
+      "size": 15480
+    }
+  }
+}

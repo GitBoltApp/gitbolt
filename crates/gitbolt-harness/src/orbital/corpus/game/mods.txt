@@ -1,0 +1,69 @@
+#file crates/orbital-game/src/mods.rs
+#header v1 @mod-loader
+//! Mods: extra ship classes from the folders under `mods/`, read once when the game starts.
+
+use std::path::Path;
+
+use orbital_core::ship::{ShipClass, parse_class};
+
+#item MODS_DIR v1 @mod-loader "Load ship classes from the mod folders"
+/// The folder the game reads mods from, beside the saves.
+pub const MODS_DIR: &str = "mods";
+
+#item load_mods v1 @mod-loader "Load ship classes from the mod folders"
+/// Adds the ship classes of every mod folder under `dir` to `classes`, from each folder's
+/// `ships.csv`, in folder name order. A line that doesn't read is skipped with a warning in the
+/// log, and so is a class whose name is taken, by the base game or by an earlier mod. A missing
+/// `dir` adds nothing.
+pub fn load_mods(dir: &Path, classes: &mut Vec<ShipClass>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    let mut folders: Vec<_> = entries
+        .filter_map(|entry| Some(entry.ok()?.path()))
+        .collect();
+    folders.sort();
+    for folder in folders {
+        let file = folder.join("ships.csv");
+        let Ok(text) = std::fs::read_to_string(&file) else {
+            continue;
+        };
+        for (index, line) in text.lines().enumerate().skip(1) {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let at = format!("{}:{}", file.display(), index + 1);
+            match parse_class(line) {
+                Some(class) if classes.iter().any(|c| c.name == class.name) => {
+                    log::warn!("{at}: the class name {} is taken", class.name);
+                }
+                Some(class) => classes.push(class),
+                None => log::warn!("{at}: not a ship class"),
+            }
+        }
+    }
+}
+
+#test mods_add_new_classes_and_skip_the_rest v1 @mod-loader "Test that a mod adds its classes and skips the rest"
+#[test]
+fn mods_add_new_classes_and_skip_the_rest() {
+    use orbital_core::ship::parse_classes;
+    let dir = std::env::temp_dir().join("orbital-mods-test");
+    let folder = dir.join("freighters");
+    std::fs::create_dir_all(&folder).unwrap();
+    std::fs::write(
+        folder.join("ships.csv"),
+        "class,mass_t,cargo_t,thrust_kn,fuel_t,price\nfreighter,5,360,750,90,9800\nscout,1,1,1,1,1\nbroken,lots\n",
+    )
+    .unwrap();
+    let mut classes =
+        parse_classes("class,mass_t,cargo_t,thrust_kn,fuel_t,price\nscout,2,120,600,60,1200\n");
+    load_mods(&dir, &mut classes);
+    let names: Vec<&str> = classes.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["scout", "freighter"]);
+    assert!(
+        (classes[0].mass_t - 2.0).abs() < 1e-6,
+        "the base scout stays"
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

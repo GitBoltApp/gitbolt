@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "7ca544198d426a3b003978db7cc75fde8d6f64aa"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "dir with space/ünï.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "7ca544198d426a3b003978db7cc75fde8d6f64aa",
+      "size": 13,
+      "text": "unicode path\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

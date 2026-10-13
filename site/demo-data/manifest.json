@@ -1,0 +1,92 @@
+{
+  "version": 1,
+  "repos": [
+    {
+      "name": "orbital",
+      "file": "orbital.gbdemo",
+      "group": null,
+      "open": "active",
+      "digest": "e51bbc7d57a525c6",
+      "bytes": 3419516
+    },
+    {
+      "name": "basic",
+      "file": "basic.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "ed09fb1044861355",
+      "bytes": 8324
+    },
+    {
+      "name": "sync",
+      "file": "sync.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "65065545984e729a",
+      "bytes": 10763
+    },
+    {
+      "name": "conflicts",
+      "file": "conflicts.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "b42897ac19a67fac",
+      "bytes": 5513
+    },
+    {
+      "name": "stack",
+      "file": "stack.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "e976f03c12ab5269",
+      "bytes": 5298
+    },
+    {
+      "name": "wip_staging",
+      "file": "wip_staging.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "76b6ef0801ffa248",
+      "bytes": 3742
+    },
+    {
+      "name": "rebase_lab",
+      "file": "rebase_lab.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "8ae0f95fd08a6acc",
+      "bytes": 5838
+    },
+    {
+      "name": "previews",
+      "file": "previews.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "8cb94d30ae0e219d",
+      "bytes": 610134
+    },
+    {
+      "name": "submodules",
+      "file": "submodules.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "9a9eac49610e22f2",
+      "bytes": 7508
+    },
+    {
+      "name": "lfs",
+      "file": "lfs.gbdemo",
+      "group": "Playground",
+      "open": "tab",
+      "digest": "6c3af22ca1d889a9",
+      "bytes": 46045
+    }
+  ],
+  "groups": [
+    {
+      "name": "Playground",
+      "color": "blue",
+      "collapsed": true
+    }
+  ]
+}

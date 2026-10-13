@@ -15,14 +15,25 @@ dependencies once with `cd ui && npm ci`.
 | Command | What it does |
 |---|---|
 | `just dev [repo]` | Runs the app in development mode (the Vite dev server plus a debug build), optionally opening `repo` |
-| `just playground` | Builds throwaway repositories to try the app on (basic, sync, conflicts, …) in `~/gitbolt-playground`; more in [docs/playground.md](docs/playground.md) |
-| `just test` | The Rust tests, the UI unit tests and the packaging and release script tests |
+| `just playground` | Builds throwaway repositories to try the app on (Orbital, basic, sync, conflicts, …) in `~/gitbolt-playground`; more in [docs/playground.md](docs/playground.md) |
+| `just test` | The Rust tests, the UI unit tests, the website demo's and the website's tests (needs the wasm toolchain, see [docs/dev-setup.md](docs/dev-setup.md)) and the packaging and release script tests |
 | `just test-rust` | The Rust tests, with cargo-nextest when it's installed |
 | `just test-ui` | All the UI unit tests (vitest) |
 | `just test-ui-changed` | Only the vitest files related to what your branch changed: a quick check while you work |
+| `just test-demo` | The website demo's tests: builds its wasm, then the parity suite and the demo smoke test |
+| `just e2e-demo` | The Playwright smoke test of the demo build |
+| `just demo-data` | Rebuilds the website demo's repositories into `site/demo-data` (a repo whose content didn't change keeps its bundle); see [docs/playground.md](docs/playground.md) |
+| `just orbital-test [ref]` | Optional: builds Orbital, checks `ref` out and runs its own crates' tests (needs crates.io) |
+| `just demo-build` | Builds the website demo into `site/dist/demo` |
+| `just site-build` | Builds the website's landing page into `site/dist` and checks it (needs `cd site && npm ci` once) |
+| `just site-dev` | Serves the website's page with the last demo build, at http://localhost:1430 |
+| `just test-site` | The website's unit tests |
+| `just e2e-site` | The website's Playwright checks |
+| `just site-shots` | Retakes the website's screenshots from the demo build (on demand; commit the result) |
+| `just site-pages` | Builds the website as GitHub Pages serves it into `site/dist` (the page, the demo, the 404 page) and checks it: links, no third-party requests, sizes; see [docs/website.md](docs/website.md) |
 | `just e2e [args]` | The Playwright suite against the test harness; arguments go to Playwright (`just e2e e2e/diff.spec.ts`) |
 | `just lint` | `cargo clippy --workspace --all-targets -- -D warnings` and `tsc --noEmit` |
-| `just gen-types` | Regenerates the TypeScript types in `ui/src/api/gen/` from the Rust types |
+| `just gen-types` | Regenerates the TypeScript types in `ui/src/api/gen/` and `ui/src/demo/gen/` from the Rust types |
 
 With [cargo-nextest](https://nexte.st) installed, you can run part of the Rust suite:
 `cargo nextest run -p gitbolt-core`, or one area of the harness's integration tests with

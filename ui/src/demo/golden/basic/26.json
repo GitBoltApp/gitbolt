@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "integratePreview",
+    "params": {
+      "kind": "rebase",
+      "repo": "$repo",
+      "target": "feature/login",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "ahead": 2,
+    "behind": 0,
+    "conflicts": [],
+    "lossyMerge": null,
+    "merged": true,
+    "stacked": [],
+    "updateRefsDefault": true
+  }
+}

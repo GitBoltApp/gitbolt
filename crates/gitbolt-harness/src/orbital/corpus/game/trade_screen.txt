@@ -1,0 +1,248 @@
+#file crates/orbital-game/src/trade_screen.rs
+#header v1 @trade-screen
+//! The trade panel: what a station charges and pays for each good, and the trades the docked
+//! screen makes with it.
+
+use glam::Vec2;
+use orbital_core::economy::{Market, parse_commodities};
+use orbital_render::text::{Font, Glyph};
+
+use crate::flight::Flight;
+
+#header v2 @contracts-ui
+//! The trade panel: what a station charges and pays for each good, the credits, the cargo hold
+//! and the open contracts of a docked ship, and the trades the docked screen makes.
+
+use glam::Vec2;
+use orbital_core::economy::{Market, parse_commodities};
+use orbital_render::text::{Font, Glyph};
+
+use crate::contracts_ui;
+use crate::flight::Flight;
+
+#header v3 @repair-price
+//! The trade panel: what a station charges and pays for each good, the credits, the cargo hold
+//! and the open contracts of a docked ship, and the trades the docked screen makes.
+
+use glam::Vec2;
+use orbital_core::economy::{Market, parse_commodities};
+use orbital_core::station::REPAIR_RATE;
+use orbital_render::text::{Font, Glyph};
+
+use crate::contracts_ui;
+use crate::flight::Flight;
+
+#const TRADE_TOP v1 @trade-screen "Show the trade screen at a station"
+/// Where the trade panel's first line sits, in pixels from the top of the window.
+pub const TRADE_TOP: f32 = 96.0;
+
+#const TRADE_TONNES v1 @trade-screen "Buy and sell a tonne at a time on the trade screen"
+/// Tonnes one press of the buy or sell key trades.
+pub const TRADE_TONNES: f32 = 1.0;
+
+#item COMMODITIES v1 @trade-screen "Price the trade screen from the commodity table"
+/// The commodity table the game ships with: one good a row, with its base price.
+pub const COMMODITIES: &str = include_str!("../../../assets/data/economy/commodities.csv");
+
+#item station_markets v1 @trade-screen "Price the trade screen from the commodity table"
+/// The goods every station trades, each at its base price from the commodity table, in credits a
+/// tonne.
+pub fn station_markets() -> Vec<Market> {
+    parse_commodities(COMMODITIES)
+}
+
+#item buy v1 @trade-screen "Buy and sell a tonne at a time on the trade screen"
+/// Buys a tonne of `market`'s good for the ship, when the station has it in stock, the credits
+/// cover it and the hold has room. Returns whether the trade went through.
+pub fn buy(market: &mut Market, flight: &mut Flight) -> bool {
+    let cost = market.buy_price() * TRADE_TONNES;
+    if market.stock < TRADE_TONNES || cost > flight.credits {
+        return false;
+    }
+    if flight.cargo.add(market.commodity, TRADE_TONNES).is_err() {
+        return false;
+    }
+    flight.credits -= market.buy(TRADE_TONNES);
+    true
+}
+
+#item sell v1 @trade-screen "Buy and sell a tonne at a time on the trade screen"
+/// Sells up to a tonne of `market`'s good from the hold. Returns whether the hold had any to sell.
+pub fn sell(market: &mut Market, flight: &mut Flight) -> bool {
+    let tonnes = flight.cargo.remove(market.commodity, TRADE_TONNES);
+    flight.credits += market.sell(tonnes);
+    tonnes > 0.0
+}
+
+#item draw_prices v1 @trade-screen "Show the trade screen at a station"
+/// Draws a row for each good from `top` down: its name, what the station sells a tonne for and
+/// what it pays for one. The selected good is amber.
+fn draw_prices(
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    markets: &[Market],
+    selected: usize,
+    top: f32,
+) {
+    for (i, market) in markets.iter().enumerate() {
+        let row = format!(
+            "{} {:.0}/{:.0}",
+            market.commodity.key().replace('_', " "),
+            market.buy_price(),
+            market.sell_price()
+        )
+        .to_uppercase();
+        let colour = if i == selected {
+            [1.0, 0.7, 0.2, 1.0]
+        } else {
+            [1.0; 4]
+        };
+        font.draw(glyphs, &row, Vec2::new(24.0, top + i as f32 * 14.0), colour);
+    }
+}
+
+#item draw_trade v1 @trade-screen "Show the trade screen at a station"
+/// Draws the trade panel: the credits, then the station's prices.
+pub fn draw_trade(
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+    markets: &[Market],
+    selected: usize,
+) {
+    let credits = format!("CREDITS {:.0}", flight.credits);
+    font.draw(glyphs, &credits, Vec2::new(24.0, TRADE_TOP), [1.0; 4]);
+    draw_prices(font, glyphs, markets, selected, TRADE_TOP + 20.0);
+}
+
+#item draw_trade v2 @contracts-ui "Show open contracts on the trade screen"
+/// Draws the trade panel: the credits and the tonnes in the hold, the station's prices, then the
+/// open contracts.
+pub fn draw_trade(
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+    markets: &[Market],
+    selected: usize,
+) {
+    let lines = [
+        format!("CREDITS {:.0}", flight.credits),
+        format!("HOLD {:.0} T", flight.cargo.mass()),
+    ];
+    for (i, line) in lines.iter().enumerate() {
+        font.draw(
+            glyphs,
+            line,
+            Vec2::new(24.0, TRADE_TOP + i as f32 * 14.0),
+            [1.0; 4],
+        );
+    }
+    let prices = TRADE_TOP + lines.len() as f32 * 14.0 + 6.0;
+    draw_prices(font, glyphs, markets, selected, prices);
+    let at = Vec2::new(24.0, prices + markets.len() as f32 * 14.0 + 6.0);
+    contracts_ui::draw_contracts(font, glyphs, &flight.contracts, at);
+}
+
+#item draw_trade v3 @contract-tests "Count contract payouts in the trade total"
+/// Draws the trade panel: the credits, the tonnes in the hold and what the open contracts pay, the
+/// station's prices, then the open contracts.
+pub fn draw_trade(
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+    markets: &[Market],
+    selected: usize,
+) {
+    let lines = [
+        format!("CREDITS {:.0}", flight.credits),
+        format!("HOLD {:.0} T", flight.cargo.mass()),
+        format!(
+            "OPEN PAYOUT {:.0}",
+            contracts_ui::payout_total(&flight.contracts)
+        ),
+    ];
+    for (i, line) in lines.iter().enumerate() {
+        font.draw(
+            glyphs,
+            line,
+            Vec2::new(24.0, TRADE_TOP + i as f32 * 14.0),
+            [1.0; 4],
+        );
+    }
+    let prices = TRADE_TOP + lines.len() as f32 * 14.0 + 6.0;
+    draw_prices(font, glyphs, markets, selected, prices);
+    let at = Vec2::new(24.0, prices + markets.len() as f32 * 14.0 + 6.0);
+    contracts_ui::draw_contracts(font, glyphs, &flight.contracts, at);
+}
+
+#item draw_trade v4 @repair-price "Price repairs by hull damage"
+/// Draws the trade panel: the credits, the tonnes in the hold, what the open contracts pay and the
+/// bill for repairs, the station's prices, then the open contracts.
+pub fn draw_trade(
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+    markets: &[Market],
+    selected: usize,
+) {
+    let lines = [
+        format!("CREDITS {:.0}", flight.credits),
+        format!("HOLD {:.0} T", flight.cargo.mass()),
+        format!(
+            "OPEN PAYOUT {:.0}",
+            contracts_ui::payout_total(&flight.contracts)
+        ),
+        format!("REPAIRS {:.0}", flight.ship.hull_lost() * REPAIR_RATE),
+    ];
+    for (i, line) in lines.iter().enumerate() {
+        font.draw(
+            glyphs,
+            line,
+            Vec2::new(24.0, TRADE_TOP + i as f32 * 14.0),
+            [1.0; 4],
+        );
+    }
+    let prices = TRADE_TOP + lines.len() as f32 * 14.0 + 6.0;
+    draw_prices(font, glyphs, markets, selected, prices);
+    let at = Vec2::new(24.0, prices + markets.len() as f32 * 14.0 + 6.0);
+    contracts_ui::draw_contracts(font, glyphs, &flight.contracts, at);
+}
+
+#test buying_moves_credits_into_the_hold v1 @trade-screen "Test that buying trades credits for a tonne in the hold"
+#[test]
+fn buying_moves_credits_into_the_hold() {
+    use orbital_core::cargo::Commodity;
+    let mut flight = Flight::new();
+    let mut market = Market::new(Commodity::Ore, 40.0);
+    let before = flight.credits;
+    assert!(buy(&mut market, &mut flight));
+    assert!((before - flight.credits - 40.0).abs() < 1e-3);
+    assert!((flight.cargo.tonnes_of(Commodity::Ore) - TRADE_TONNES).abs() < 1e-4);
+}
+
+#test buying_needs_the_credits v1 @trade-screen "Test that a pilot can't buy past their credits"
+#[test]
+fn buying_needs_the_credits() {
+    use orbital_core::cargo::Commodity;
+    let mut flight = Flight::new();
+    flight.credits = 10.0;
+    let mut market = Market::new(Commodity::Medicine, 120.0);
+    assert!(!buy(&mut market, &mut flight));
+    assert_eq!(flight.credits, 10.0);
+    assert_eq!(flight.cargo.mass(), 0.0);
+}
+
+#test selling_needs_goods_in_the_hold v1 @trade-screen "Test that selling pays only for goods in the hold"
+#[test]
+fn selling_needs_goods_in_the_hold() {
+    use orbital_core::cargo::Commodity;
+    let mut flight = Flight::new();
+    let mut market = Market::new(Commodity::Ice, 25.0);
+    let before = flight.credits;
+    assert!(!sell(&mut market, &mut flight));
+    assert_eq!(flight.credits, before);
+    flight.cargo.add(Commodity::Ice, 2.0).unwrap();
+    assert!(sell(&mut market, &mut flight));
+    assert!(flight.credits > before);
+    assert!((flight.cargo.tonnes_of(Commodity::Ice) - 1.0).abs() < 1e-4);
+}

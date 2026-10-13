@@ -1,0 +1,58 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "src/app.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "7d41442ae0e6e9fd46beb44c3aab95b5ad42a930",
+      "index": "7d41442ae0e6e9fd46beb44c3aab95b5ad42a930",
+      "worktree": "6907043e268a2dfe468ce0ca3b8fe6eff13dd160"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          5
+        ],
+        "del": [
+          5
+        ],
+        "newLines": 7,
+        "newStart": 2,
+        "oldLines": 7,
+        "oldStart": 2
+      },
+      {
+        "add": [
+          20
+        ],
+        "del": [
+          20
+        ],
+        "newLines": 7,
+        "newStart": 17,
+        "oldLines": 7,
+        "oldStart": 17
+      },
+      {
+        "add": [
+          35
+        ],
+        "del": [
+          35
+        ],
+        "newLines": 7,
+        "newStart": 32,
+        "oldLines": 7,
+        "oldStart": 32
+      }
+    ],
+    "refused": null
+  }
+}

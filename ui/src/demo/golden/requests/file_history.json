@@ -1,0 +1,131 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 2
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/story.txt",
+   "skip": 0,
+   "limit": 200
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/story.txt",
+   "skip": 0,
+   "limit": 2
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/story.txt",
+   "skip": 2,
+   "limit": 2
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "story.txt",
+   "rev": {
+    "$rev": ":/Add the middle"
+   },
+   "skip": 0,
+   "limit": 200
+  }
+ },
+ {
+  "method": "blame",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "rev": {
+    "$rev": "HEAD"
+   },
+   "path": "src/story.txt"
+  }
+ },
+ {
+  "method": "blame",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "rev": {
+    "$rev": ":/Add the middle"
+   },
+   "path": "story.txt"
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": ":/Move the story"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "findText",
+  "params": {
+   "repo": "$repo",
+   "query": "story"
+  }
+ },
+ {
+  "method": "findPaths",
+  "params": {
+   "repo": "$repo",
+   "query": "story"
+  }
+ },
+ {
+  "method": "locateCommit",
+  "params": {
+   "repo": "$repo",
+   "sha": {
+    "$rev": ":/Start the story",
+    "short": 7
+   }
+  }
+ },
+ {
+  "method": "searchHistory",
+  "params": {
+   "repo": "$repo",
+   "query": "story"
+  }
+ },
+ {
+  "method": "searchHistory",
+  "params": {
+   "repo": "$repo",
+   "query": "other.txt"
+  }
+ }
+]

@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "7e8face7df4b1665563b2ffaa3d5245301063527",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 1,
+    "deleted": 1,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "submodule",
+          "oid": "e8caaef9c52b38e66ba229ce4089957669feb150"
+        },
+        "old": {
+          "kind": "submodule",
+          "oid": "1495ed48df073ba61273bcf10efb5854310c79e8"
+        },
+        "oldPath": null,
+        "path": "libs/netcode",
+        "status": "M",
+        "submodule": true
+      }
+    ]
+  }
+}

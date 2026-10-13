@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "c11a1f084d23bacc10cc94625c09b974033195ce"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "92aab403d530e62bbd718f958bb4ca5610776ccb"
+      },
+      "path": "media/trailer.webm",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "media": true,
+    "new": {
+      "base64": "sha256:3c9dd3a385ae68022cd63f9233adef007c5d7a0afd034d73b7c731057c742ae7:104548",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "c11a1f084d23bacc10cc94625c09b974033195ce",
+      "size": 78411,
+      "text": null
+    },
+    "old": {
+      "base64": "sha256:50beee153ccaa3992f1513213372921b285432a4f7b19785124f06f90fedfad4:94092",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "92aab403d530e62bbd718f958bb4ca5610776ccb",
+      "size": 70568,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

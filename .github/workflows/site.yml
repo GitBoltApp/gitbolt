@@ -1,0 +1,205 @@
+# The website on GitHub Pages (docs/website.md): the landing page (site/), the live demo (the UI's
+# `vite build --mode demo` over the committed bundles in site/demo-data/, with the graph's
+# WebAssembly built here) and the 404 page, built and checked by scripts/site-pages.sh (links, no
+# third-party requests, image sizes, the size budgets), deployed, then fetched back from Pages.
+# It runs on pushes to main that change the site, the demo or this deploy, and by hand (Run
+# workflow; on another branch it builds and checks without deploying). App changes alone don't
+# deploy: the demo shows the UI as of the last deploy. site-release.yml starts it after a release
+# updates the downloads. No app packaging, no harness, no pull-request runs. Actions are pinned by
+# commit, as in release.yml.
+name: Site
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - site/**
+      - ui/src/demo/**
+      - ui/demo.html
+      - ui/build/**
+      - ui/scripts/check-site.mjs
+      - ui/vite.config.ts
+      - crates/gitbolt-graph/**
+      - crates/gitbolt-graph-wasm/**
+      - scripts/site-pages.sh
+      - .github/workflows/site.yml
+      - README.md
+      - about.toml
+      - justfile
+      - ui/src/security/csp.ts
+      - crates/gitbolt-app/tauri.conf.json
+  workflow_dispatch:
+
+permissions: {}
+
+# One deployment at a time: a newer run on main waits for the one deploying, which is never
+# cancelled. Runs on other branches only build and check, in a group of their own, so they can't
+# take the place of a deploy waiting in `pages`.
+concurrency:
+  group: ${{ github.ref == 'refs/heads/main' && 'pages' || format('site-check-{0}', github.ref) }}
+  cancel-in-progress: false
+
+env:
+  # Keep in step with release.yml and scripts/licenses.sh.
+  CARGO_ABOUT_VERSION: 0.9.2
+  CARGO_TERM_COLOR: always
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build:
+    name: Build and check the site
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # The wasm-bindgen CLI must match the crate's wasm-bindgen exactly: the justfile pins it.
+      - name: Versions
+        id: versions
+        run: |
+          wb=$(sed -n 's/^wasm_bindgen_version := "\(.*\)"$/\1/p' justfile)
+          [ -n "$wb" ] || { echo "::error::No wasm_bindgen_version in the justfile"; exit 1; }
+          echo "wasm-bindgen=$wb" >> "$GITHUB_OUTPUT"
+
+      - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
+        with:
+          toolchain: stable
+          targets: wasm32-unknown-unknown
+
+      # The wasm crate's dependencies. Saved from main only.
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: site-wasm
+          cache-bin: false
+          save-if: ${{ github.ref == 'refs/heads/main' }}
+
+      # The wasm-bindgen CLI and cargo-about (`just demo-wasm` writes the wasm crate's notices,
+      # failing on a license about.toml doesn't accept), compiled once per version pair.
+      - name: Restore the cargo tools
+        id: cargo-tools
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/cargo-about
+          key: cargo-tools-wasm-bindgen-${{ steps.versions.outputs.wasm-bindgen }}-about-${{ env.CARGO_ABOUT_VERSION }}-ubuntu-24.04
+      - name: Install the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true'
+        env:
+          WASM_BINDGEN_VERSION: ${{ steps.versions.outputs.wasm-bindgen }}
+        run: |
+          cargo install wasm-bindgen-cli --version "=$WASM_BINDGEN_VERSION" --locked
+          cargo install cargo-about --version "=$CARGO_ABOUT_VERSION" --locked --features cli
+      - name: Save the cargo tools
+        if: steps.cargo-tools.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/bin/wasm-bindgen
+            ~/.cargo/bin/cargo-about
+          key: ${{ steps.cargo-tools.outputs.cache-primary-key }}
+
+      - uses: taiki-e/install-action@183e4297cca2404691e9380e1307288dced5c82a # v2.87.25
+        with:
+          tool: just
+
+      # vite needs Node ^22.12 or >= 24 (ui/package-lock.json). The npm cache covers the UI's
+      # lockfile and the landing page's.
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: |
+            ui/package-lock.json
+            site/package-lock.json
+      - name: UI dependencies
+        working-directory: ui
+        run: npm ci
+      - name: Site dependencies
+        working-directory: site
+        run: npm ci
+
+      # The landing page, the demo with its WebAssembly, the 404 page; then the checks.
+      - name: Build and check
+        run: just site-pages
+
+      - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: site/dist
+
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      pages: write # publish the artifact
+      id-token: write # Pages checks the deployment's OIDC token
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    outputs:
+      page_url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1
+
+  # A job of its own, with no token permissions: only the deploy holds the Pages and OIDC tokens.
+  check:
+    name: Check the deployed site
+    needs: deploy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions: {}
+    steps:
+      # The site as a visitor gets it: the page, the demo with its CSP, each bundle at its rev (as
+      # the demo fetches it) as its gzip bytes once any transfer encoding is undone (as a browser
+      # does), and the 404 page at a missing path.
+      - name: Fetch the deployed site
+        env:
+          PAGE_URL: ${{ needs.deploy.outputs.page_url }}
+        run: |
+          base=${PAGE_URL%/}/
+          work=$(mktemp -d)
+          get() { curl -fsS --compressed --retry 6 --retry-delay 5 --retry-all-errors -o "$work/$2" "$base$1"; }
+          get '' index.html
+          get demo/demo.html demo.html
+          if ! grep -qi 'http-equiv="Content-Security-Policy"' "$work/demo.html"; then
+            echo "::error::demo.html has no Content-Security-Policy"
+            exit 1
+          fi
+          get "demo/demo-data/manifest.json?v=$GITHUB_RUN_ID" manifest.json
+          if ! jq -e '.version == 1 and (.repos | length > 0)' "$work/manifest.json" > /dev/null; then
+            echo "::error::The demo's manifest isn't served"
+            exit 1
+          fi
+          while read -r file rev; do
+            curl -fsS --compressed --retry 6 --retry-delay 5 --retry-all-errors \
+              -D "$work/bundle.headers" -o "$work/bundle" "${base}demo/demo-data/$file?v=$rev"
+            if [ "$(head -c 2 "$work/bundle" | od -An -tx1 | tr -d ' \n')" != 1f8b ]; then
+              echo "::error::$file isn't served as its gzip bytes"
+              exit 1
+            fi
+            if [ "$(sha256sum "$work/bundle" | cut -c1-12)" != "$rev" ]; then
+              echo "::error::$file doesn't match its rev"
+              exit 1
+            fi
+            if grep -qi '^content-encoding:' "$work/bundle.headers"; then
+              echo "::warning::Pages compressed $file on the way out (spec §5.3 says it sends binaries as they are)"
+            fi
+          done < <(jq -r '.repos[] | "\(.file) \(.rev)"' "$work/manifest.json")
+          code=$(curl -sS -o "$work/404.html" -w '%{http_code}' "${base}no-such-page-$GITHUB_RUN_ID/")
+          if [ "$code" != 404 ] || ! grep -q 'data-gitbolt-404' "$work/404.html"; then
+            echo "::error::A missing page answers $code without the site's 404 page"
+            exit 1
+          fi
+          echo "Deployed and checked: $base" | tee -a "$GITHUB_STEP_SUMMARY"

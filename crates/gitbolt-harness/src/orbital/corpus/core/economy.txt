@@ -1,0 +1,282 @@
+#file crates/orbital-core/src/economy.rs
+#header v1 @market
+//! Markets: what a station charges for each good, and how the stock on hand moves the price.
+
+use crate::cargo::Commodity;
+
+#const ELASTICITY v1 @market "Move the price by two percent of its base per tonne of stock"
+/// Share of the base price that each tonne of stock above or below the usual level takes off or
+/// adds to it.
+pub const ELASTICITY: f32 = 0.02;
+
+#const BASE_STOCK v1 @market "Start every market with twenty tonnes of each good"
+/// Tonnes of each good a market holds at rest. A price starts at its base when the stock is here.
+pub const BASE_STOCK: f32 = 20.0;
+
+#const SELL_SHARE v1 @market "Pay ninety percent of the price when the player sells"
+/// What a station pays for a good, as a share of the price it sells the good at.
+pub const SELL_SHARE: f32 = 0.9;
+
+#const DRIFT_PER_DAY v1 @economy-drift "Let market prices drift over time"
+/// Share of the gap between a market's stock and its usual level that closes each day.
+pub const DRIFT_PER_DAY: f32 = 0.05;
+
+#const DAY_TICKS v1 @economy-drift
+/// Ticks in one game day, 864 seconds of play at 0.05 seconds a tick. Markets move once a day.
+pub const DAY_TICKS: u64 = 17_280;
+
+#const DEFAULT_VOLATILITY v1 @economy-drift
+/// How far a market's stock wanders each tick, as a share of its usual level, for a market the
+/// commodity table didn't open.
+pub const DEFAULT_VOLATILITY: f32 = 0.05;
+
+#const MIN_PRICE v1 @drift-floor "Stop prices going below zero"
+/// The lowest price a good sells for, in credits a tonne.
+pub const MIN_PRICE: f32 = 1.0;
+
+#item Market v1 @market "Add a market with buy and sell prices per good"
+/// One good on one station's market: the tonnes on hand, and what the good is worth at rest.
+#[derive(Clone, Debug)]
+pub struct Market {
+    pub commodity: Commodity,
+    pub base: f32,
+    pub stock: f32,
+}
+
+#item Market v2 @economy-drift "Let each good's stock wander by its volatility"
+/// One good on one station's market: the tonnes on hand, what the good is worth at rest, and how
+/// far its stock wanders, as a share of the usual level.
+#[derive(Clone, Debug)]
+pub struct Market {
+    pub commodity: Commodity,
+    pub base: f32,
+    pub stock: f32,
+    pub volatility: f32,
+}
+
+#item new v1 @market "Open a market for a good at its base price"
+impl Market {
+    /// A market for `commodity` with its stock at the usual level, so the price starts at `base`.
+    pub fn new(commodity: Commodity, base: f32) -> Self {
+        Self {
+            commodity,
+            base,
+            stock: BASE_STOCK,
+        }
+    }
+}
+
+#item new v2 @economy-drift "Let each good's stock wander by its volatility"
+impl Market {
+    /// A market for `commodity` with its stock at the usual level, so the price starts at `base`.
+    pub fn new(commodity: Commodity, base: f32) -> Self {
+        Self {
+            commodity,
+            base,
+            stock: BASE_STOCK,
+            volatility: DEFAULT_VOLATILITY,
+        }
+    }
+}
+
+#item parse_commodities v1 @market "Open the markets from the commodity table"
+/// Reads the commodity table, `id,name,base_price,volatility` under a header row, into a market
+/// for each good at its base price. A row whose id isn't a good the game knows, or whose price
+/// doesn't read, is left out.
+pub fn parse_commodities(csv: &str) -> Vec<Market> {
+    csv.lines()
+        .skip(1)
+        .filter_map(|line| {
+            let cells: Vec<&str> = line.split(',').map(str::trim).collect();
+            let commodity = Commodity::from_key(cells.first()?)?;
+            let base = cells.get(2)?.parse().ok()?;
+            Some(Market::new(commodity, base))
+        })
+        .collect()
+}
+
+#item parse_commodities v2 @economy-drift "Read each good's volatility from the commodity table"
+/// Reads the commodity table, `id,name,base_price,volatility` under a header row, into a market
+/// for each good at its base price, wandering by its volatility. A row whose id isn't a good the
+/// game knows, or whose numbers don't read, is left out.
+pub fn parse_commodities(csv: &str) -> Vec<Market> {
+    csv.lines()
+        .skip(1)
+        .filter_map(|line| {
+            let cells: Vec<&str> = line.split(',').map(str::trim).collect();
+            let commodity = Commodity::from_key(cells.first()?)?;
+            let base = cells.get(2)?.parse().ok()?;
+            let volatility = cells.get(3)?.parse().ok()?;
+            Some(Market {
+                volatility,
+                ..Market::new(commodity, base)
+            })
+        })
+        .collect()
+}
+
+#item parse_commodities v3 @contracts "Leave the goods the table marks as not legal off the markets"
+/// Reads the commodity table, `id,name,base_price,volatility,legal` under a header row, into a
+/// market for each good at its base price, wandering by its volatility. A good the table marks as
+/// not legal is left off, and so is a row whose id isn't a good the game knows, or whose numbers
+/// don't read.
+pub fn parse_commodities(csv: &str) -> Vec<Market> {
+    csv.lines()
+        .skip(1)
+        .filter_map(|line| {
+            let cells: Vec<&str> = line.split(',').map(str::trim).collect();
+            if cells.get(4) == Some(&"no") {
+                return None;
+            }
+            let commodity = Commodity::from_key(cells.first()?)?;
+            let base = cells.get(2)?.parse().ok()?;
+            let volatility = cells.get(3)?.parse().ok()?;
+            Some(Market {
+                volatility,
+                ..Market::new(commodity, base)
+            })
+        })
+        .collect()
+}
+
+#item buy_price v1 @market "Price a good from the station's stock"
+impl Market {
+    /// What one tonne costs the player to buy from the station.
+    pub fn buy_price(&self) -> f32 {
+        self.base * (1.0 + ELASTICITY * (BASE_STOCK - self.stock))
+    }
+}
+
+#item buy_price v2 @drift-floor "Stop prices going below zero\n\nA heavy stock pushed the price below zero."
+impl Market {
+    /// What one tonne costs the player to buy from the station, never below `MIN_PRICE`.
+    pub fn buy_price(&self) -> f32 {
+        (self.base * (1.0 + ELASTICITY * (BASE_STOCK - self.stock))).max(MIN_PRICE)
+    }
+}
+
+#item sell_price v1 @market "Pay the station's share of the price when selling"
+impl Market {
+    /// What the station pays the player for one tonne.
+    pub fn sell_price(&self) -> f32 {
+        self.buy_price() * SELL_SHARE
+    }
+}
+
+#item buy v1 @market "Let the player buy from the station's stock"
+impl Market {
+    /// The player buys up to `tonnes` from the station, and this returns what it costs. Buying
+    /// takes stock away, so the price goes up.
+    pub fn buy(&mut self, tonnes: f32) -> f32 {
+        let tonnes = tonnes.min(self.stock).max(0.0);
+        let cost = tonnes * self.buy_price();
+        self.stock -= tonnes;
+        cost
+    }
+}
+
+#item sell v1 @market "Let the player sell goods into the station's stock"
+impl Market {
+    /// The player sells `tonnes` to the station, and this returns what the station pays. Selling
+    /// adds stock, so the price goes down.
+    pub fn sell(&mut self, tonnes: f32) -> f32 {
+        let paid = tonnes * self.sell_price();
+        self.stock += tonnes;
+        paid
+    }
+}
+
+#item drift v1 @economy-drift "Let each market's stock drift back to its usual level"
+impl Market {
+    /// Lets the stock drift back towards its usual level over `days`, so prices settle again.
+    pub fn drift(&mut self, days: f32) {
+        let share = (DRIFT_PER_DAY * days).min(1.0);
+        self.stock += (BASE_STOCK - self.stock) * share;
+    }
+}
+
+#test a_market_starts_at_its_base_price v1 @market "Test that a new market prices at its base"
+#[test]
+fn a_market_starts_at_its_base_price() {
+    let market = Market::new(Commodity::Ore, 40.0);
+    assert!((market.buy_price() - 40.0).abs() < 1e-4);
+}
+
+#test buying_raises_the_price v1 @market "Test that buying from a market raises its price"
+#[test]
+fn buying_raises_the_price() {
+    let mut market = Market::new(Commodity::Ore, 40.0);
+    let cost = market.buy(5.0);
+    assert!((cost - 200.0).abs() < 1e-3);
+    assert!(market.buy_price() > 40.0);
+}
+
+#test selling_pays_a_share_of_the_price v1 @market "Test that selling pays the station's share"
+#[test]
+fn selling_pays_a_share_of_the_price() {
+    let mut market = Market::new(Commodity::Ore, 40.0);
+    let paid = market.sell(5.0);
+    assert!((paid - 5.0 * 40.0 * SELL_SHARE).abs() < 1e-3);
+    assert!((market.stock - (BASE_STOCK + 5.0)).abs() < 1e-4);
+}
+
+#test a_market_cannot_sell_more_than_it_holds v1 @market "Test that a market sells only its stock"
+#[test]
+fn a_market_cannot_sell_more_than_it_holds() {
+    let mut market = Market::new(Commodity::Ore, 40.0);
+    let cost = market.buy(50.0);
+    assert!((cost - BASE_STOCK * 40.0).abs() < 1e-3);
+    assert!(market.stock.abs() < 1e-4);
+}
+
+#test the_commodity_table_opens_a_market_per_good v1 @market "Test that the commodity table opens a market per good"
+#[test]
+fn the_commodity_table_opens_a_market_per_good() {
+    let markets = parse_commodities(
+        "id,name,base_price,volatility\nore,Ore,12,0.04\ngold,Gold,500,0.1\n",
+    );
+    assert_eq!(markets.len(), 1);
+    assert_eq!(markets[0].commodity, Commodity::Ore);
+    assert!((markets[0].buy_price() - 12.0).abs() < 1e-4);
+}
+
+#test the_commodity_table_opens_a_market_per_good v2 @economy-drift "Test that the table's volatility reaches the market"
+#[test]
+fn the_commodity_table_opens_a_market_per_good() {
+    let markets = parse_commodities(
+        "id,name,base_price,volatility\nore,Ore,12,0.04\ngold,Gold,500,0.1\n",
+    );
+    assert_eq!(markets.len(), 1);
+    assert_eq!(markets[0].commodity, Commodity::Ore);
+    assert!((markets[0].buy_price() - 12.0).abs() < 1e-4);
+    assert!((markets[0].volatility - 0.04).abs() < 1e-6);
+}
+
+#test the_commodity_table_opens_a_market_per_good v3 @contracts "Test that goods marked not legal stay off the markets"
+#[test]
+fn the_commodity_table_opens_a_market_per_good() {
+    let markets = parse_commodities(
+        "id,name,base_price,volatility,legal\nore,Ore,12,0.04,yes\nseeds,Seeds,15,0.09,no\ngold,Gold,500,0.1,yes\n",
+    );
+    assert_eq!(markets.len(), 1);
+    assert_eq!(markets[0].commodity, Commodity::Ore);
+    assert!((markets[0].buy_price() - 12.0).abs() < 1e-4);
+    assert!((markets[0].volatility - 0.04).abs() < 1e-6);
+}
+
+#test prices_settle_back_towards_base v1 @economy-drift "Test that stock drifts back to its usual level"
+#[test]
+fn prices_settle_back_towards_base() {
+    let mut market = Market::new(Commodity::Food, 30.0);
+    market.stock = 0.0;
+    market.drift(10.0);
+    assert!(market.stock > 5.0 && market.stock < BASE_STOCK);
+}
+
+#test price_never_falls_below_the_floor v1 @drift-floor "Test that prices stop at the minimum"
+#[test]
+fn price_never_falls_below_the_floor() {
+    let mut market = Market::new(Commodity::Alloy, 90.0);
+    market.stock = 200.0;
+    assert!(market.buy_price() >= MIN_PRICE);
+}

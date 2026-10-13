@@ -1,0 +1,58 @@
+{
+  "request": {
+    "method": "blame",
+    "params": {
+      "path": "src/app.php",
+      "repo": "$repo",
+      "rev": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "commits": [
+      {
+        "author": "Ada Lovelace",
+        "boundary": true,
+        "email": "ada@example.com",
+        "sha": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "summary": "Initial commit",
+        "time": 1767225720
+      },
+      {
+        "author": "Grace Hopper",
+        "boundary": false,
+        "email": "grace@example.com",
+        "sha": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+        "summary": "Rename guide and update assets",
+        "time": 1767226320
+      }
+    ],
+    "hunks": [
+      {
+        "lines": 4,
+        "sha": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "start": 1
+      },
+      {
+        "lines": 1,
+        "sha": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+        "start": 5
+      },
+      {
+        "lines": 49,
+        "sha": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "start": 6
+      },
+      {
+        "lines": 1,
+        "sha": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+        "start": 55
+      },
+      {
+        "lines": 5,
+        "sha": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e",
+        "start": 56
+      }
+    ]
+  }
+}

@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "notes.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": null,
+      "index": null,
+      "worktree": "401ecdef02c57ddf68be73a902b6585946344d01"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          1
+        ],
+        "del": [],
+        "newLines": 1,
+        "newStart": 1,
+        "oldLines": 0,
+        "oldStart": 0
+      }
+    ],
+    "refused": null
+  }
+}

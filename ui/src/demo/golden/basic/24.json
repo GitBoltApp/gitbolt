@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "searchHistory",
+    "params": {
+      "query": "readme",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "author": "Grace Hopper",
+      "id": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+      "summary": "Add readme",
+      "time": 1767225900
+    }
+  ]
+}

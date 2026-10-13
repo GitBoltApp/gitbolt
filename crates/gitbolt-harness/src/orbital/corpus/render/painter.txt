@@ -1,0 +1,254 @@
+#file crates/orbital-render/src/painter.rs
+#header v1 @ui-icons "Draw the eight UI icons"
+//! The HUD's drawing surface: rectangles and colours, recorded as commands the renderer replays.
+#item Color v1 @ui-icons "Add the colour type the HUD and the orbit map share"
+/// An 8-bit sRGB colour with an alpha channel.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Color {
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
+}
+#item rgb v1 @ui-icons "Add a colour from its red, green and blue"
+impl Color {
+    /// A fully opaque colour from its red, green and blue channels.
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Self {
+        Self { r, g, b, a: 255 }
+    }
+}
+#item palette v1 @ui-icons "Name the six colours the HUD uses"
+impl Color {
+    /// The panel outline, a slate grey that reads on the dark sky.
+    pub const FRAME: Color = Color::rgb(0x3a, 0x44, 0x52);
+    /// Healthy gauges and go-states.
+    pub const GREEN: Color = Color::rgb(0x4c, 0xc2, 0x7a);
+    /// Low fuel and cautions.
+    pub const AMBER: Color = Color::rgb(0xf0, 0xa2, 0x3c);
+    /// Hull damage and alarms.
+    pub const RED: Color = Color::rgb(0xe0, 0x4f, 0x4f);
+    /// The docking and autopilot accents.
+    pub const TEAL: Color = Color::rgb(0x2f, 0xb5, 0xb0);
+    /// Money, contracts and the cargo gauge.
+    pub const GOLD: Color = Color::rgb(0xd9, 0xb3, 0x4a);
+}
+#item colour_blind v1 @colour-blind "Add a colour-blind palette for the orbit map"
+impl Color {
+    /// The colour a colour-blind player sees: green and red become blue and orange.
+    #[must_use]
+    pub fn colour_blind(self) -> Self {
+        if self == Self::GREEN {
+            Self::rgb(0x3d, 0x8b, 0xd8)
+        } else if self == Self::RED {
+            Self::rgb(0xe8, 0x8a, 0x2c)
+        } else {
+            self
+        }
+    }
+}
+#item Rect v1 @ui-icons "Add the integer rectangle the HUD lays out in"
+/// A rectangle in whole pixels: its top-left corner and its size. This is the pixel rect, not
+/// `orbital_core::math::Rect`, which is in kilometres.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Rect {
+    pub x: u32,
+    pub y: u32,
+    pub w: u32,
+    pub h: u32,
+}
+#item rect_new v1 @ui-icons "Build a rectangle from its corner and size"
+impl Rect {
+    /// A rectangle with its top-left corner at (`x`, `y`).
+    pub const fn new(x: u32, y: u32, w: u32, h: u32) -> Self {
+        Self { x, y, w, h }
+    }
+}
+#item inset v1 @ui-icons "Shrink a rectangle evenly on every side"
+impl Rect {
+    /// The rectangle `pad` pixels smaller on every side, never smaller than nothing.
+    #[must_use]
+    pub fn inset(self, pad: u32) -> Self {
+        Self {
+            x: self.x + pad,
+            y: self.y + pad,
+            w: self.w.saturating_sub(pad * 2),
+            h: self.h.saturating_sub(pad * 2),
+        }
+    }
+}
+#item with_width_frac v1 @ui-icons "Scale a rectangle's width by a fraction for gauges"
+impl Rect {
+    /// The rectangle with its width scaled by `frac`, which is clamped to 0..=1.
+    #[must_use]
+    pub fn with_width_frac(self, frac: f32) -> Self {
+        let frac = frac.clamp(0.0, 1.0);
+        Self {
+            w: (self.w as f32 * frac).round() as u32,
+            ..self
+        }
+    }
+}
+#item bottom v1 @ui-icons "Give a rectangle its bottom edge"
+impl Rect {
+    /// The y of the row just below the rectangle.
+    #[must_use]
+    pub fn bottom(self) -> u32 {
+        self.y + self.h
+    }
+}
+#item Command v1 @ui-icons "Record fills and strokes as commands the renderer replays"
+/// One thing to draw, recorded in the order the HUD asked for it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Command {
+    Fill { rect: Rect, color: Color },
+    Stroke { rect: Rect, color: Color },
+}
+#item Painter v1 @ui-icons "Record fills and strokes as commands the renderer replays"
+/// Records the HUD's drawing for one frame, within the area it was given.
+#[derive(Debug)]
+pub struct Painter {
+    bounds: Rect,
+    commands: Vec<Command>,
+}
+#item recording v1 @ui-icons "Add a painter that records into a width and height"
+impl Painter {
+    /// A painter for a `width` by `height` area, with nothing recorded yet.
+    #[must_use]
+    pub fn recording(width: u32, height: u32) -> Self {
+        Self {
+            bounds: Rect::new(0, 0, width, height),
+            commands: Vec::new(),
+        }
+    }
+}
+#item bounds v1 @ui-icons "Let the HUD ask a painter for its area"
+impl Painter {
+    /// The area the painter draws within.
+    #[must_use]
+    pub fn bounds(&self) -> Rect {
+        self.bounds
+    }
+}
+#item commands v1 @ui-icons "Let the renderer replay the recorded commands"
+impl Painter {
+    /// Everything recorded so far, in order.
+    #[must_use]
+    pub fn commands(&self) -> &[Command] {
+        &self.commands
+    }
+}
+#item fill_rect v1 @ui-icons "Fill rectangles so panels and gauges can be drawn"
+impl Painter {
+    /// Records a filled rectangle.
+    pub fn fill_rect(&mut self, rect: Rect, color: Color) {
+        self.commands.push(Command::Fill { rect, color });
+    }
+}
+#item fill_rect v2 @tooltip-clip "Keep icon tooltips inside the window"
+impl Painter {
+    /// Records a filled rectangle, cut down to the painter's area.
+    pub fn fill_rect(&mut self, rect: Rect, color: Color) {
+        let rect = self.clamp_to_bounds(rect);
+        self.commands.push(Command::Fill { rect, color });
+    }
+}
+#item stroke_rect v1 @ui-icons "Outline rectangles so panels can have frames"
+impl Painter {
+    /// Records a one-pixel outline around a rectangle.
+    pub fn stroke_rect(&mut self, rect: Rect, color: Color) {
+        self.commands.push(Command::Stroke { rect, color });
+    }
+}
+#item stroke_rect v2 @tooltip-clip "Keep icon tooltips inside the window"
+impl Painter {
+    /// Records a one-pixel outline around a rectangle, cut down to the painter's area.
+    pub fn stroke_rect(&mut self, rect: Rect, color: Color) {
+        let rect = self.clamp_to_bounds(rect);
+        self.commands.push(Command::Stroke { rect, color });
+    }
+}
+#item clamp_to_bounds v1 @tooltip-clip "Keep icon tooltips inside the window"
+impl Painter {
+    /// `rect` cut down to the painter's area, so a tooltip can't run off the window.
+    #[must_use]
+    fn clamp_to_bounds(&self, rect: Rect) -> Rect {
+        let left = rect.x.max(self.bounds.x).min(self.bounds.x + self.bounds.w);
+        let top = rect.y.max(self.bounds.y).min(self.bounds.bottom());
+        let right = (rect.x + rect.w)
+            .min(self.bounds.x + self.bounds.w)
+            .max(left);
+        let bottom = (rect.y + rect.h).min(self.bounds.bottom()).max(top);
+        Rect::new(left, top, right - left, bottom - top)
+    }
+}
+#test rect_new_keeps_the_size v1 @ui-icons "Test that a rectangle keeps its corner and size"
+#[test]
+fn rect_new_keeps_the_size() {
+    let r = Rect::new(1, 2, 3, 4);
+    assert_eq!((r.x, r.y, r.w, r.h), (1, 2, 3, 4));
+}
+#test inset_shrinks_each_side v1 @ui-icons "Test that inset shrinks a rectangle on every side"
+#[test]
+fn inset_shrinks_each_side() {
+    assert_eq!(
+        Rect::new(10, 10, 100, 50).inset(5),
+        Rect::new(15, 15, 90, 40)
+    );
+    assert_eq!(Rect::new(0, 0, 4, 4).inset(3).w, 0);
+}
+#test with_width_frac_scales_the_width v1 @ui-icons "Test that a gauge's width follows its fraction"
+#[test]
+fn with_width_frac_scales_the_width() {
+    let r = Rect::new(0, 0, 200, 8);
+    assert_eq!(r.with_width_frac(0.25).w, 50);
+    assert_eq!(r.with_width_frac(2.0).w, 200);
+    assert_eq!(r.with_width_frac(-1.0).w, 0);
+}
+#test bottom_is_the_far_edge v1 @ui-icons "Test that bottom is the row below a rectangle"
+#[test]
+fn bottom_is_the_far_edge() {
+    assert_eq!(Rect::new(3, 7, 10, 5).bottom(), 12);
+}
+#test records_fills_and_strokes_in_order v1 @ui-icons "Test that the painter records draws in order"
+#[test]
+fn records_fills_and_strokes_in_order() {
+    let mut p = Painter::recording(100, 100);
+    p.fill_rect(Rect::new(0, 0, 10, 10), Color::GREEN);
+    p.stroke_rect(Rect::new(0, 0, 20, 20), Color::FRAME);
+    assert_eq!(p.commands().len(), 2);
+    assert!(matches!(p.commands()[1], Command::Stroke { .. }));
+}
+#test palette_is_opaque v1 @ui-icons "Test that every HUD colour is fully opaque"
+#[test]
+fn palette_is_opaque() {
+    for c in [
+        Color::FRAME,
+        Color::GREEN,
+        Color::AMBER,
+        Color::RED,
+        Color::TEAL,
+        Color::GOLD,
+    ] {
+        assert_eq!(c.a, 255);
+    }
+}
+#test fill_rect_clips_to_the_bounds v1 @tooltip-clip "Test that a fill past the edge is cut to the window"
+#[test]
+fn fill_rect_clips_to_the_bounds() {
+    let mut p = Painter::recording(100, 100);
+    p.fill_rect(Rect::new(90, 90, 20, 20), Color::TEAL);
+    assert_eq!(
+        p.commands(),
+        &[Command::Fill {
+            rect: Rect::new(90, 90, 10, 10),
+            color: Color::TEAL
+        }]
+    );
+}
+#test colour_blind_swaps_red_and_green v1 @colour-blind "Test that the colour-blind palette changes red and green"
+#[test]
+fn colour_blind_swaps_red_and_green() {
+    assert_ne!(Color::RED.colour_blind(), Color::RED);
+    assert_ne!(Color::GREEN.colour_blind(), Color::GREEN);
+    assert_eq!(Color::GOLD.colour_blind(), Color::GOLD);
+}

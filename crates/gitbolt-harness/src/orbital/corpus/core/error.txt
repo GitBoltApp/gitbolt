@@ -1,0 +1,118 @@
+#file crates/orbital-core/src/error.rs
+#header v1 @cargo-hold
+//! The errors the core reports: a full cargo hold, and the save file failures.
+
+use std::fmt;
+#header v2 @save-files
+//! The errors the core reports: a full cargo hold, and the save file failures.
+
+use std::fmt;
+use std::io;
+#item Error v1 @cargo-hold "Add an error for a full cargo hold"
+/// What the core can refuse to do, or fail at.
+#[derive(Debug)]
+pub enum Error {
+    CargoFull,
+}
+#item Error v2 @save-files "Add the save file errors: I/O, a bad magic and a bad checksum"
+/// What the core can refuse to do, or fail at.
+#[derive(Debug)]
+pub enum Error {
+    CargoFull,
+    Io(io::Error),
+    BadMagic,
+    Checksum,
+    BadCommodity(u8),
+}
+#item Error v3 @save-version "Refuse save files in a format this build doesn't know"
+/// What the core can refuse to do, or fail at.
+#[derive(Debug)]
+pub enum Error {
+    CargoFull,
+    Io(io::Error),
+    BadMagic,
+    Checksum,
+    BadCommodity(u8),
+    Version(u32),
+}
+#item Error v4 @truncated-save "Report a save file that ends early as an error"
+/// What the core can refuse to do, or fail at.
+#[derive(Debug)]
+pub enum Error {
+    CargoFull,
+    Io(io::Error),
+    BadMagic,
+    Checksum,
+    BadCommodity(u8),
+    Version(u32),
+    Truncated,
+}
+#item display v1 @cargo-hold "Write a message for each error"
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CargoFull => write!(f, "the cargo hold is full"),
+        }
+    }
+}
+#item display v2 @save-files "Write a message for each save file error"
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CargoFull => write!(f, "the cargo hold is full"),
+            Self::Io(e) => write!(f, "the save file couldn't be read or written: {e}"),
+            Self::BadMagic => write!(f, "this isn't an Orbital save file"),
+            Self::Checksum => write!(f, "the save file is damaged (its checksum doesn't match)"),
+            Self::BadCommodity(id) => write!(f, "the save file has an unknown good, id {id}"),
+        }
+    }
+}
+#item display v3 @save-version "Name the save format a build can't read"
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CargoFull => write!(f, "the cargo hold is full"),
+            Self::Io(e) => write!(f, "the save file couldn't be read or written: {e}"),
+            Self::BadMagic => write!(f, "this isn't an Orbital save file"),
+            Self::Checksum => write!(f, "the save file is damaged (its checksum doesn't match)"),
+            Self::BadCommodity(id) => write!(f, "the save file has an unknown good, id {id}"),
+            Self::Version(v) => write!(f, "save format {v} isn't supported by this build"),
+        }
+    }
+}
+#item display v4 @truncated-save "Say when a save file ends early"
+impl fmt::Display for Error {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::CargoFull => write!(f, "the cargo hold is full"),
+            Self::Io(e) => write!(f, "the save file couldn't be read or written: {e}"),
+            Self::BadMagic => write!(f, "this isn't an Orbital save file"),
+            Self::Checksum => write!(f, "the save file is damaged (its checksum doesn't match)"),
+            Self::BadCommodity(id) => write!(f, "the save file has an unknown good, id {id}"),
+            Self::Version(v) => write!(f, "save format {v} isn't supported by this build"),
+            Self::Truncated => write!(f, "the save file ends early"),
+        }
+    }
+}
+#item from v1 @save-files "Convert I/O errors into the save file error"
+impl From<io::Error> for Error {
+    fn from(e: io::Error) -> Self {
+        Self::Io(e)
+    }
+}
+#test display_says_the_hold_is_full v1 @cargo-hold "Test that a full hold has a clear message"
+#[test]
+fn display_says_the_hold_is_full() {
+    assert_eq!(Error::CargoFull.to_string(), "the cargo hold is full");
+}
+#test io_errors_convert v1 @save-files "Test that I/O errors convert into the save error"
+#[test]
+fn io_errors_convert() {
+    let e: Error = io::Error::new(io::ErrorKind::Other, "disk").into();
+    assert!(matches!(e, Error::Io(_)));
+}
+#test a_short_save_says_so v1 @truncated-save "Test the message for a save file that ends early"
+#[test]
+fn a_short_save_says_so() {
+    assert!(Error::Truncated.to_string().contains("ends early"));
+}

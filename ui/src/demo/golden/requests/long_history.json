@@ -1,0 +1,92 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": null
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 30
+  }
+ },
+ {
+  "method": "sidebar",
+  "params": {
+   "repo": "$repo"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 20
+  }
+ },
+ {
+  "method": "findText",
+  "params": {
+   "repo": "$repo",
+   "query": "commit 5"
+  }
+ },
+ {
+  "method": "findText",
+  "params": {
+   "repo": "$repo",
+   "query": {
+    "$rev": "HEAD~3",
+    "short": 6
+   }
+  }
+ },
+ {
+  "method": "findPaths",
+  "params": {
+   "repo": "$repo",
+   "query": "file_5"
+  }
+ },
+ {
+  "method": "locateCommit",
+  "params": {
+   "repo": "$repo",
+   "sha": {
+    "$rev": ":/Commit 00",
+    "short": 10
+   }
+  }
+ },
+ {
+  "method": "locateCommit",
+  "params": {
+   "repo": "$repo",
+   "sha": {
+    "$rev": "HEAD~1"
+   }
+  }
+ },
+ {
+  "method": "searchHistory",
+  "params": {
+   "repo": "$repo",
+   "query": "commit 0"
+  }
+ },
+ {
+  "method": "searchHistory",
+  "params": {
+   "repo": "$repo",
+   "query": "file_3"
+  }
+ }
+]

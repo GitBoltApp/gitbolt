@@ -1,0 +1,105 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="dark" />
+    <title>GitBolt, a desktop Git client</title>
+    <meta name="description" content="A fast, keyboard-friendly desktop Git client with a commit graph at its heart. Free and MIT licensed; Linux, Windows and macOS." />
+    <link rel="icon" href="./src/art/favicon.svg" type="image/svg+xml" />
+    <script type="module" src="./src/main.ts"></script>
+  </head>
+  <body id="top">
+    <header class="top"><div class="wrap"><nav class="glass bar" aria-label="Main">
+      <a class="brand" href="#top"><img src="./src/art/icon.svg" alt="" width="34" height="34" />GitBolt</a>
+      <div class="links"><a href="#features">Features</a><a href="#compare">Compare</a><a href="#privacy">Privacy</a><a href="#downloads">Downloads</a></div>
+      <span class="spacer"></span>
+      <a class="gh" href="https://github.com/GitBoltApp/gitbolt" aria-label="Source on GitHub"><svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 .5a11.5 11.5 0 0 0-3.6 22.4c.6.1.8-.3.8-.6v-2c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.2 1.2a11 11 0 0 1 5.8 0c2.2-1.5 3.2-1.2 3.2-1.2.6 1.6.2 2.8.1 3.1.7.8 1.2 1.9 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.7.8.6A11.5 11.5 0 0 0 12 .5Z"/></svg></a>
+      <a class="cta" href="#downloads">Download <small class="cta-os"></small></a>
+    </nav></div></header>
+
+    <main>
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="lanes-bg" aria-hidden="true"><img src="./src/art/hero-lanes.svg" alt="" width="4400" height="900" /></div>
+        <div class="wrap">
+          <h1 id="hero-title">A fast, keyboard&#8209;friendly desktop Git client with a <span class="grad">commit graph</span> at its heart.</h1>
+          <p class="sub">Free and MIT licensed, private repos included. No account, no telemetry. Linux, Windows and macOS.</p>
+          <div class="hero-demo" data-state="still">
+            <a class="skip" href="#features">Skip the live demo</a>
+            <div class="window"><div class="window-in">
+              <div class="chrome"><span class="dots" aria-hidden="true"><i></i><i></i><i></i></span><span class="title" aria-hidden="true">GitBolt · orbital</span><span class="demo-badge" role="status">Screenshot</span></div>
+              <div class="stage">
+                <!--hero:still-->
+              </div>
+            </div></div>
+            <div class="demo-bar desk">
+              <button type="button" class="btn" data-action="reset"><span class="btn-stack"><span class="when-idle">Reset demo</span><span class="when-armed">Reset and lose your changes</span></span></button>
+              <button type="button" class="btn" data-action="fullscreen">Full screen</button>
+              <span>This is GitBolt itself, running in your browser against a made-up repository. It resets when you reload.</span>
+            </div>
+            <p class="demo-bar desk-only">Try the live demo on a desktop.</p>
+            <noscript><p class="demo-bar">The live demo needs JavaScript.</p></noscript>
+          </div>
+        </div>
+      </section>
+
+      <div class="after"><div class="bands" aria-hidden="true"></div>
+        <img class="divider" src="./src/art/divider-1.svg" alt="" width="582" height="55" />
+
+        <section class="block" id="features" aria-labelledby="features-title"><div class="wrap">
+          <div class="head"><p class="eyebrow">Features</p>
+            <h2 id="features-title"><span class="grad">Highlights</span></h2>
+            <p class="lede">A Rust core reads with gitoxide and writes through the <code>git</code> command line. Every action is in the command palette (<kbd>Ctrl</kbd>+<kbd>P</kbd>), and every shortcut is listed in Help (<kbd>Ctrl</kbd>+<kbd>/</kbd>).</p></div>
+          <!--readme:highlights-->
+          <h3 class="eyebrow sub-head">Everything else</h3>
+          <div class="groups"><!--readme:groups--></div>
+        </div></section>
+
+        <img class="divider" src="./src/art/divider-2.svg" alt="" width="582" height="37" />
+
+        <section class="block" id="compare" aria-labelledby="compare-title"><div class="wrap">
+          <div class="head"><p class="eyebrow">Compare</p>
+            <h2 id="compare-title">Compared with GitKraken</h2>
+            <p class="lede">If you've used GitKraken, GitBolt will feel familiar: the lane graph down the middle, the branch and remote sidebar, the commit details on the right. GitBolt is an independent project, not affiliated with or endorsed by GitKraken / Axosoft.</p></div>
+          <!--readme:compare-->
+          <p class="legend">GitKraken is a trademark of Axosoft, LLC, mentioned only to compare features.</p>
+        </div></section>
+
+        <img class="divider" src="./src/art/divider-3.svg" alt="" width="605" height="55" />
+
+        <section class="block privacy" id="privacy" aria-labelledby="privacy-title"><div class="wrap">
+          <div class="head"><p class="eyebrow">Privacy</p>
+            <h2 id="privacy-title">No account. <span class="grad">No telemetry.</span></h2>
+            <p class="lede">Your repositories and tokens stay on your machine. The webview can't reach the network on its own; the Rust core makes every request.</p></div>
+          <div class="pgrid">
+            <div class="pcard glass l-cyan"><svg viewBox="0 0 40 40" aria-hidden="true"><path class="ln" d="M8 34 V22 C8 14 20 14 20 6"/><path class="ln faint" d="M32 34 V6"/><circle class="node" cx="8" cy="26" r="4.5"/><circle class="node" cx="20" cy="8" r="4.5"/></svg><h3>No account, no telemetry</h3><p>No analytics or crash reporting. The update check is the only request GitBolt makes on its own that isn't about your repositories or accounts.</p></div>
+            <div class="pcard glass l-blue"><svg viewBox="0 0 40 40" aria-hidden="true"><path class="ln" d="M8 34 V22 C8 14 20 14 20 6"/><path class="ln faint" d="M32 34 V6"/><circle class="node" cx="8" cy="26" r="4.5"/><circle class="node" cx="20" cy="8" r="4.5"/></svg><h3>Locked-down webview</h3><p>A strict Content Security Policy, and Chromium can't resolve any host name but localhost: the Rust core makes every network request.</p></div>
+            <div class="pcard glass l-violet"><svg viewBox="0 0 40 40" aria-hidden="true"><path class="ln" d="M8 34 V22 C8 14 20 14 20 6"/><path class="ln faint" d="M32 34 V6"/><circle class="node" cx="8" cy="26" r="4.5"/><circle class="node" cx="20" cy="8" r="4.5"/></svg><h3>Images on a click</h3><p>Images from hosts other than your forge load only after you click them.</p></div>
+            <div class="pcard glass l-magenta"><svg viewBox="0 0 40 40" aria-hidden="true"><path class="ln" d="M8 34 V22 C8 14 20 14 20 6"/><path class="ln faint" d="M32 34 V6"/><circle class="node" cx="8" cy="26" r="4.5"/><circle class="node" cx="20" cy="8" r="4.5"/></svg><h3>Tokens in the keyring</h3><p>Forge tokens stay in the system keyring, never in a file or a log.</p></div>
+            <div class="pcard glass l-pink"><svg viewBox="0 0 40 40" aria-hidden="true"><path class="ln" d="M8 34 V22 C8 14 20 14 20 6"/><path class="ln faint" d="M32 34 V6"/><circle class="node" cx="8" cy="26" r="4.5"/><circle class="node" cx="20" cy="8" r="4.5"/></svg><h3>Your system's git</h3><p>Writes go through the <code>git</code> command line, so your hooks, config and credentials behave as they always do.</p></div>
+            <div class="pcard glass l-orange"><svg viewBox="0 0 40 40" aria-hidden="true"><path class="ln" d="M8 34 V22 C8 14 20 14 20 6"/><path class="ln faint" d="M32 34 V6"/><circle class="node" cx="8" cy="26" r="4.5"/><circle class="node" cx="20" cy="8" r="4.5"/></svg><h3>This site</h3><p>No cookies, no analytics, no third-party scripts. The demo runs in your browser and sends nothing.</p></div>
+          </div>
+        </div></section>
+
+        <img class="divider" src="./src/art/divider-4.svg" alt="" width="605" height="37" />
+
+        <section class="block" id="downloads" aria-labelledby="downloads-title"><div class="wrap">
+          <div class="head"><p class="eyebrow">Downloads</p>
+            <h2 id="downloads-title">Download GitBolt <span class="grad"><!--release:version--></span></h2>
+            <p class="lede">Free and MIT licensed, private repos included.</p></div>
+          <!--release:downloads-->
+        </div></section>
+      </div>
+    </main>
+
+    <footer>
+      <div class="field" aria-hidden="true"><div class="blob"></div></div>
+      <p class="word" aria-hidden="true">GitBolt</p>
+      <div class="wrap"><div class="glass fbar">
+        <a class="brand" href="#top"><img src="./src/art/icon.svg" alt="" width="26" height="26" />GitBolt</a>
+        <nav aria-label="Project"><a href="https://github.com/GitBoltApp/gitbolt">Source on GitHub</a><a href="https://github.com/GitBoltApp/gitbolt/blob/main/CHANGELOG.md">Changelog</a><a href="https://github.com/GitBoltApp/gitbolt/blob/main/LICENSE">MIT license</a><a href="https://github.com/GitBoltApp/gitbolt/blob/main/PRIVACY.md">Privacy</a><a href="https://github.com/GitBoltApp/gitbolt/blob/main/SECURITY.md">Security</a><a href="./licenses/fonts.txt">Font licenses</a></nav>
+        <p>An independent project. GitKraken is a trademark of Axosoft, LLC.</p>
+      </div></div>
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,15 @@
+{
+  "request": {
+    "method": "worktreeFiles",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    "gone.txt",
+    "notes.txt",
+    "space name.txt",
+    "src/app.txt"
+  ]
+}

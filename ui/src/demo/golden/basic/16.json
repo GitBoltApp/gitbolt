@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": false,
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 1,
+    "deleted": 1,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/basic"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+        },
+        "oldPath": null,
+        "path": "file_1.txt",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

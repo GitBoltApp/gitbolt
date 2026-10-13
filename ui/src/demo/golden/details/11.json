@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": true,
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 1,
+    "deleted": 0,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "f4b28df26ce59681707ee79fe4409f48d486a01f"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "483366b2ba32edbaca6439861bf36c909fc4b7e7"
+        },
+        "oldPath": null,
+        "path": "src/app.php",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

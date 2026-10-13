@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "searchHistory",
+    "params": {
+      "query": "story",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "author": "Grace Hopper",
+      "id": "4d1b598ac56effafb61997357633a9c69495ffc3",
+      "summary": "Add the middle",
+      "time": 1767226080
+    },
+    {
+      "author": "Ada Lovelace",
+      "id": "46973691d3af07d2370988ffebb5261568a4a69d",
+      "summary": "Start the story",
+      "time": 1767225720
+    }
+  ]
+}

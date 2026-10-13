@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "lfsStatus",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "filter": false,
+    "installUrl": "https://git-lfs.com",
+    "patterns": [
+      "*.png",
+      "*.psd"
+    ],
+    "used": true,
+    "version": null
+  }
+}

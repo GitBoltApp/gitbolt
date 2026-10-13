@@ -1,0 +1,44 @@
+{
+  "request": {
+    "method": "sidebar",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "locals": [
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": "/demo/long_history",
+        "fullName": "refs/heads/main",
+        "gone": false,
+        "isHead": true,
+        "name": "main",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Commit 59",
+        "target": "1d408fbb77d7ebf066f8762bf9e7726d07dc5f16",
+        "tipTime": 1767236340,
+        "upstream": null,
+        "worktree": null
+      }
+    ],
+    "remotes": [],
+    "stashes": [],
+    "tags": [],
+    "worktrees": [
+      {
+        "branch": "main",
+        "head": "1d408fbb77d7ebf066f8762bf9e7726d07dc5f16",
+        "isCurrent": true,
+        "isMain": true,
+        "locked": false,
+        "name": "long_history",
+        "path": "/demo/long_history"
+      }
+    ]
+  }
+}

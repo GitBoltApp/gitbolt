@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "commit": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+        "kind": "atCommit"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "utf16.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-16LE",
+      "eol": "lf",
+      "hash": "2f2e7d09939cdc85ab30d846c4c49878dcf3e279",
+      "size": 26,
+      "text": "héllo wörld\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

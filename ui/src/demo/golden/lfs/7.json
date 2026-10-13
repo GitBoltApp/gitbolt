@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "art/title.png",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "48c1468715c3f71a70e1622cd994d79446296f59",
+      "index": "48c1468715c3f71a70e1622cd994d79446296f59",
+      "worktree": "eeccfbe0b48c9bff35446ddf1bd98bb5666ff776"
+    },
+    "binary": false,
+    "hunks": [],
+    "refused": "Stored with Git LFS: stage the whole file"
+  }
+}

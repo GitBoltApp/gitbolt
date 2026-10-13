@@ -1,0 +1,294 @@
+#file crates/orbital-game/src/hud.rs
+#header v1 @hud-cargo
+//! The HUD: the fuel and cargo gauges and the speed readout, drawn over the flight.
+
+use glam::Vec2;
+use orbital_core::cargo::{CARGO_SLOTS, SLOT_TONNES};
+use orbital_render::painter::{Color, Painter, Rect};
+use orbital_render::text::{Font, Glyph};
+
+use crate::flight::Flight;
+
+#header v2 @high-contrast
+//! The HUD: the fuel and cargo gauges and the speed readout, drawn over the flight.
+
+use glam::Vec2;
+use orbital_core::cargo::{CARGO_SLOTS, SLOT_TONNES};
+use orbital_render::painter::{Color, Painter, Rect};
+use orbital_render::text::{Font, Glyph};
+
+use crate::flight::Flight;
+use crate::settings::Settings;
+
+#header v3 @strings-table
+//! The HUD: the fuel and cargo gauges and the speed readout, drawn over the flight.
+
+use glam::Vec2;
+use orbital_core::cargo::{CARGO_SLOTS, SLOT_TONNES};
+use orbital_render::painter::{Color, Painter, Rect};
+use orbital_render::text::{Font, Glyph};
+
+use crate::flight::Flight;
+use crate::settings::Settings;
+use crate::strings::tr;
+
+#const HUD_MARGIN v1 @hud-cargo "Show the cargo hold's fill on the HUD"
+/// The space between the HUD and the window's top-left corner, in pixels.
+pub const HUD_MARGIN: u32 = 24;
+
+#const HUD_MARGIN v2 @text-scale "Scale the interface text from the settings menu"
+/// The space between the HUD and the window's top-left corner, in pixels.
+pub const HUD_MARGIN: u32 = 20;
+
+#item fuel_colour v1 @hud-cargo "Show the cargo hold's fill on the HUD"
+/// The fuel bar's colour: green while the tank is over half full, amber down to a fifth, then red.
+fn fuel_colour(fraction: f32) -> Color {
+    if fraction > 0.5 {
+        Color::GREEN
+    } else if fraction > 0.2 {
+        Color::AMBER
+    } else {
+        Color::RED
+    }
+}
+
+#item fuel_colour v2 @colour-blind "Add a colour-blind palette for the orbit map"
+/// The fuel bar's colour: green while the tank is over half full, amber down to a fifth, then red,
+/// with green and red swapped for blue and orange under the colour-blind palette.
+fn fuel_colour(fraction: f32, settings: &Settings) -> Color {
+    let colour = if fraction > 0.5 {
+        Color::GREEN
+    } else if fraction > 0.2 {
+        Color::AMBER
+    } else {
+        Color::RED
+    };
+    if settings.colour_blind {
+        colour.colour_blind()
+    } else {
+        colour
+    }
+}
+
+#item frame_colour v1 @high-contrast "Add a high-contrast theme"
+/// The colour of a gauge's frame: a gold outline under high contrast, the usual grey otherwise.
+fn frame_colour(settings: &Settings) -> Color {
+    if settings.high_contrast {
+        Color::GOLD
+    } else {
+        Color::FRAME
+    }
+}
+
+#item draw_fuel_gauge v1 @hud-cargo "Show the cargo hold's fill on the HUD"
+/// Draws the fuel gauge in the top-left corner: a bar that empties with the tank, and the readout
+/// under it.
+pub fn draw_fuel_gauge(
+    painter: &mut Painter,
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+) {
+    let bar = Rect::new(HUD_MARGIN, HUD_MARGIN, 160, 8);
+    let fraction = flight.ship.fuel_fraction();
+    painter.fill_rect(bar, Color::FRAME);
+    painter.fill_rect(
+        bar.inset(1).with_width_frac(fraction),
+        fuel_colour(fraction),
+    );
+    let at = Vec2::new(HUD_MARGIN as f32, (HUD_MARGIN + 14) as f32);
+    font.draw(glyphs, &flight.fuel_readout(), at, [1.0; 4]);
+}
+
+#item draw_fuel_gauge v2 @high-contrast "Add a high-contrast theme"
+/// Draws the fuel gauge in the top-left corner: a bar that empties with the tank, and the readout
+/// under it.
+pub fn draw_fuel_gauge(
+    painter: &mut Painter,
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+    settings: &Settings,
+) {
+    let bar = Rect::new(HUD_MARGIN, HUD_MARGIN, 160, 8);
+    let fraction = flight.ship.fuel_fraction();
+    painter.fill_rect(bar, frame_colour(settings));
+    painter.fill_rect(
+        bar.inset(1).with_width_frac(fraction),
+        fuel_colour(fraction),
+    );
+    let at = Vec2::new(HUD_MARGIN as f32, (HUD_MARGIN + 14) as f32);
+    font.draw(glyphs, &flight.fuel_readout(), at, [1.0; 4]);
+}
+
+#item draw_fuel_gauge v3 @colour-blind "Add a colour-blind palette for the orbit map"
+/// Draws the fuel gauge in the top-left corner: a bar that empties with the tank, and the readout
+/// under it.
+pub fn draw_fuel_gauge(
+    painter: &mut Painter,
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    flight: &Flight,
+    settings: &Settings,
+) {
+    let bar = Rect::new(HUD_MARGIN, HUD_MARGIN, 160, 8);
+    let fraction = flight.ship.fuel_fraction();
+    painter.fill_rect(bar, frame_colour(settings));
+    painter.fill_rect(
+        bar.inset(1).with_width_frac(fraction),
+        fuel_colour(fraction, settings),
+    );
+    let at = Vec2::new(HUD_MARGIN as f32, (HUD_MARGIN + 14) as f32);
+    font.draw(glyphs, &flight.fuel_readout(), at, [1.0; 4]);
+}
+
+#item draw_cargo_gauge v1 @hud-cargo "Show the cargo hold's fill on the HUD"
+/// Draws the cargo gauge under the fuel gauge: the hold's mass against what its slots can carry.
+pub fn draw_cargo_gauge(painter: &mut Painter, flight: &Flight) {
+    let bar = Rect::new(HUD_MARGIN, HUD_MARGIN + 20, 160, 8);
+    let capacity = CARGO_SLOTS as f32 * SLOT_TONNES;
+    painter.fill_rect(bar, Color::FRAME);
+    painter.fill_rect(
+        bar.inset(1).with_width_frac(flight.cargo.mass() / capacity),
+        Color::GOLD,
+    );
+}
+
+#item draw_cargo_gauge v2 @high-contrast "Add a high-contrast theme"
+/// Draws the cargo gauge under the fuel gauge: the hold's mass against what its slots can carry.
+pub fn draw_cargo_gauge(painter: &mut Painter, flight: &Flight, settings: &Settings) {
+    let bar = Rect::new(HUD_MARGIN, HUD_MARGIN + 20, 160, 8);
+    let capacity = CARGO_SLOTS as f32 * SLOT_TONNES;
+    painter.fill_rect(bar, frame_colour(settings));
+    painter.fill_rect(
+        bar.inset(1).with_width_frac(flight.cargo.mass() / capacity),
+        Color::GOLD,
+    );
+}
+
+#item draw_speed_readout v1 @hud-speed "Show the ship's speed on the HUD"
+/// Draws the ship's speed under the cargo gauge, in kilometres a second.
+pub fn draw_speed_readout(font: &Font, glyphs: &mut Vec<Glyph>, flight: &Flight) {
+    let speed = flight.ship.body.velocity.length();
+    let at = Vec2::new(HUD_MARGIN as f32, (HUD_MARGIN + 40) as f32);
+    font.draw(glyphs, &format!("{speed:.2} KM/S"), at, [1.0; 4]);
+}
+
+#item draw_speed_readout v2 @strings-table "Read the HUD's units from the strings table"
+/// Draws the ship's speed under the cargo gauge, in kilometres a second.
+pub fn draw_speed_readout(font: &Font, glyphs: &mut Vec<Glyph>, flight: &Flight) {
+    let speed = flight.ship.body.velocity.length();
+    let at = Vec2::new(HUD_MARGIN as f32, (HUD_MARGIN + 40) as f32);
+    font.draw(
+        glyphs,
+        &format!("{speed:.2} {}", tr("hud.speed")),
+        at,
+        [1.0; 4],
+    );
+}
+
+#test draw_fuel_gauge_draws_a_frame_and_a_bar v1 @hud-cargo "Test that the fuel gauge draws a frame and a bar"
+#[test]
+fn draw_fuel_gauge_draws_a_frame_and_a_bar() {
+    let flight = Flight::default();
+    let font = Font::new(Vec::new());
+    let mut painter = Painter::recording(320, 200);
+    let mut glyphs = Vec::new();
+    draw_fuel_gauge(&mut painter, &font, &mut glyphs, &flight);
+    assert_eq!(painter.commands().len(), 2);
+}
+
+#test draw_fuel_gauge_draws_a_frame_and_a_bar v2 @high-contrast "Test the fuel gauge with the player's settings"
+#[test]
+fn draw_fuel_gauge_draws_a_frame_and_a_bar() {
+    let flight = Flight::default();
+    let font = Font::new(Vec::new());
+    let mut painter = Painter::recording(320, 200);
+    let mut glyphs = Vec::new();
+    draw_fuel_gauge(
+        &mut painter,
+        &font,
+        &mut glyphs,
+        &flight,
+        &Settings::default(),
+    );
+    assert_eq!(painter.commands().len(), 2);
+}
+
+#test fuel_colour_turns_red_when_low v1 @hud-cargo "Test that the fuel bar turns red when the tank runs low"
+#[test]
+fn fuel_colour_turns_red_when_low() {
+    assert_eq!(fuel_colour(0.1), Color::RED);
+    assert_eq!(fuel_colour(0.9), Color::GREEN);
+}
+
+#test fuel_colour_turns_red_when_low v2 @colour-blind "Test the fuel bar's colours against the palette"
+#[test]
+fn fuel_colour_turns_red_when_low() {
+    let settings = Settings::default();
+    assert_eq!(fuel_colour(0.1, &settings), Color::RED);
+    assert_eq!(fuel_colour(0.9, &settings), Color::GREEN);
+}
+
+#test draw_cargo_gauge_draws_a_frame_and_a_fill v1 @hud-cargo "Test that the cargo gauge draws a frame and a fill"
+#[test]
+fn draw_cargo_gauge_draws_a_frame_and_a_fill() {
+    let flight = Flight::default();
+    let mut painter = Painter::recording(320, 200);
+    draw_cargo_gauge(&mut painter, &flight);
+    assert_eq!(painter.commands().len(), 2);
+}
+
+#test draw_cargo_gauge_draws_a_frame_and_a_fill v2 @high-contrast "Test the cargo gauge with the player's settings"
+#[test]
+fn draw_cargo_gauge_draws_a_frame_and_a_fill() {
+    let flight = Flight::default();
+    let mut painter = Painter::recording(320, 200);
+    draw_cargo_gauge(&mut painter, &flight, &Settings::default());
+    assert_eq!(painter.commands().len(), 2);
+}
+
+#test colour_blind_palette_swaps_the_fuel_colour v1 @colour-blind "Test that the colour-blind palette swaps the fuel colour"
+#[test]
+fn colour_blind_palette_swaps_the_fuel_colour() {
+    let mut settings = Settings::default();
+    settings.colour_blind = true;
+    assert_eq!(fuel_colour(0.1, &settings), Color::RED.colour_blind());
+}
+
+#test high_contrast_frames_the_gauges_in_gold v1 @high-contrast "Test that high contrast frames the gauges in gold"
+#[test]
+fn high_contrast_frames_the_gauges_in_gold() {
+    let mut settings = Settings::default();
+    settings.high_contrast = true;
+    assert_eq!(frame_colour(&settings), Color::GOLD);
+}
+
+#test speed_readout_skips_missing_glyphs v1 @hud-speed "Test that the speed readout draws nothing without a font"
+#[test]
+fn speed_readout_skips_missing_glyphs() {
+    let flight = Flight::default();
+    let font = Font::new(Vec::new());
+    let mut glyphs = Vec::new();
+    draw_speed_readout(&font, &mut glyphs, &flight);
+    assert!(glyphs.is_empty());
+}
+
+#test cargo_gauge_frame_turns_gold_under_high_contrast v1 @high-contrast "Test that high contrast frames the cargo gauge in gold"
+#[test]
+fn cargo_gauge_frame_turns_gold_under_high_contrast() {
+    let mut settings = Settings::default();
+    settings.high_contrast = true;
+    let mut painter = Painter::recording(320, 200);
+    draw_cargo_gauge(&mut painter, &Flight::default(), &settings);
+    assert!(matches!(
+        painter.commands()[0],
+        orbital_render::painter::Command::Fill { color, .. } if color == Color::GOLD
+    ));
+}
+
+#test hud_margin_keeps_the_gauges_on_screen v1 @hud-cargo "Test that the HUD keeps clear of the window's edge"
+#[test]
+fn hud_margin_keeps_the_gauges_on_screen() {
+    const { assert!(HUD_MARGIN >= 8) };
+}

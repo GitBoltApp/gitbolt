@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "selectionLines",
+    "params": {
+      "path": "notes.txt",
+      "repo": "$repo",
+      "selection": {
+        "hunks": [
+          0
+        ],
+        "kind": "hunks"
+      },
+      "staged": true,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "apply": 2,
+    "discard": 2
+  }
+}

@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "blame",
+    "params": {
+      "path": "file_1.txt",
+      "repo": "$repo",
+      "rev": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "commits": [
+      {
+        "author": "Grace Hopper",
+        "boundary": false,
+        "email": "grace@example.com",
+        "sha": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "summary": "Add readme",
+        "time": 1767225900
+      }
+    ],
+    "hunks": [
+      {
+        "lines": 1,
+        "sha": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "start": 1
+      }
+    ]
+  }
+}

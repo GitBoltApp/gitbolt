@@ -1,0 +1,194 @@
+#file crates/orbital-render/src/trails.rs
+#header v1 @orbit-trails "Draw a fading trail behind each orbit"
+//! Orbit trails: the recent positions of a body, drawn fading out behind it.
+
+use std::collections::VecDeque;
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use crate::camera::Camera;
+#const TRAIL_TICKS v1 @orbit-trails "Draw a fading trail behind each orbit"
+/// How many ticks of history a trail keeps.
+pub const TRAIL_TICKS: usize = 600;
+#const TRAIL_TICKS v2 @orbit-trails "Shorten the orbit trail to 300 ticks"
+/// How many ticks of history a trail keeps.
+pub const TRAIL_TICKS: usize = 300;
+#const TRAIL_POINTS_CAPACITY v1 @orbit-trails "Draw a fading trail behind each orbit"
+/// The most trail points one frame uploads; a field of trails never comes near it.
+pub const TRAIL_POINTS_CAPACITY: usize = 8192;
+#item Trail v1 @orbit-trails "Draw a fading trail behind each orbit"
+/// The recent positions of one body, oldest first.
+#[derive(Debug, Default)]
+pub struct Trail {
+    points: VecDeque<Vec2>,
+}
+#item push v1 @orbit-trails "Draw a fading trail behind each orbit"
+impl Trail {
+    /// Records the body's position this tick, dropping the oldest once the trail is full.
+    pub fn push(&mut self, p: Vec2) {
+        if self.points.len() >= TRAIL_TICKS {
+            self.points.pop_front();
+        }
+        self.points.push_back(p);
+    }
+}
+#item alpha v1 @orbit-trails "Draw a fading trail behind each orbit"
+impl Trail {
+    /// How opaque the point at `index` is: the oldest is clear and the newest is nearly solid.
+    #[must_use]
+    pub fn alpha(&self, index: usize) -> f32 {
+        index as f32 / self.points.len() as f32
+    }
+}
+#item alpha v2 @trail-fade "Stop the trail fade going NaN when its edges match\n\nAn empty trail divided by a zero-length fade, so its alpha came out NaN."
+impl Trail {
+    /// How opaque the point at `index` is: the oldest is clear and the newest is nearly solid.
+    #[must_use]
+    pub fn alpha(&self, index: usize) -> f32 {
+        let len = self.points.len().max(1) as f32;
+        (index as f32 / len).clamp(0.0, 1.0)
+    }
+}
+#item screen_points v1 @orbit-trails "Draw a fading trail behind each orbit"
+impl Trail {
+    /// The trail's points on screen with their alphas, oldest first.
+    #[must_use]
+    pub fn screen_points(&self, camera: &Camera, screen: Vec2) -> Vec<(Vec2, f32)> {
+        self.points
+            .iter()
+            .enumerate()
+            .map(|(i, p)| (camera.to_screen(*p, screen), self.alpha(i)))
+            .collect()
+    }
+}
+#item GpuTrailPoint v1 @orbit-trails "Draw a fading trail behind each orbit"
+/// One trail point as the GPU reads it: its pixel position, its alpha, and padding to a 16-byte row.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub struct GpuTrailPoint {
+    pub point: [f32; 2],
+    pub alpha: f32,
+    pub pad: f32,
+}
+#item TrailPass v1 @orbit-trails "Draw a fading trail behind each orbit"
+/// The trails' GPU pass: its pipeline, its bind group, and the buffer its points are uploaded to.
+pub struct TrailPass {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+    points: wgpu::Buffer,
+}
+#item pass_new v1 @orbit-trails "Draw a fading trail behind each orbit"
+impl TrailPass {
+    /// Builds the trail pass for a surface of `format`, reading the camera uniform from `camera`.
+    #[must_use]
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat, camera: &wgpu::Buffer) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("trail"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/trail.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("trail"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let points = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("trail points"),
+            size: (TRAIL_POINTS_CAPACITY * std::mem::size_of::<GpuTrailPoint>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("trails"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: camera.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: points.as_entire_binding(),
+                },
+            ],
+        });
+        Self {
+            pipeline,
+            group,
+            points,
+        }
+    }
+}
+#item pass_draw v1 @orbit-trails "Draw a fading trail behind each orbit"
+impl TrailPass {
+    /// Draws every point of every trail for `camera` into the open `pass`, faded by its alpha.
+    pub fn pass_draw(
+        &self,
+        queue: &wgpu::Queue,
+        pass: &mut wgpu::RenderPass<'_>,
+        trails: &[Trail],
+        camera: &Camera,
+        screen: Vec2,
+    ) {
+        let points: Vec<GpuTrailPoint> = trails
+            .iter()
+            .flat_map(|trail| trail.screen_points(camera, screen))
+            .take(TRAIL_POINTS_CAPACITY)
+            .map(|(point, alpha)| GpuTrailPoint {
+                point: point.to_array(),
+                alpha,
+                pad: 0.0,
+            })
+            .collect();
+        queue.write_buffer(&self.points, 0, bytemuck::cast_slice(&points));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.group, &[]);
+        pass.draw(0..4, 0..points.len() as u32);
+    }
+}
+#test drops_points_past_the_limit v1 @orbit-trails "Test that a trail keeps only its recent ticks"
+#[test]
+fn drops_points_past_the_limit() {
+    let mut trail = Trail::default();
+    for i in 0..TRAIL_TICKS + 5 {
+        trail.push(Vec2::new(i as f32, 0.0));
+    }
+    assert_eq!(trail.points.len(), TRAIL_TICKS);
+    assert_eq!(trail.points[0].x, 5.0);
+}
+#test alpha_fades_towards_the_head v1 @orbit-trails "Test that older trail points are fainter"
+#[test]
+fn alpha_fades_towards_the_head() {
+    let mut trail = Trail::default();
+    for i in 0..4 {
+        trail.push(Vec2::new(i as f32, 0.0));
+    }
+    assert_eq!(trail.alpha(0), 0.0);
+    assert!((trail.alpha(3) - 0.75).abs() < 1e-6);
+}
+#test alpha_is_finite_for_an_empty_trail v1 @trail-fade "Test that an empty trail's fade is never NaN"
+#[test]
+fn alpha_is_finite_for_an_empty_trail() {
+    let trail = Trail::default();
+    assert!(trail.alpha(0).is_finite());
+    assert_eq!(trail.alpha(0), 0.0);
+}

@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "worktreePathKind",
+    "params": {
+      "path": "docs/manual.txt",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": "file"
+}

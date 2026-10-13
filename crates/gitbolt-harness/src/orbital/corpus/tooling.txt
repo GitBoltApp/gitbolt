@@ -1,0 +1,523 @@
+#; The tooling: CI, the rust and git config files, the asset packing script and the crates' manifests.
+#file .gitlab-ci.yml
+#whole v1 @ci-pipeline "Run fmt, clippy, the tests and a release build on every push"
+# Runs on every push. The Linux runner only, for now.
+stages:
+  - check
+  - test
+  - build
+
+fmt:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo clippy --workspace --all-targets -- -D clippy::all
+
+test:
+  stage: test
+  image: rust:1.85-bookworm
+  script:
+    - cargo test --workspace
+
+build:
+  stage: build
+  image: rust:1.85-bookworm
+  script:
+    - cargo build --release --workspace
+  artifacts:
+    paths:
+      - target/release/orbital-game
+    expire_in: 1 week
+#whole v2 @cut-10 "Add a release job for the tags from v1.0, after the build"
+# Runs on every push. The Linux runner only, for now.
+stages:
+  - check
+  - test
+  - build
+  - release
+
+fmt:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo clippy --workspace --all-targets -- -D clippy::all
+
+test:
+  stage: test
+  image: rust:1.85-bookworm
+  script:
+    - cargo test --workspace
+
+build:
+  stage: build
+  image: rust:1.85-bookworm
+  script:
+    - cargo build --release --workspace
+  artifacts:
+    paths:
+      - target/release/orbital-game
+    expire_in: 1 week
+
+release:
+  stage: release
+  image: rust:1.85-bookworm
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v1\./
+  script:
+    - sh tools/pack-assets.sh
+  artifacts:
+    paths:
+      - target/release/orbital-game
+      - dist/
+#whole v3 @gamepad-thrust "Install the udev headers that gilrs needs in CI"
+# Runs on every push. The Linux runner only, for now.
+stages:
+  - check
+  - test
+  - build
+  - release
+
+# gilrs reads the gamepads through udev, so every job needs its headers.
+default:
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libudev-dev
+
+fmt:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo clippy --workspace --all-targets -- -D clippy::all
+
+test:
+  stage: test
+  image: rust:1.85-bookworm
+  script:
+    - cargo test --workspace
+
+build:
+  stage: build
+  image: rust:1.85-bookworm
+  script:
+    - cargo build --release --workspace
+  artifacts:
+    paths:
+      - target/release/orbital-game
+    expire_in: 1 week
+
+release:
+  stage: release
+  image: rust:1.85-bookworm
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v1\./
+  script:
+    - sh tools/pack-assets.sh
+  artifacts:
+    paths:
+      - target/release/orbital-game
+      - dist/
+#whole v4 @cut-11 "Run the release job on the release/1.1 branch too"
+# Runs on every push. The Linux runner only, for now.
+stages:
+  - check
+  - test
+  - build
+  - release
+
+# gilrs reads the gamepads through udev, so every job needs its headers.
+default:
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libudev-dev
+
+fmt:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo clippy --workspace --all-targets -- -D clippy::all
+
+test:
+  stage: test
+  image: rust:1.85-bookworm
+  script:
+    - cargo test --workspace
+
+build:
+  stage: build
+  image: rust:1.85-bookworm
+  script:
+    - cargo build --release --workspace
+  artifacts:
+    paths:
+      - target/release/orbital-game
+    expire_in: 1 week
+
+release:
+  stage: release
+  image: rust:1.85-bookworm
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v1\./
+    - if: $CI_COMMIT_BRANCH == "release/1.1"
+  script:
+    - sh tools/pack-assets.sh
+  artifacts:
+    paths:
+      - target/release/orbital-game
+      - dist/
+#whole v5 @cut-12 "Run the release job on every release branch"
+# Runs on every push. The Linux runner only, for now.
+stages:
+  - check
+  - test
+  - build
+  - release
+
+# gilrs reads the gamepads through udev, so every job needs its headers.
+default:
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libudev-dev
+
+fmt:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo clippy --workspace --all-targets -- -D clippy::all
+
+test:
+  stage: test
+  image: rust:1.85-bookworm
+  script:
+    - cargo test --workspace
+
+build:
+  stage: build
+  image: rust:1.85-bookworm
+  script:
+    - cargo build --release --workspace
+  artifacts:
+    paths:
+      - target/release/orbital-game
+    expire_in: 1 week
+
+release:
+  stage: release
+  image: rust:1.85-bookworm
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v1\./
+    - if: $CI_COMMIT_BRANCH =~ /^release\/1\./
+  script:
+    - sh tools/pack-assets.sh
+  artifacts:
+    paths:
+      - target/release/orbital-game
+      - dist/
+#whole v6 @ci-cache "Cache the cargo registry between pipelines"
+# Runs on every push. The Linux runner only, for now.
+stages:
+  - check
+  - test
+  - build
+  - release
+
+# gilrs reads the gamepads through udev, so every job needs its headers.
+default:
+  before_script:
+    - apt-get update -qq
+    - apt-get install -y -qq libudev-dev
+  # The registry and the dependencies' checkouts, kept between pipelines.
+  cache:
+    key: cargo-$CI_COMMIT_REF_SLUG
+    paths:
+      - .cargo/registry
+      - .cargo/git
+
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/.cargo
+
+fmt:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo fmt --all -- --check
+
+clippy:
+  stage: check
+  image: rust:1.85-bookworm
+  script:
+    - cargo clippy --workspace --all-targets -- -D clippy::all
+
+test:
+  stage: test
+  image: rust:1.85-bookworm
+  script:
+    - cargo test --workspace
+
+build:
+  stage: build
+  image: rust:1.85-bookworm
+  script:
+    - cargo build --release --workspace
+  artifacts:
+    paths:
+      - target/release/orbital-game
+    expire_in: 1 week
+
+release:
+  stage: release
+  image: rust:1.85-bookworm
+  needs: [build]
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v1\./
+    - if: $CI_COMMIT_BRANCH =~ /^release\/1\./
+  script:
+    - sh tools/pack-assets.sh
+  artifacts:
+    paths:
+      - target/release/orbital-game
+      - dist/
+#file rustfmt.toml
+#whole v1 @workspace-setup "Set rustfmt to the 2024 edition"
+edition = "2024"
+#file clippy.toml
+#whole v1 @save-files "Let clippy's doc lint accept the save format's names"
+# Names clippy's doc lint takes as they are, not as words to fix. ".." keeps clippy's own list.
+doc-valid-idents = ["..", "CRC", "IEEE", "ORBS"]
+#whole v2 @ecs-world "Let clippy's doc lint accept ECS"
+# Names clippy's doc lint takes as they are, not as words to fix. ".." keeps clippy's own list.
+doc-valid-idents = ["..", "CRC", "ECS", "IEEE", "ORBS"]
+#file .gitignore
+#whole v1 @workspace-setup "Ignore the build output"
+# Build output
+/target
+#whole v2 @save-files "Ignore the save slots and their temporary files"
+# Build output
+/target
+
+# Save slots, and the temporary files a save is written through first
+saves/slot-*.orbsave
+*.tmp
+
+# Editor and OS files
+.DS_Store
+#whole v3 @cut-10 "Ignore the release archive and the local settings"
+# Build output
+/target
+/dist
+
+# Save slots, and the temporary files a save is written through first
+saves/slot-*.orbsave
+*.tmp
+
+# The player's settings, written next to the saves
+saves/settings.cfg
+
+# Editor and OS files
+.DS_Store
+#file rust-toolchain.toml
+#whole v1 @workspace-setup "Pin the toolchain to Rust 1.85"
+[toolchain]
+channel = "1.85.0"
+#whole v2 @ci-pipeline "Pin the toolchain CI uses, with clippy and rustfmt"
+[toolchain]
+channel = "1.85.0"
+profile = "minimal"
+components = ["clippy", "rustfmt"]
+#file tools/pack-assets.sh
+#whole v1 @cut-10 "Add a script that packs the assets for a release"
+#!/bin/sh
+# Packs the game's assets into one archive for a release build.
+set -eu
+
+cd "$(dirname "$0")/.."
+mkdir -p dist
+tar -czf dist/orbital-assets.tar.gz assets
+echo "wrote dist/orbital-assets.tar.gz"
+#whole v2 @cut-12 "Write a checksum next to the release archive"
+#!/bin/sh
+# Packs the game's assets into one archive for a release build, with a checksum beside it.
+set -eu
+
+cd "$(dirname "$0")/.."
+mkdir -p dist
+tar -czf dist/orbital-assets.tar.gz assets
+sha256sum dist/orbital-assets.tar.gz > dist/orbital-assets.tar.gz.sha256
+echo "wrote dist/orbital-assets.tar.gz and its .sha256"
+#file crates/orbital-core/Cargo.toml
+#whole v1 @workspace-setup "Add the core crate's manifest"
+[package]
+name = "orbital-core"
+version.workspace = true
+edition.workspace = true
+description = "The simulation behind Orbital: bodies, orbits, ships and the economy."
+publish = false
+
+[dependencies]
+glam = { workspace = true }
+#whole v2 @core-lints "Turn on clippy's pedantic lints for the core"
+[package]
+name = "orbital-core"
+version.workspace = true
+edition.workspace = true
+description = "The simulation behind Orbital: bodies, orbits, ships and the economy."
+publish = false
+
+[dependencies]
+glam = { workspace = true }
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+#file crates/orbital-render/Cargo.toml
+#whole v1 @first-window "Add the render crate's manifest"
+[package]
+name = "orbital-render"
+version.workspace = true
+edition.workspace = true
+description = "Draws an Orbital world with wgpu. It knows nothing about the rules of the game."
+publish = false
+
+[dependencies]
+log = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+#whole v2 @camera-follow "Add bytemuck and glam to the render crate"
+[package]
+name = "orbital-render"
+version.workspace = true
+edition.workspace = true
+description = "Draws an Orbital world with wgpu. It knows nothing about the rules of the game."
+publish = false
+
+[dependencies]
+bytemuck = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+#whole v3 @verdant-art "Add the core to the render crate"
+[package]
+name = "orbital-render"
+version.workspace = true
+edition.workspace = true
+description = "Draws an Orbital world with wgpu. It knows nothing about the rules of the game."
+publish = false
+
+[dependencies]
+bytemuck = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+orbital-core = { workspace = true }
+pollster = { workspace = true }
+wgpu = { workspace = true }
+winit = { workspace = true }
+#file crates/orbital-game/Cargo.toml
+#whole v1 @first-window "Add the game crate's manifest"
+[package]
+name = "orbital-game"
+version.workspace = true
+edition.workspace = true
+description = "Orbital, the game: the window, the screens and the save slots."
+publish = false
+
+[dependencies]
+env_logger = { workspace = true }
+orbital-render = { workspace = true }
+winit = { workspace = true }
+#whole v2 @camera-follow "Add the core and glam to the game crate"
+[package]
+name = "orbital-game"
+version.workspace = true
+edition.workspace = true
+description = "Orbital, the game: the window, the screens and the save slots."
+publish = false
+
+[dependencies]
+env_logger = { workspace = true }
+glam = { workspace = true }
+orbital-core = { workspace = true }
+orbital-render = { workspace = true }
+winit = { workspace = true }
+#whole v3 @engine-hum "Log the audio device's failures from the game crate"
+[package]
+name = "orbital-game"
+version.workspace = true
+edition.workspace = true
+description = "Orbital, the game: the window, the screens and the save slots."
+publish = false
+
+[dependencies]
+env_logger = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+orbital-core = { workspace = true }
+orbital-render = { workspace = true }
+winit = { workspace = true }
+#whole v4 @multiplayer "Add serde for the lockstep packets"
+[package]
+name = "orbital-game"
+version.workspace = true
+edition.workspace = true
+description = "Orbital, the game: the window, the screens and the save slots."
+publish = false
+
+[dependencies]
+env_logger = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+orbital-core = { workspace = true }
+orbital-render = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+winit = { workspace = true }
+#whole v5 @gamepad-thrust "Add gilrs for the gamepad's sticks"
+[package]
+name = "orbital-game"
+version.workspace = true
+edition.workspace = true
+description = "Orbital, the game: the window, the screens and the save slots."
+publish = false
+
+[dependencies]
+env_logger = { workspace = true }
+gilrs = { workspace = true }
+glam = { workspace = true }
+log = { workspace = true }
+orbital-core = { workspace = true }
+orbital-render = { workspace = true }
+winit = { workspace = true }

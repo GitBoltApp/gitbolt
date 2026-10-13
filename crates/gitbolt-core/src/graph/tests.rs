@@ -1,5 +1,5 @@
 use super::*;
-use gix::ObjectId;
+use gitbolt_graph::Oid as ObjectId;
 use std::collections::HashMap;
 
 /// `spec` rows are (name, parent names). Names starting with `wip`/`stash` set the node kind.
@@ -330,7 +330,7 @@ fn node(parents: Vec<Parent>) -> LayoutNode {
 fn check_rejects_an_edge_that_lands_on_the_wrong_node() {
     // a's only parent is c (row 2), but its lane runs into b (row 1) instead. Every row
     // boundary matches, so only the per-edge rule can see it.
-    let nodes = vec![node(vec![Parent::Row(2)]), node(vec![Parent::Outside(ObjectId::null(gix::hash::Kind::Sha1))]), node(vec![])];
+    let nodes = vec![node(vec![Parent::Row(2)]), node(vec![Parent::Outside(ObjectId::NULL)]), node(vec![])];
     let lay = Layout {
         rows: vec![
             GraphRow { lane: 0, color: 0, segments: vec![seg(0, 0, Half::Bottom)] },
@@ -345,7 +345,7 @@ fn check_rejects_an_edge_that_lands_on_the_wrong_node() {
 
 #[test]
 fn check_rejects_an_outside_edge_that_enters_a_node() {
-    let x = ObjectId::null(gix::hash::Kind::Sha1);
+    let x = ObjectId::NULL;
     let nodes = vec![node(vec![Parent::Outside(x)]), node(vec![Parent::Outside(x)])];
     let lay = Layout {
         rows: vec![
@@ -683,7 +683,7 @@ fn beyond(row: u32) -> ObjectId {
 }
 
 fn beyond_row(id: &ObjectId) -> Option<u32> {
-    let b = id.as_bytes();
+    let b = &id.0;
     (b[4..] == [0xEEu8; 16]).then(|| u32::from_le_bytes(b[..4].try_into().unwrap()))
 }
 

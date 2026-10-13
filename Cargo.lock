@@ -2061,6 +2061,7 @@ dependencies = [
  "dunce",
  "encoding_rs",
  "futures-util",
+ "gitbolt-graph",
  "gix",
  "insta",
  "nix",
@@ -2101,11 +2102,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "gitbolt-graph"
+version = "0.6.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "ts-rs",
+]
+
+[[package]]
+name = "gitbolt-graph-wasm"
+version = "0.6.0"
+dependencies = [
+ "gitbolt-graph",
+ "serde_json",
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "gitbolt-harness"
 version = "0.6.0"
 dependencies = [
  "axum",
  "base64 0.23.1",
+ "flate2",
  "futures-util",
  "gitbolt-core",
  "gitbolt-forge",

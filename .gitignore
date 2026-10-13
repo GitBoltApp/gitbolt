@@ -11,3 +11,8 @@ node_modules/
 *.snap.new
 /crates/*/gen/schemas
 /ui/dist-e2e
+/ui/src/demo/wasm/
+/ui/dist-demo-e2e
+/site/dist
+/site/test-results
+/site/playwright-report

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "cdd5f8ebed8ea5976a9d7dcf828b31ab16d444e3"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "04ecf4b5b62d74f81c30682abe0bad227b9045d5"
+      },
+      "path": "logo.png",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": true,
+    "new": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAYAAAAECAYAAACtBE5DAAAAb0lEQVR4AQFkAJv/AAAA//8AAP//AAD//wAA//8AAP//AAD//wAAAP//AAD//wAA//8AAP//AAD//wAA//8AAAD//wAA//8AAP//AAD//wAA//8AAP//AAAA//8AAP//AAD//wAA//8AAP//AAD//ye7L9GsJBbVAAAAAElFTkSuQmCC",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "cdd5f8ebed8ea5976a9d7dcf828b31ab16d444e3",
+      "size": 168,
+      "text": null
+    },
+    "old": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAAAQAAAAECAYAAACp8Z5+AAAAT0lEQVR4AQFEALv/AP8AAP//AAD//wAA//8AAP8A/wAA//8AAP//AAD//wAA/wD/AAD//wAA//8AAP//AAD/AP8AAP//AAD//wAA//8AAP88QB/hUu3/ogAAAABJRU5ErkJggg==",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "04ecf4b5b62d74f81c30682abe0bad227b9045d5",
+      "size": 136,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

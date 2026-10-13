@@ -25,7 +25,7 @@ React UI that draws it, and Tauri 3 on its Chromium (CEF) runtime holding the tw
 
 ## Crates and the UI
 
-The Cargo workspace has four crates under `crates/`; the UI is a separate npm project in `ui/`.
+The Cargo workspace has six crates under `crates/`; the UI is a separate npm project in `ui/`.
 
 **`gitbolt-core`** owns everything a git client does, with no Tauri dependency. Its entry point is
 `Api` (`src/api.rs`): one `Request` enum of every method the UI can call, and one `dispatch`
@@ -54,6 +54,18 @@ window's size and position.
 **`gitbolt-harness`** serves the same `Api` over a WebSocket so the UI can run in a plain browser
 with no Tauri, and adds a fake GitHub/GitLab, fixture repositories and test-only routes. It's what
 the Playwright suite drives; see [Testing](#testing).
+
+**`gitbolt-graph`** is the graph's pure pipeline: the walk's order, the pinned trunk, the WIP rows,
+the lane layout and the labels, from plain data (`GraphInput`) to `GraphPayload`, with no gix and no
+I/O. Core reads the repository with gix and calls it (`snapshot.rs`); **`gitbolt-graph-wasm`**
+compiles it to WebAssembly (`just demo-wasm`) for the website demo, whose in-browser backend
+(`ui/src/demo/`: `DemoTransport` over isomorphic-git) answers the UI's requests from repository
+bundles. The demo's parity suite compares its answers to the core's (`just demo-golden`).
+
+**`site/`** is the website: one static page (Vite, plain TypeScript and CSS) that embeds the demo
+build in an iframe in its hero. Its features and GitKraken table are generated from README.md, and
+its downloads from `site/data/release.json`, at build time; its screenshots come from the demo
+build (`just site-shots`).
 
 **`ui/`** is React 19, TypeScript and Vite, with zustand for state. It's organized by feature
 (`graph/`, `diff/`, `stage/`, `forge/`, `markdown/`, `settings/`, …). Each feature module

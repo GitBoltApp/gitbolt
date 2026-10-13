@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "fe7b386e097190793d26b5842f91721a8dd4c7d0"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "9ea6fab64b499e6be4b4ab7714d23cdf6c97c8a6"
+      },
+      "path": "notes/devlog.md",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "fe7b386e097190793d26b5842f91721a8dd4c7d0",
+      "size": 459,
+      "text": "---\ntitle: Flying the scout\ndate: 2026-07-18\nauthor: Noor Achterberg\ntags: [devlog, art, release]\ndraft: false\n---\n\n# Flying the scout\n\nThe scout finally has a flame, and 1.1 gives it a repaint. The hull is cleaner, the cockpit is brighter and the thruster has four frames instead of two.\n\n![The scout](../images/scout.png)\n\n| Ship | Hull | Cargo |\n|---|---|---|\n| Scout | 40 | 2 t |\n| Hauler | 120 | 24 t |\n| Interceptor | 60 | 1 t |\n\nNext up: the stations.\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "9ea6fab64b499e6be4b4ab7714d23cdf6c97c8a6",
+      "size": 192,
+      "text": "---\ntitle: Flying the scout\ndate: 2026-05-02\nauthor: Noor Achterberg\ntags: [devlog, art]\ndraft: true\n---\n\n# Flying the scout\n\nThe scout finally has a flame.\n\n![The scout](../images/scout.png)\n"
+    },
+    "tooLarge": false
+  }
+}

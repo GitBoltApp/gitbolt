@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "findPaths",
+    "params": {
+      "query": "manual",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "dd8f687416ebed6d829f5c1e90f688a811ab41cd"
+  ]
+}

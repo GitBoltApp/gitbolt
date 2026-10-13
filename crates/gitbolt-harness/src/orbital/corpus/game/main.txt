@@ -1,0 +1,362 @@
+#file crates/orbital-game/src/main.rs
+#header v1 @first-window
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+
+#header v2 @camera-follow
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod flight;
+
+#header v3 @thrust-fuel
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod flight;
+mod input;
+
+#header v4 @engine-hum
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod flight;
+mod input;
+
+#header v5 @docking
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+
+#header v6 @trade-screen
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+mod trade_screen;
+
+#header v7 @save-files
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+mod save_slots;
+mod trade_screen;
+
+#header v8 @title-screen
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+mod menu;
+mod save_slots;
+mod trade_screen;
+
+#header v9 @orbit-map
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+mod map_view;
+mod menu;
+mod save_slots;
+mod trade_screen;
+
+#header v10 @settings-menu
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+mod map_view;
+mod menu;
+mod save_slots;
+mod settings;
+mod trade_screen;
+
+#header v11 @multiplayer "Prototype lockstep multiplayer"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod input;
+mod lobby;
+mod map_view;
+mod menu;
+mod net;
+mod save_slots;
+mod settings;
+mod trade_screen;
+
+#header v12 @hud-cargo "Show the cargo hold's fill on the HUD"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod save_slots;
+mod settings;
+mod trade_screen;
+
+#header v13 @contracts-ui "Show open contracts on the trade screen"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod save_slots;
+mod settings;
+mod trade_screen;
+
+#header v14 @mod-loader "Load ship classes from the mod folders"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod trade_screen;
+
+#header v15 @strings-table "Move the interface strings into one table"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod strings;
+mod trade_screen;
+
+#header v16 @trade-routes "Plan multi-stop trade routes"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod strings;
+mod trade_routes;
+mod trade_screen;
+
+#header v17 @autopilot "Add an autopilot for transfer burns"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod autopilot;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod strings;
+mod trade_screen;
+
+#header v18 @station-ui "Rework the station screen"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod station_ui;
+mod strings;
+mod trade_screen;
+
+#header v19 @wormholes "Prototype wormholes between sectors"
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod strings;
+mod trade_screen;
+mod wormhole;
+
+#header v20 @hud-polish
+//! Orbital: a small space-trading game about orbits, cargo and bad decisions.
+
+#![warn(clippy::pedantic)]
+
+use winit::event_loop::{ControlFlow, EventLoop};
+
+mod app;
+mod audio;
+mod contracts_ui;
+mod docked;
+mod flight;
+mod hud;
+mod hud_gauges;
+mod input;
+mod map_view;
+mod menu;
+mod mods;
+mod save_slots;
+mod settings;
+mod strings;
+mod trade_screen;
+
+#item main v1 @first-window "Open a window and run the game loop"
+/// Starts the logger and the event loop, and runs the game until the window closes.
+fn main() {
+    env_logger::init();
+    let event_loop = EventLoop::new().expect("the platform has an event loop");
+    event_loop.set_control_flow(ControlFlow::Poll);
+    let mut app = app::App::default();
+    event_loop.run_app(&mut app).expect("the event loop ran");
+}

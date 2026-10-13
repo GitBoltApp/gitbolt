@@ -1,0 +1,525 @@
+#; The press kit: a page for journalists, with the fact sheet, screenshots and the trailer.
+#file press/index.html
+#whole v1 @press-kit-1 "Add the first press kit"
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbital press kit</title>
+  <link rel="stylesheet" href="press.css">
+</head>
+<body>
+  <header class="masthead">
+    <img src="img/title.png" alt="The Orbital title art">
+    <h1>Orbital</h1>
+    <p class="tagline">A small space-trading game about orbits, cargo and bad decisions.</p>
+  </header>
+
+  <main>
+    <section class="facts">
+      <h2>Fact sheet</h2>
+      <dl>
+        <dt>Developer</dt><dd>The Orbital contributors</dd>
+        <dt>Genre</dt><dd>2D space trading, single player</dd>
+        <dt>Platforms</dt><dd>Desktop</dd>
+        <dt>Version</dt><dd>1.0</dd>
+        <dt>Licence</dt><dd>MIT</dd>
+        <dt>Contact</dt><dd><a href="mailto:press@orbital.example.com">press@orbital.example.com</a></dd>
+      </dl>
+    </section>
+
+    <section class="about">
+      <h2>About the game</h2>
+      <p>Orbital puts you in a small ship in one planetary system. Every planet pulls on the ship,
+      so a trip between stations is a curve, not a line. You mine ore from the asteroid belts, carry
+      it to a station, and sell it where the price is best. Each station remembers what you traded
+      there, and its prices drift back day by day.</p>
+      <p>The game is built to be read as well as played. The orbit map shows the whole system, with
+      the ship flying on underneath it, so you can see where a burn is taking you.</p>
+    </section>
+
+    <section class="features">
+      <h2>Features</h2>
+      <ul>
+        <li>Orbits from a fixed-step simulation, with the same result on every machine</li>
+        <li>Mining, cargo and a market with prices that move with each trade</li>
+        <li>Delivery contracts with deadlines</li>
+        <li>An orbit map of the whole system</li>
+        <li>Settings for volume, keys, text scale and a colour-blind palette</li>
+        <li>Saves, with an autosave every five minutes</li>
+      </ul>
+    </section>
+
+    <section class="screenshots">
+      <h2>Screenshots</h2>
+      <figure>
+        <img src="img/screenshot-orbit.png" alt="The orbit view, with a planet and the ship">
+        <figcaption>The orbit view.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/screenshot-trade.png" alt="The trade screen at a station">
+        <figcaption>The trade screen at a station.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/screenshot-dock.png" alt="The ship docked at a station">
+        <figcaption>Docked at a station.</figcaption>
+      </figure>
+    </section>
+
+    <section class="trailer">
+      <h2>Trailer</h2>
+      <video src="trailer.webm" controls preload="metadata"></video>
+    </section>
+  </main>
+
+  <footer>
+    <p>Press enquiries: <a href="mailto:press@orbital.example.com">press@orbital.example.com</a></p>
+  </footer>
+</body>
+</html>
+#whole v2 @screenshots-2 "Retake the press screenshots at 4K"
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbital press kit</title>
+  <link rel="stylesheet" href="press.css">
+</head>
+<body>
+  <header class="masthead">
+    <img src="img/title.png" alt="The Orbital title art">
+    <h1>Orbital</h1>
+    <p class="tagline">A small space-trading game about orbits, cargo and bad decisions.</p>
+  </header>
+
+  <main>
+    <section class="facts">
+      <h2>Fact sheet</h2>
+      <dl>
+        <dt>Developer</dt><dd>The Orbital contributors</dd>
+        <dt>Genre</dt><dd>2D space trading, single player</dd>
+        <dt>Platforms</dt><dd>Desktop</dd>
+        <dt>Version</dt><dd>1.1</dd>
+        <dt>Licence</dt><dd>MIT</dd>
+        <dt>Contact</dt><dd><a href="mailto:press@orbital.example.com">press@orbital.example.com</a></dd>
+      </dl>
+    </section>
+
+    <section class="about">
+      <h2>About the game</h2>
+      <p>Orbital puts you in a small ship in one planetary system. Every planet pulls on the ship,
+      so a trip between stations is a curve, not a line. You mine ore from the asteroid belts, carry
+      it to a station, and sell it where the price is best. Each station remembers what you traded
+      there, and its prices drift back day by day.</p>
+      <p>The game is built to be read as well as played. The orbit map shows the whole system, with
+      the ship flying on underneath it, so you can see where a burn is taking you.</p>
+    </section>
+
+    <section class="features">
+      <h2>Features</h2>
+      <ul>
+        <li>Orbits from a fixed-step simulation, with the same result on every machine</li>
+        <li>Mining, cargo and a market with prices that move with each trade</li>
+        <li>An orbit map of the whole system, with a legend and a colour-blind palette</li>
+        <li>Settings for volume, keys, text scale and a high-contrast theme</li>
+        <li>Gamepad thrust and steering, with analogue thrust</li>
+        <li>New ship classes from mod folders</li>
+        <li>Delivery contracts with deadlines</li>
+        <li>Saves, with an autosave every five minutes</li>
+      </ul>
+    </section>
+
+    <section class="screenshots">
+      <h2>Screenshots</h2>
+      <p class="note">Taken at 4K, with the interface scaled to match.</p>
+      <figure>
+        <img src="img/screenshot-orbit.png" alt="The orbit view, with a planet and the ship">
+        <figcaption>The orbit view.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/screenshot-trade.png" alt="The trade screen at a station">
+        <figcaption>The trade screen at a station.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/screenshot-dock.png" alt="The ship docked at a station">
+        <figcaption>Docked at a station.</figcaption>
+      </figure>
+    </section>
+
+    <section class="trailer">
+      <h2>Trailer</h2>
+      <video src="trailer.webm" controls preload="metadata"></video>
+    </section>
+  </main>
+
+  <footer>
+    <p>Press enquiries: <a href="mailto:press@orbital.example.com">press@orbital.example.com</a></p>
+  </footer>
+</body>
+</html>
+#whole v3 @press-kit-2 "Refresh the press kit for 1.2"
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Orbital press kit</title>
+  <link rel="stylesheet" href="press.css">
+</head>
+<body>
+  <header class="masthead">
+    <img src="img/title.png" alt="The Orbital title art">
+    <h1>Orbital</h1>
+    <p class="tagline">A small space-trading game about orbits, cargo and bad decisions.</p>
+  </header>
+
+  <main>
+    <section class="facts">
+      <h2>Fact sheet</h2>
+      <dl>
+        <dt>Developer</dt><dd>The Orbital contributors</dd>
+        <dt>Genre</dt><dd>2D space trading, single player</dd>
+        <dt>Platforms</dt><dd>Desktop</dd>
+        <dt>Version</dt><dd>1.2</dd>
+        <dt>Licence</dt><dd>MIT</dd>
+        <dt>Contact</dt><dd><a href="mailto:press@orbital.example.com">press@orbital.example.com</a></dd>
+      </dl>
+    </section>
+
+    <section class="about">
+      <h2>About the game</h2>
+      <p>Orbital puts you in a small ship in one planetary system. Every planet pulls on the ship,
+      so a trip between stations is a curve, not a line. You mine ore from the asteroid belts, carry
+      it to a station, and sell it where the price is best. Each station remembers what you traded
+      there, and its prices drift back day by day.</p>
+      <p>The game is built to be read as well as played. The orbit map shows the whole system, with
+      the ship flying on underneath it, so you can see where a burn is taking you. An autopilot is on its way, and the trailer
+      ends on a preview of it.</p>
+    </section>
+
+    <section class="features">
+      <h2>Features</h2>
+      <ul>
+        <li>Orbits from a fixed-step simulation, with the same result on every machine</li>
+        <li>Mining, cargo and a market with prices that move with each trade</li>
+        <li>An autopilot preview: the game plans the two burns of a transfer</li>
+        <li>An orbit map of the whole system, with a legend and a colour-blind palette</li>
+        <li>Settings for volume, keys, text scale and a high-contrast theme</li>
+        <li>Gamepad thrust and steering, with analogue thrust</li>
+        <li>New ship classes from mod folders</li>
+        <li>Delivery contracts with deadlines</li>
+        <li>Saves in format 3, with open contracts and an autosave every five minutes</li>
+      </ul>
+    </section>
+
+    <section class="screenshots">
+      <h2>Screenshots</h2>
+      <p class="note">Taken at 4K, with the interface scaled to match.</p>
+      <figure>
+        <img src="img/screenshot-orbit.png" alt="The orbit view, with a planet and the ship">
+        <figcaption>The orbit view.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/screenshot-trade.png" alt="The trade screen at a station">
+        <figcaption>The trade screen at a station.</figcaption>
+      </figure>
+      <figure>
+        <img src="img/screenshot-dock.png" alt="The ship docked at a station">
+        <figcaption>Docked at a station.</figcaption>
+      </figure>
+    </section>
+
+    <section class="trailer">
+      <h2>Trailer</h2>
+      <video src="trailer.webm" controls preload="metadata"></video>
+    </section>
+  </main>
+
+  <footer>
+    <p>Press enquiries: <a href="mailto:press@orbital.example.com">press@orbital.example.com</a></p>
+  </footer>
+</body>
+</html>
+#file press/press.css
+#whole v1 @press-kit-1 "Style the press page on a dark navy ground"
+:root {
+  --ground: #0b1424;
+  --panel: #13213a;
+  --ink: #e6ecf7;
+  --muted: #9aa8c2;
+  --lane-verdant: #6fcf97;
+  --lane-cinder: #f2994a;
+  --lane-glacier: #7fb8ff;
+  --lane-tempest: #c48bff;
+  --lane-dustball: #d8c9a3;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.masthead {
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.masthead img {
+  max-width: 100%;
+  height: auto;
+}
+
+video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+section {
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+h1,
+h2 {
+  font-weight: 600;
+}
+
+.tagline,
+.note {
+  color: var(--muted);
+}
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  padding-bottom: 24px;
+}
+
+a {
+  color: var(--lane-glacier);
+}
+#whole v2 @screenshots-2 "Lay the 4K screenshots out in a responsive grid"
+:root {
+  --ground: #0b1424;
+  --panel: #13213a;
+  --ink: #e6ecf7;
+  --muted: #9aa8c2;
+  --lane-verdant: #6fcf97;
+  --lane-cinder: #f2994a;
+  --lane-glacier: #7fb8ff;
+  --lane-tempest: #c48bff;
+  --lane-dustball: #d8c9a3;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.masthead {
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.masthead img {
+  max-width: 100%;
+  height: auto;
+}
+
+video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+section {
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+}
+
+h1,
+h2 {
+  font-weight: 600;
+}
+
+.tagline,
+.note {
+  color: var(--muted);
+}
+
+.screenshots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.screenshots h2,
+.screenshots .note {
+  grid-column: 1 / -1;
+}
+
+.screenshots figure {
+  margin: 0;
+}
+
+.screenshots img {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+figcaption {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  padding-bottom: 24px;
+}
+
+a {
+  color: var(--lane-glacier);
+}
+#whole v3 @press-kit-2 "Mark the lane colours on the press page"
+:root {
+  --ground: #0b1424;
+  --panel: #13213a;
+  --ink: #e6ecf7;
+  --muted: #9aa8c2;
+  --lane-verdant: #6fcf97;
+  --lane-cinder: #f2994a;
+  --lane-glacier: #7fb8ff;
+  --lane-tempest: #c48bff;
+  --lane-dustball: #d8c9a3;
+}
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+.masthead {
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.masthead img {
+  max-width: 100%;
+  height: auto;
+}
+
+video {
+  display: block;
+  max-width: 100%;
+  height: auto;
+}
+
+main {
+  max-width: 880px;
+  margin: 0 auto;
+  padding: 0 16px 48px;
+}
+
+section {
+  background: var(--panel);
+  border-radius: 6px;
+  padding: 16px 20px;
+  margin-bottom: 16px;
+  border-left: 4px solid var(--muted);
+}
+
+.facts {
+  border-left-color: var(--lane-verdant);
+}
+
+.about {
+  border-left-color: var(--lane-glacier);
+}
+
+.features {
+  border-left-color: var(--lane-cinder);
+}
+
+.screenshots {
+  border-left-color: var(--lane-tempest);
+}
+
+.trailer {
+  border-left-color: var(--lane-dustball);
+}
+
+h1,
+h2 {
+  font-weight: 600;
+}
+
+.tagline,
+.note {
+  color: var(--muted);
+}
+
+.screenshots {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+}
+
+.screenshots h2,
+.screenshots .note {
+  grid-column: 1 / -1;
+}
+
+.screenshots figure {
+  margin: 0;
+}
+
+.screenshots img {
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+}
+
+figcaption {
+  color: var(--muted);
+  font-size: 0.9em;
+}
+
+footer {
+  text-align: center;
+  color: var(--muted);
+  padding-bottom: 24px;
+}
+
+a {
+  color: var(--lane-glacier);
+}

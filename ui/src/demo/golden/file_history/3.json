@@ -1,0 +1,43 @@
+{
+  "request": {
+    "method": "fileHistory",
+    "params": {
+      "limit": 2,
+      "path": "src/story.txt",
+      "repo": "$repo",
+      "skip": 0,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "more": true,
+    "rows": [
+      {
+        "author": "Ada Lovelace",
+        "email": "ada@example.com",
+        "oldPath": null,
+        "parents": [
+          "8420d622fdbb3162dfa75f89852f96b1e97ec121"
+        ],
+        "path": "src/story.txt",
+        "sha": "eb6b614353968fa16e788878d26d1844a85bbc45",
+        "status": "M",
+        "summary": "Sharpen the opening",
+        "time": 1767226500
+      },
+      {
+        "author": "Lars Tidemann",
+        "email": "lars@example.com",
+        "oldPath": "story.txt",
+        "parents": [
+          "4d1b598ac56effafb61997357633a9c69495ffc3"
+        ],
+        "path": "src/story.txt",
+        "sha": "8420d622fdbb3162dfa75f89852f96b1e97ec121",
+        "status": "R",
+        "summary": "Move the story under src",
+        "time": 1767226320
+      }
+    ]
+  }
+}

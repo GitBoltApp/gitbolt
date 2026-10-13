@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "findPaths",
+    "params": {
+      "query": "file_5",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "1d408fbb77d7ebf066f8762bf9e7726d07dc5f16",
+    "90b00f7229088a783d308db29e34ad2cab862b15",
+    "89029b916b8ed7900471f19eb77211784be24766",
+    "28c4d207c38de7ceec280b79ceb016d47df09cfe",
+    "b3418ecb75edd1687ee8d0cb11215de70e7e1a56",
+    "29cfd43919627c1ab389a6f5e5a5892c99cdc77d",
+    "99388b038533d5d5f6f9c75dbb9e9f36320be944",
+    "9ce0d4264a87a5630ee1d040620ab02d08b7ebc4",
+    "702870a2c15fa75aae8c5e983b36c0a5268b3c77",
+    "eafcfbc00cae2e6f30ba1f9a90a40ab071cb7e74"
+  ]
+}

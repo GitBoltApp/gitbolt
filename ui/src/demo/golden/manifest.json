@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "repos": [
+    {
+      "name": "basic",
+      "file": "basic.gbdemo",
+      "group": null,
+      "open": "active"
+    },
+    {
+      "name": "details",
+      "file": "details.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "diff_view",
+      "file": "diff_view.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "file_history",
+      "file": "file_history.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "lfs",
+      "file": "lfs.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "long_history",
+      "file": "long_history.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "previews",
+      "file": "previews.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "submodules",
+      "file": "submodules.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "sync",
+      "file": "sync.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "wip_conflict",
+      "file": "wip_conflict.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "wip_staging",
+      "file": "wip_staging.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    }
+  ],
+  "groups": [
+    {
+      "name": "Playground",
+      "color": "blue",
+      "collapsed": true
+    }
+  ]
+}

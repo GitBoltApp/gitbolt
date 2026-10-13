@@ -1,0 +1,88 @@
+{
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": 2,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/main",
+      "detached": false,
+      "target": "eb6b614353968fa16e788878d26d1844a85bbc45",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/file_history",
+        "isHead": true,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 1,
+    "openWorktree": "/demo/file_history",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226500,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226500,
+        "id": "eb6b614353968fa16e788878d26d1844a85bbc45",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "8420d622fdbb3162dfa75f89852f96b1e97ec121"
+        ],
+        "segments": [
+          1048576
+        ],
+        "summary": "Sharpen the opening",
+        "wip": null
+      },
+      {
+        "authorEmail": "lars@example.com",
+        "authorName": "Lars Tidemann",
+        "authorTime": 1767226320,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226320,
+        "id": "8420d622fdbb3162dfa75f89852f96b1e97ec121",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "4d1b598ac56effafb61997357633a9c69495ffc3"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Move the story under src",
+        "wip": null
+      }
+    ],
+    "truncated": true,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "eb6b614353968fa16e788878d26d1844a85bbc45",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/file_history"
+      }
+    ]
+  }
+}

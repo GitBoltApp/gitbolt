@@ -1,0 +1,2664 @@
+#file crates/orbital-game/src/flight.rs
+#header v1 @camera-follow
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::physics::{gravity, step};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::camera::Camera;
+
+#header v2 @verdant-art
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::physics::{gravity, step};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::SpriteBatch;
+
+#header v3 @orbit-prediction
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+#header v4 @thrust-fuel
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::ship::Ship;
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v5 @scout-art
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::ship::{Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v6 @asteroids
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::ship::{Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v7 @cargo-hold
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+use orbital_core::cargo::CargoHold;
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::ship::{Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v8 @docking
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::CargoHold;
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v9 @save-files
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v10 @tempest-art
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::World;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v11 @ecs-world
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v12 @systems
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{run_mining, run_thrust};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::input::Action;
+
+#header v13 @orbit-trails
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{run_mining, run_thrust};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::trails::Trail;
+
+use crate::input::Action;
+
+#header v14 @explosion-lifetime
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{EXPLOSION_SECONDS, Explosion, run_explosions, run_mining, run_thrust};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::trails::Trail;
+
+use crate::input::Action;
+
+#header v15 @save-v2
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{EXPLOSION_SECONDS, Explosion, run_explosions, run_mining, run_thrust};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::trails::Trail;
+
+use crate::input::Action;
+
+#header v16 @economy-drift
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::economy::{DAY_TICKS, Market};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{
+    EXPLOSION_SECONDS, Explosion, run_economy, run_explosions, run_mining, run_thrust,
+};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::trails::Trail;
+
+use crate::input::Action;
+use crate::trade_screen::station_markets;
+
+#header v17 @contracts
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::contracts::{self, Contract};
+use orbital_core::economy::{DAY_TICKS, Market};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{
+    EXPLOSION_SECONDS, Explosion, run_economy, run_explosions, run_mining, run_thrust,
+};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::trails::Trail;
+
+use crate::input::Action;
+use crate::trade_screen::station_markets;
+
+#header v18 @strings-table
+//! The flight view: the ship under thrust among the planets, and the camera that follows it.
+
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use glam::Vec2;
+use orbital_core::body::{Body, BodyKind};
+use orbital_core::cargo::{CargoHold, Commodity};
+use orbital_core::contracts::{self, Contract};
+use orbital_core::economy::{DAY_TICKS, Market};
+use orbital_core::level::{Placement, parse_sector};
+use orbital_core::math::wrap_angle;
+use orbital_core::orbit::predict;
+use orbital_core::physics::{gravity, step};
+use orbital_core::rng::{DEFAULT_SEED, Rng};
+use orbital_core::save::Save;
+use orbital_core::ship::{Dock, Ship, ShipClass, parse_classes};
+use orbital_core::systems::{
+    EXPLOSION_SECONDS, Explosion, run_economy, run_explosions, run_mining, run_thrust,
+};
+use orbital_core::time::TICK_SECONDS;
+use orbital_core::world::{Entity, World};
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::trails::Trail;
+
+use crate::input::Action;
+use crate::strings::tr;
+use crate::trade_screen::station_markets;
+
+#const PREDICT_STEPS v1 @orbit-prediction
+/// How many ticks ahead the orbit view predicts, about fifteen seconds of flight.
+pub const PREDICT_STEPS: usize = 300;
+
+#const DOT_SIZE v1 @orbit-prediction
+/// The width of one dot on the predicted path, in kilometres.
+pub const DOT_SIZE: f32 = 6.0;
+
+#const TURN_RATE v1 @thrust-fuel
+/// How fast the ship turns, in radians a second.
+pub const TURN_RATE: f32 = 2.5;
+
+#const ASTEROID_COUNT v1 @asteroids
+/// How many asteroids each belt starts with.
+pub const ASTEROID_COUNT: usize = 40;
+
+#const ASTEROID_COUNT v2 @asteroid-belts "Thin each asteroid belt to 24 rocks"
+/// How many asteroids each belt starts with.
+pub const ASTEROID_COUNT: usize = 24;
+
+#const ASTEROID_ORBIT v1 @asteroids
+/// The orbit radius the asteroid belt is spread around, in kilometres.
+pub const ASTEROID_ORBIT: f32 = 2400.0;
+
+#const ASTEROID_ORBIT v2 @tempest-art !removed
+
+#const RING_ORBIT v1 @ring-station
+/// The orbit radius of the ring station, in kilometres.
+pub const RING_ORBIT: f32 = 1400.0;
+
+#const RING_ORBIT v2 @tempest-art !removed
+
+#const DEPOT_ORBIT v1 @depot-art
+/// The orbit radius of the depot stations on the outer orbits, in kilometres.
+pub const DEPOT_ORBIT: f32 = 3200.0;
+
+#const DEPOT_ORBIT v2 @tempest-art !removed
+
+#const HIT_DAMAGE v1 @explosions
+/// Hull points a hit takes off the ship and the rock it hit, for each km/s the ship was going.
+pub const HIT_DAMAGE: f32 = 10.0;
+
+#const EXPLOSION_SIZE v1 @explosions
+/// How wide an explosion is drawn when it goes off, in kilometres.
+pub const EXPLOSION_SIZE: f32 = 1.0;
+
+#const STARTING_CREDITS v1 @trade-screen
+/// The credits a new pilot starts with.
+pub const STARTING_CREDITS: f32 = 1200.0;
+
+#item SHIPS v1 @scout-art "Start every game in the scout from the ship table"
+/// The ship table the game ships with: one class a row.
+pub const SHIPS: &str = include_str!("../../../assets/data/ships.csv");
+
+#item SECTORS v1 @tempest-art "Build the system from the sector tables"
+/// The sector tables a new game's system is built from, in the order they are placed.
+pub const SECTORS: [&str; 4] = [
+    include_str!("../../../assets/data/levels/sector-01.csv"),
+    include_str!("../../../assets/data/levels/sector-02.csv"),
+    include_str!("../../../assets/data/levels/sector-03.csv"),
+    include_str!("../../../assets/data/levels/sector-04.csv"),
+];
+
+#item Controls v1 @thrust-fuel "Track which controls the player is holding"
+/// Which controls the player is holding down, set from key presses.
+#[derive(Debug, Default)]
+pub struct Controls {
+    thrust: bool,
+    left: bool,
+    right: bool,
+}
+
+#item Controls v2 @gamepad-thrust "Track the gamepad stick with the held controls"
+/// Which controls the player is holding down, and where the gamepad stick is pushed.
+#[derive(Debug, Default)]
+pub struct Controls {
+    thrust: bool,
+    left: bool,
+    right: bool,
+    stick: Vec2,
+}
+
+#item Flight v1 @camera-follow "Follow the ship with the camera"
+/// The flight view's state: the ship and the bodies it flies among.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Body,
+}
+
+#item Flight v2 @thrust-fuel "Burn fuel to thrust the ship"
+/// The flight view's state: the ship, its heading and controls, and the bodies it flies among.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Ship,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v3 @cargo-hold "Carry a cargo hold on the ship"
+/// The flight view's state: the ship, its hold, and the bodies it flies among.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Ship,
+    pub cargo: CargoHold,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v4 @mining-laser "Mine the rocks in the laser's range into the hold"
+/// The flight view's state: the ship, its hold, and the bodies it flies among.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Ship,
+    pub cargo: CargoHold,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v5 @explosions "Explode rocks that a hit wears through"
+/// The flight view's state: the ship, its hold, and the bodies it flies among.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Ship,
+    pub explosions: Vec<Vec2>,
+    pub cargo: CargoHold,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v6 @trade-screen "Keep the pilot's credits with the ship"
+/// The flight view's state: the ship, its hold and the pilot's credits, and the bodies it flies
+/// among.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Ship,
+    pub explosions: Vec<Vec2>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v7 @save-files "Save and load the game state to a file"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    pub ship: Ship,
+    pub explosions: Vec<Vec2>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub ticks: u64,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v8 @ecs-world "Store game objects in an ECS world"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Vec2>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub ticks: u64,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v9 @orbit-trails "Trail the ship's path through the system"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count, and the
+/// trail the ship has left behind.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Vec2>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub ticks: u64,
+    pub trail: Trail,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v10 @explosion-lifetime "Age explosions and end them with their animation"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count, and the
+/// trail the ship has left behind.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Explosion>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub ticks: u64,
+    pub trail: Trail,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v11 @save-v2 "Record when each game was started"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count, and the
+/// trail the ship has left behind.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Explosion>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub ticks: u64,
+    pub trail: Trail,
+    pub created: u64,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v12 @economy-drift "Keep each station's market between visits, and move it once a day"
+/// The flight view's state: the ship, its hold, the pilot's credits, each station's market and the
+/// tick count, and the trail the ship has left behind.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Explosion>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub markets: Vec<Vec<Market>>,
+    pub ticks: u64,
+    pub trail: Trail,
+    pub created: u64,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v13 @contracts "Add delivery contracts with a deadline"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count, the open
+/// contracts, and the trail the ship has left behind.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Explosion>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub markets: Vec<Vec<Market>>,
+    pub ticks: u64,
+    pub trail: Trail,
+    pub created: u64,
+    pub contracts: Vec<Contract>,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item Flight v14 @contract-pause "Stop contract deadlines counting while paused"
+/// The flight view's state: the ship, its hold, the pilot's credits and the tick count, the open
+/// contracts, and the trail the ship has left behind.
+#[derive(Debug)]
+pub struct Flight {
+    pub world: World,
+    home: Entity,
+    pub ship: Ship,
+    pub explosions: Vec<Explosion>,
+    pub cargo: CargoHold,
+    pub credits: f32,
+    pub markets: Vec<Vec<Market>>,
+    pub ticks: u64,
+    pub trail: Trail,
+    pub created: u64,
+    pub contracts: Vec<Contract>,
+    paused: bool,
+    mining: bool,
+    heading: f32,
+    controls: Controls,
+}
+
+#item new v1 @camera-follow "Follow the ship with the camera"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        Self {
+            world,
+            ship: Body::ship("Scout", Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0), 2.0),
+        }
+    }
+}
+
+#item new v2 @thrust-fuel "Burn fuel to thrust the ship"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with a full tank.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        let ship = Body::ship("Scout", Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0), 2.0);
+        Self {
+            world,
+            ship: Ship::new(ship),
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v3 @scout-art "Start every game in the scout from the ship table"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with a full tank.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v4 @asteroids "Spawn asteroids on the outer orbits"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with the asteroid belt around it.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v5 @cargo-hold "Carry a cargo hold on the ship"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with an empty hold.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            cargo: CargoHold::new(),
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v6 @ring-station "Place a ring station on the inner orbit"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with the ring station on the inner
+    /// orbit and the asteroid belt around it.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        world.add(Body::station("Ring", Vec2::new(RING_ORBIT, 0.0), 0.5, 15.0));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            cargo: CargoHold::new(),
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v7 @mining-laser "Mine the rocks in the laser's range into the hold"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with the ring station on the inner
+    /// orbit and the asteroid belt around it.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        world.add(Body::station("Ring", Vec2::new(RING_ORBIT, 0.0), 0.5, 15.0));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            cargo: CargoHold::new(),
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v8 @explosions "Explode rocks that a hit wears through"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with the ring station on the inner
+    /// orbit and the asteroid belt around it.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        world.add(Body::station("Ring", Vec2::new(RING_ORBIT, 0.0), 0.5, 15.0));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v9 @depot-art "Place depot stations on the outer orbits"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with the ring station on the inner
+    /// orbit, the depot on the outer one and the asteroid belt between them.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        world.add(Body::station("Ring", Vec2::new(RING_ORBIT, 0.0), 0.5, 15.0));
+        world.add(Body::station(
+            "Depot",
+            Vec2::new(-DEPOT_ORBIT, 0.0),
+            0.5,
+            15.0,
+        ));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v10 @trade-screen "Show the trade screen at a station"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with a full tank and the starting
+    /// credits.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        world.add(Body::station("Ring", Vec2::new(RING_ORBIT, 0.0), 0.5, 15.0));
+        world.add(Body::station(
+            "Depot",
+            Vec2::new(-DEPOT_ORBIT, 0.0),
+            0.5,
+            15.0,
+        ));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v11 @save-files "Save and load the game state to a file"
+impl Flight {
+    /// A new game: the scout on a circular orbit of Verdant, with the starting credits.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        world.add(Body::planet("Verdant", Vec2::ZERO, 100.0, 60.0));
+        world.add(Body::station("Ring", Vec2::new(RING_ORBIT, 0.0), 0.5, 15.0));
+        world.add(Body::station(
+            "Depot",
+            Vec2::new(-DEPOT_ORBIT, 0.0),
+            0.5,
+            15.0,
+        ));
+        spawn_asteroids(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            ticks: 0,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v12 @tempest-art "Build the system from the sector tables"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        spawn_system(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            ticks: 0,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v13 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        let home = spawn_system(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            home,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            ticks: 0,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v14 @orbit-trails "Trail the ship's path through the system"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        let home = spawn_system(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        Self {
+            world,
+            home,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            ticks: 0,
+            trail: Trail::default(),
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v15 @save-v2 "Record when each game was started"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits, stamped with the time it was started.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        let home = spawn_system(&mut world);
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        let created = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        Self {
+            world,
+            home,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            ticks: 0,
+            trail: Trail::default(),
+            created,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v16 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits, stamped with the time it was started.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        let home = spawn_system(&mut world);
+        let markets = world
+            .bodies
+            .iter()
+            .filter(|(_, b)| b.kind == BodyKind::Station)
+            .map(|_| station_markets())
+            .collect();
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        let created = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        Self {
+            world,
+            home,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            markets,
+            ticks: 0,
+            trail: Trail::default(),
+            created,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v17 @contracts "Add delivery contracts with a deadline"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits, stamped with the time it was started.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        let home = spawn_system(&mut world);
+        let markets = world
+            .bodies
+            .iter()
+            .filter(|(_, b)| b.kind == BodyKind::Station)
+            .map(|_| station_markets())
+            .collect();
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        let created = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        Self {
+            world,
+            home,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            markets,
+            ticks: 0,
+            trail: Trail::default(),
+            created,
+            contracts: Vec::new(),
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item new v18 @contract-pause "Stop contract deadlines counting while paused"
+impl Flight {
+    /// A new game: the system the sector tables lay out, and the scout on a circular orbit of
+    /// Verdant, with the starting credits, stamped with the time it was started.
+    pub fn new() -> Self {
+        let mut world = World::default();
+        let home = spawn_system(&mut world);
+        let markets = world
+            .bodies
+            .iter()
+            .filter(|(_, b)| b.kind == BodyKind::Station)
+            .map(|_| station_markets())
+            .collect();
+        let ship = Ship::of_class(&scout_class(), Vec2::new(0.0, 1000.0), Vec2::new(0.8, 0.0));
+        let created = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map_or(0, |d| d.as_secs());
+        Self {
+            world,
+            home,
+            ship,
+            explosions: Vec::new(),
+            cargo: CargoHold::new(),
+            credits: STARTING_CREDITS,
+            markets,
+            ticks: 0,
+            trail: Trail::default(),
+            created,
+            contracts: Vec::new(),
+            paused: false,
+            mining: false,
+            heading: 0.0,
+            controls: Controls::default(),
+        }
+    }
+}
+
+#item default v1 @camera-follow "Follow the ship with the camera"
+impl Default for Flight {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#item scout_class v1 @scout-art "Start every game in the scout from the ship table"
+/// The scout, the class every new game starts in, from the ship table.
+fn scout_class() -> ShipClass {
+    parse_classes(SHIPS)
+        .into_iter()
+        .find(|class| class.name == "scout")
+        .expect("the ship table lists the scout")
+}
+
+#item press v1 @thrust-fuel "Burn fuel to thrust the ship"
+impl Flight {
+    /// Records an action going down or coming up. Only the ship's controls matter here.
+    pub fn press(&mut self, action: Action, down: bool) {
+        match action {
+            Action::Thrust => self.controls.thrust = down,
+            Action::TurnLeft => self.controls.left = down,
+            Action::TurnRight => self.controls.right = down,
+            _ => {}
+        }
+    }
+}
+
+#item press v2 @contract-pause "Stop contract deadlines counting while paused"
+impl Flight {
+    /// Records an action going down or coming up. Pause toggles on the way down.
+    pub fn press(&mut self, action: Action, down: bool) {
+        match action {
+            Action::Thrust => self.controls.thrust = down,
+            Action::TurnLeft => self.controls.left = down,
+            Action::TurnRight => self.controls.right = down,
+            Action::Pause if down => self.paused = !self.paused,
+            _ => {}
+        }
+    }
+}
+
+#item tick v1 @camera-follow "Follow the ship with the camera"
+impl Flight {
+    /// Advances the flight by one physics tick.
+    pub fn tick(&mut self) {
+        let accel = gravity(self.ship.position, &self.world.bodies);
+        step(&mut self.ship, accel, TICK_SECONDS);
+    }
+}
+
+#item tick v2 @thrust-fuel "Burn fuel to thrust the ship"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, then fall under gravity.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        self.ship
+            .thrust(Vec2::from_angle(self.heading) * throttle, TICK_SECONDS);
+        let accel = gravity(self.ship.body.position, &self.world.bodies);
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+    }
+}
+
+#item tick v3 @collisions "Detect collisions between ships and asteroids"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, fall under gravity,
+    /// then check for hits.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        self.ship
+            .thrust(Vec2::from_angle(self.heading) * throttle, TICK_SECONDS);
+        let accel = gravity(self.ship.body.position, &self.world.bodies);
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+    }
+}
+
+#item tick v4 @docking "Dock with a station to stop the ship"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, fall under gravity,
+    /// check for hits, then latch on if the ship is close enough to a station.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        self.ship
+            .thrust(Vec2::from_angle(self.heading) * throttle, TICK_SECONDS);
+        let accel = gravity(self.ship.body.position, &self.world.bodies);
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|b| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+    }
+}
+
+#item tick v5 @mining-laser "Mine the rocks in the laser's range into the hold"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, fall under gravity,
+    /// check for hits, mine any rock in the laser's range, then latch on if the ship is close
+    /// enough to a station.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        self.ship
+            .thrust(Vec2::from_angle(self.heading) * throttle, TICK_SECONDS);
+        let accel = gravity(self.ship.body.position, &self.world.bodies);
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        let ore: f32 = self
+            .world
+            .bodies
+            .iter_mut()
+            .filter(|rock| rock.kind == BodyKind::Asteroid)
+            .map(|rock| self.ship.body.mine(rock, TICK_SECONDS))
+            .sum();
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|b| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+    }
+}
+
+#item tick v6 @save-files "Save and load the game state to a file"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, fall under gravity,
+    /// check for hits, then latch on if the ship is close enough to a station.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        self.ship
+            .thrust(Vec2::from_angle(self.heading) * throttle, TICK_SECONDS);
+        let accel = gravity(self.ship.body.position, &self.world.bodies);
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        let ore: f32 = self
+            .world
+            .bodies
+            .iter_mut()
+            .filter(|rock| rock.kind == BodyKind::Asteroid)
+            .map(|rock| self.ship.body.mine(rock, TICK_SECONDS))
+            .sum();
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|b| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.ticks += 1;
+    }
+}
+
+#item tick v7 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, fall under gravity,
+    /// check for hits, then latch on if the ship is close enough to a station.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        self.ship
+            .thrust(Vec2::from_angle(self.heading) * throttle, TICK_SECONDS);
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        let ore: f32 = self
+            .world
+            .bodies
+            .iter_mut()
+            .filter(|(_, rock)| rock.kind == BodyKind::Asteroid)
+            .map(|(_, rock)| self.ship.body.mine(rock, TICK_SECONDS))
+            .sum();
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.ticks += 1;
+    }
+}
+
+#item tick v8 @systems "Run physics and mining as systems"
+impl Flight {
+    /// Advances the flight by one physics tick: turn, burn for the thrust, fall under gravity,
+    /// check for hits, mine any rock in the laser's range, then latch on if the ship is close
+    /// enough to a station.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.ticks += 1;
+    }
+}
+
+#item tick v9 @orbit-trails "Trail the ship's path through the system"
+impl Flight {
+    /// Advances the flight by one physics tick, and leaves a point on the trail.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+    }
+}
+
+#item tick v10 @explosion-lifetime "Age explosions and end them with their animation"
+impl Flight {
+    /// Advances the flight by one physics tick, and leaves a point on the trail.
+    pub fn tick(&mut self) {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+    }
+}
+
+#item tick v11 @explosion-shake "Report how hard the ship hit, for the camera shake"
+impl Flight {
+    /// Advances the flight by one physics tick, and leaves a point on the trail.
+    /// Returns how fast the ship was going if it hit something this tick, or zero.
+    pub fn tick(&mut self) -> f32 {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        let hit = self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+        hit
+    }
+}
+
+#item tick v12 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Flight {
+    /// Advances the flight by one physics tick, leaves a point on the trail, and runs a day of the
+    /// markets when a day has passed.
+    /// Returns how fast the ship was going if it hit something this tick, or zero.
+    pub fn tick(&mut self) -> f32 {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        let hit = self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+        if self.ticks % DAY_TICKS == 0 {
+            let mut rng = Rng::new(self.ticks);
+            for markets in &mut self.markets {
+                run_economy(markets, &mut rng);
+            }
+        }
+        hit
+    }
+}
+
+#item tick v13 @contracts "Add delivery contracts with a deadline"
+impl Flight {
+    /// Advances the flight by one physics tick, runs the contracts' deadlines, and leaves a point
+    /// on the trail.
+    /// Returns how fast the ship was going if it hit something this tick, or zero.
+    pub fn tick(&mut self) -> f32 {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        let hit = self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+        if self.ticks % DAY_TICKS == 0 {
+            let mut rng = Rng::new(self.ticks);
+            for markets in &mut self.markets {
+                run_economy(markets, &mut rng);
+            }
+        }
+        contracts::tick(&mut self.contracts, 1);
+        hit
+    }
+}
+
+#item tick v14 @contract-pause "Stop contract deadlines counting while paused"
+impl Flight {
+    /// Advances the flight by one physics tick, runs the contracts' deadlines unless the game is
+    /// paused, and leaves a point on the trail.
+    /// Returns how fast the ship was going if it hit something this tick, or zero.
+    pub fn tick(&mut self) -> f32 {
+        let turn = f32::from(self.controls.right) - f32::from(self.controls.left);
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        let hit = self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+        if self.ticks % DAY_TICKS == 0 {
+            let mut rng = Rng::new(self.ticks);
+            for markets in &mut self.markets {
+                run_economy(markets, &mut rng);
+            }
+        }
+        contracts::tick(&mut self.contracts, 1, self.paused);
+        hit
+    }
+}
+
+#item tick v15 @gamepad-thrust "Fly with the gamepad stick as well as the keys"
+impl Flight {
+    /// Advances the flight by one physics tick, runs the contracts' deadlines unless the game is
+    /// paused, and leaves a point on the trail.
+    /// Returns how fast the ship was going if it hit something this tick, or zero.
+    pub fn tick(&mut self) -> f32 {
+        let keys = f32::from(self.controls.right) - f32::from(self.controls.left);
+        let turn = keys + self.controls.stick.x;
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust {
+            1.0
+        } else {
+            self.controls.stick.y.clamp(0.0, 1.0)
+        };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        let mut accel = Vec2::ZERO;
+        self.world.each_body(|_, body| {
+            accel += gravity(self.ship.body.position, std::slice::from_ref(body))
+        });
+        step(&mut self.ship.body, accel, TICK_SECONDS);
+        let hit = self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+        if self.ticks % DAY_TICKS == 0 {
+            let mut rng = Rng::new(self.ticks);
+            for markets in &mut self.markets {
+                run_economy(markets, &mut rng);
+            }
+        }
+        contracts::tick(&mut self.contracts, 1, self.paused);
+        hit
+    }
+}
+
+#item tick v16 @verlet "Fly the ship with the Verlet step"
+impl Flight {
+    /// Advances the flight by one physics tick, runs the contracts' deadlines unless the game is
+    /// paused, and leaves a point on the trail.
+    /// Returns how fast the ship was going if it hit something this tick, or zero.
+    pub fn tick(&mut self) -> f32 {
+        let keys = f32::from(self.controls.right) - f32::from(self.controls.left);
+        let turn = keys + self.controls.stick.x;
+        self.heading = wrap_angle(self.heading + turn * TURN_RATE * TICK_SECONDS);
+        let throttle = if self.controls.thrust {
+            1.0
+        } else {
+            self.controls.stick.y.clamp(0.0, 1.0)
+        };
+        run_thrust(
+            &mut self.ship,
+            Vec2::from_angle(self.heading) * throttle,
+            TICK_SECONDS,
+        );
+        step(&mut self.ship.body, TICK_SECONDS, |at| {
+            let mut accel = Vec2::ZERO;
+            self.world.each_body(|_, body| {
+                accel += gravity(at, std::slice::from_ref(body));
+            });
+            accel
+        });
+        let hit = self.collide();
+        run_explosions(&mut self.explosions, TICK_SECONDS);
+        let ore = run_mining(&self.ship.body, &mut self.world.bodies, TICK_SECONDS);
+        if ore > 0.0 && self.cargo.add(Commodity::Ore, ore).is_err() {
+            log::trace!("the hold is full, so the laser's ore is lost");
+        }
+        self.mining = ore > 0.0;
+        let can_dock = self
+            .world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b));
+        self.ship.dock_step(can_dock, TICK_SECONDS);
+        self.trail.push(self.ship.body.position);
+        self.ticks += 1;
+        if self.ticks % DAY_TICKS == 0 {
+            let mut rng = Rng::new(self.ticks);
+            for markets in &mut self.markets {
+                run_economy(markets, &mut rng);
+            }
+        }
+        contracts::tick(&mut self.contracts, 1, self.paused);
+        hit
+    }
+}
+
+#item collide v1 @collisions "Detect collisions between ships and asteroids"
+impl Flight {
+    /// Stops the ship dead when it touches a body.
+    fn collide(&mut self) {
+        for rock in &self.world.bodies {
+            if self.ship.body.overlaps(rock) {
+                self.ship.body.velocity = Vec2::ZERO;
+            }
+        }
+    }
+}
+
+#item collide v2 @collision-stick "Stop ships sticking to asteroids after a hit"
+impl Flight {
+    /// Pushes the ship out of any body it touches, along the line between their centres.
+    fn collide(&mut self) {
+        for rock in &mut self.world.bodies {
+            if self.ship.body.overlaps(rock) {
+                self.ship.body.separate(rock);
+            }
+        }
+    }
+}
+
+#item collide v3 @explosions "Explode rocks that a hit wears through"
+impl Flight {
+    /// Pushes the ship out of any body it touches, along the line between their centres. Hitting a
+    /// rock wears down the hulls of both by how fast the ship was going, and a rock worn through
+    /// explodes.
+    fn collide(&mut self) {
+        let speed = self.ship.body.velocity.length();
+        for rock in &mut self.world.bodies {
+            if self.ship.body.overlaps(rock) {
+                self.ship.body.separate(rock);
+                if rock.kind == BodyKind::Asteroid {
+                    rock.hull -= speed * HIT_DAMAGE;
+                    self.ship.body.hull = (self.ship.body.hull - speed * HIT_DAMAGE).max(0.0);
+                }
+            }
+        }
+        let explosions = &mut self.explosions;
+        self.world.bodies.retain(|body| {
+            let spent = body.hull <= 0.0;
+            if spent {
+                explosions.push(body.position);
+            }
+            !spent
+        });
+    }
+}
+
+#item collide v4 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// Pushes the ship out of any body it touches, along the line between their centres. Hitting a
+    /// rock wears down the hulls of both by how fast the ship was going, and a rock worn through
+    /// explodes.
+    fn collide(&mut self) {
+        let speed = self.ship.body.velocity.length();
+        for (_, rock) in &mut self.world.bodies {
+            if self.ship.body.overlaps(rock) {
+                self.ship.body.separate(rock);
+                if rock.kind == BodyKind::Asteroid {
+                    rock.hull -= speed * HIT_DAMAGE;
+                    self.ship.body.hull = (self.ship.body.hull - speed * HIT_DAMAGE).max(0.0);
+                }
+            }
+        }
+        let explosions = &mut self.explosions;
+        self.world.bodies.retain(|(_, body)| {
+            let spent = body.hull <= 0.0;
+            if spent {
+                explosions.push(body.position);
+            }
+            !spent
+        });
+    }
+}
+
+#item collide v5 @explosion-lifetime "Age explosions and end them with their animation"
+impl Flight {
+    /// Pushes the ship out of any body it touches, along the line between their centres. Hitting a
+    /// rock wears down the hulls of both by how fast the ship was going, and a rock worn through
+    /// explodes.
+    fn collide(&mut self) {
+        let speed = self.ship.body.velocity.length();
+        for (_, rock) in &mut self.world.bodies {
+            if self.ship.body.overlaps(rock) {
+                self.ship.body.separate(rock);
+                if rock.kind == BodyKind::Asteroid {
+                    rock.hull -= speed * HIT_DAMAGE;
+                    self.ship.body.hull = (self.ship.body.hull - speed * HIT_DAMAGE).max(0.0);
+                }
+            }
+        }
+        let explosions = &mut self.explosions;
+        self.world.bodies.retain(|(_, body)| {
+            let spent = body.hull <= 0.0;
+            if spent {
+                explosions.push(Explosion::new(body.position));
+            }
+            !spent
+        });
+    }
+}
+
+#item collide v6 @explosion-shake "Report how hard the ship hit, for the camera shake"
+impl Flight {
+    /// Pushes the ship out of any body it touches, along the line between their centres. Hitting a
+    /// rock wears down the hulls of both by how fast the ship was going, and a rock worn through
+    /// explodes. Returns how fast the ship was going when it hit, or zero if it hit nothing.
+    fn collide(&mut self) -> f32 {
+        let speed = self.ship.body.velocity.length();
+        let mut hit = 0.0;
+        for (_, rock) in &mut self.world.bodies {
+            if self.ship.body.overlaps(rock) {
+                self.ship.body.separate(rock);
+                hit = speed;
+                if rock.kind == BodyKind::Asteroid {
+                    rock.hull -= speed * HIT_DAMAGE;
+                    self.ship.body.hull = (self.ship.body.hull - speed * HIT_DAMAGE).max(0.0);
+                }
+            }
+        }
+        let explosions = &mut self.explosions;
+        self.world.bodies.retain(|(_, body)| {
+            let spent = body.hull <= 0.0;
+            if spent {
+                explosions.push(Explosion::new(body.position));
+            }
+            !spent
+        });
+        hit
+    }
+}
+
+#item draw v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Flight {
+    /// Adds the planets to `sprites`, each drawn from the atlas region of its name.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for body in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+    }
+}
+
+#item draw v2 @orbit-prediction "Predict a ship's orbit a few hundred ticks ahead"
+impl Flight {
+    /// Adds the planets, then the predicted path as a dotted line around the first planet.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for body in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.world.bodies.first()) {
+            for point in predict(&self.ship, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item draw v3 @scout-art "Add the scout to the shipyard list"
+impl Flight {
+    /// Adds the planets, the scout, then the predicted path as a dotted line.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for body in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let Some(region) = atlas.region("scout") {
+            sprites.push_body(&self.ship.body, region);
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.world.bodies.first()) {
+            for point in predict(&self.ship.body, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item draw v4 @thruster-art "Show the thruster flame under thrust"
+impl Flight {
+    /// Adds the planets, the scout with its flame while the drive fires, then the predicted path.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for body in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let Some(region) = atlas.region("scout") {
+            sprites.push_body(&self.ship.body, region);
+        }
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        if let Some(flame) = atlas.region("thruster") {
+            sprites.push_flame(&self.ship, throttle, flame);
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.world.bodies.first()) {
+            for point in predict(&self.ship.body, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item draw v5 @explosions "Explode rocks that a hit wears through"
+impl Flight {
+    /// Adds the planets, the explosions, the scout with its flame while the drive fires, then the
+    /// predicted path.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for body in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let Some(blast) = atlas.region("explosion") {
+            for &at in &self.explosions {
+                sprites.push(Sprite::new(at, Vec2::splat(EXPLOSION_SIZE), blast));
+            }
+        }
+        if let Some(region) = atlas.region("scout") {
+            sprites.push_body(&self.ship.body, region);
+        }
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        if let Some(flame) = atlas.region("thruster") {
+            sprites.push_flame(&self.ship, throttle, flame);
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.world.bodies.first()) {
+            for point in predict(&self.ship.body, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item draw v6 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// Adds the planets, the explosions, the stations and asteroids, the scout with its flame while
+    /// the drive fires, then the predicted path.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for (_, body) in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let Some(blast) = atlas.region("explosion") {
+            for &at in &self.explosions {
+                sprites.push(Sprite::new(at, Vec2::splat(EXPLOSION_SIZE), blast));
+            }
+        }
+        if let Some(region) = atlas.region("scout") {
+            sprites.push_body(&self.ship.body, region);
+        }
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        if let Some(flame) = atlas.region("thruster") {
+            sprites.push_flame(&self.ship, throttle, flame);
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.home_body()) {
+            for point in predict(&self.ship.body, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item draw v7 @explosion-lifetime "Shrink each explosion as its animation runs out"
+impl Flight {
+    /// Adds the planets, the explosions, the stations and asteroids, the scout with its flame while
+    /// the drive fires, then the predicted path.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for (_, body) in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let Some(region) = atlas.region("explosion") {
+            for blast in &self.explosions {
+                let size = EXPLOSION_SIZE * (1.0 - blast.age / EXPLOSION_SECONDS);
+                sprites.push(Sprite::new(blast.at, Vec2::splat(size), region));
+            }
+        }
+        if let Some(region) = atlas.region("scout") {
+            sprites.push_body(&self.ship.body, region);
+        }
+        let throttle = if self.controls.thrust { 1.0 } else { 0.0 };
+        if let Some(flame) = atlas.region("thruster") {
+            sprites.push_flame(&self.ship, throttle, flame);
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.home_body()) {
+            for point in predict(&self.ship.body, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item draw v8 @rc-zero-fuel "Cut the flame out with the drive at zero fuel\n\nThe flame followed the thrust key, so it kept burning on an empty tank, and never showed for the stick."
+impl Flight {
+    /// Adds the planets, the explosions, the stations and asteroids, the scout with its flame while
+    /// the drive fires, then the predicted path.
+    pub fn draw(&self, sprites: &mut SpriteBatch, atlas: &Atlas) {
+        for (_, body) in &self.world.bodies {
+            if let Some(region) = atlas.region(&body.name.to_lowercase()) {
+                sprites.push_body(body, region);
+            }
+        }
+        if let Some(region) = atlas.region("explosion") {
+            for blast in &self.explosions {
+                let size = EXPLOSION_SIZE * (1.0 - blast.age / EXPLOSION_SECONDS);
+                sprites.push(Sprite::new(blast.at, Vec2::splat(size), region));
+            }
+        }
+        if let Some(region) = atlas.region("scout") {
+            sprites.push_body(&self.ship.body, region);
+        }
+        let throttle = if self.thrusting() { 1.0 } else { 0.0 };
+        if let Some(flame) = atlas.region("thruster") {
+            sprites.push_flame(&self.ship, throttle, flame);
+        }
+        if let (Some(dot), Some(home)) = (atlas.region("dot"), self.home_body()) {
+            for point in predict(&self.ship.body, home, PREDICT_STEPS) {
+                sprites.push(Sprite::new(point, Vec2::splat(DOT_SIZE), dot));
+            }
+        }
+    }
+}
+
+#item home_body v1 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// The planet the ship started from, which its predicted path is taken around.
+    fn home_body(&self) -> Option<&Body> {
+        self.world
+            .bodies
+            .iter()
+            .find(|(entity, _)| *entity == self.home)
+            .map(|(_, body)| body)
+    }
+}
+
+#item fuel_readout v1 @hud-font "Show the fuel left as a percentage"
+impl Flight {
+    /// The fuel left in the tank, as the readout the HUD shows.
+    pub fn fuel_readout(&self) -> String {
+        format!("FUEL {}%", (self.ship.fuel_fraction() * 100.0).round())
+    }
+}
+
+#item fuel_readout v2 @hud-jitter "Fix the fuel readout jumping when digits change"
+impl Flight {
+    /// The fuel left in the tank, as the readout the HUD shows. The digits take a fixed width, so
+    /// the readout stays put as it counts down.
+    pub fn fuel_readout(&self) -> String {
+        format!("FUEL {:>3}%", (self.ship.fuel_fraction() * 100.0).round())
+    }
+}
+
+#item fuel_readout v3 @strings-table "Read the HUD's fuel label from the strings table"
+impl Flight {
+    /// The fuel left in the tank, as the readout the HUD shows. The digits take a fixed width, so
+    /// the readout stays put as it counts down.
+    pub fn fuel_readout(&self) -> String {
+        let percent = (self.ship.fuel_fraction() * 100.0).round();
+        format!("{} {percent:>3}%", tr("hud.fuel"))
+    }
+}
+
+#item follow v1 @camera-follow "Follow the ship with the camera"
+impl Flight {
+    /// Pulls the camera towards the ship.
+    pub fn follow(&self, camera: &mut Camera, dt: f32) {
+        camera.follow(self.ship.position, dt);
+    }
+}
+
+#item follow v2 @thrust-fuel "Burn fuel to thrust the ship"
+impl Flight {
+    /// Pulls the camera towards the ship.
+    pub fn follow(&self, camera: &mut Camera, dt: f32) {
+        camera.follow(self.ship.body.position, dt);
+    }
+}
+
+#item steer v1 @gamepad-thrust "Fly with the gamepad stick as well as the keys"
+impl Flight {
+    /// Takes the gamepad's left stick, already past the deadzone.
+    pub fn steer(&mut self, stick: Vec2) {
+        self.controls.stick = stick;
+    }
+}
+
+#item thrusting v1 @engine-hum "Tell the game when the drive is firing"
+impl Flight {
+    /// Whether the drive is firing: the thrust key is held and the tank isn't dry.
+    pub fn thrusting(&self) -> bool {
+        self.controls.thrust && self.ship.fuel > 0.0
+    }
+}
+
+#item thrusting v2 @gamepad-thrust "Fly with the gamepad stick as well as the keys"
+impl Flight {
+    /// Whether the drive is firing: the thrust key is held or the stick pushed forward, and the
+    /// tank isn't dry.
+    pub fn thrusting(&self) -> bool {
+        (self.controls.thrust || self.controls.stick.y > 0.0) && self.ship.fuel > 0.0
+    }
+}
+
+#item mining v1 @mining-laser "Mine the rocks in the laser's range into the hold"
+impl Flight {
+    /// Whether the laser took ore from a rock on the last tick.
+    pub fn mining(&self) -> bool {
+        self.mining
+    }
+}
+
+#item spawn_system v1 @tempest-art "Build the system from the sector tables"
+/// Builds a new game's system from the sector tables: every planet and station first, then a belt
+/// of rocks round each belt's orbit. The rocks come from one fixed seed, so every new game starts
+/// with the same belts.
+fn spawn_system(world: &mut World) {
+    let mut belts = Vec::new();
+    for placement in SECTORS.into_iter().flat_map(parse_sector) {
+        match placement {
+            Placement::Body(body) => world.add(body),
+            Placement::Belt(orbit) => belts.push(orbit),
+        }
+    }
+    let mut rng = Rng::new(DEFAULT_SEED);
+    for orbit in belts {
+        spawn_asteroids(world, &mut rng, orbit);
+    }
+}
+
+#item spawn_system v2 @ecs-world "Store game objects in an ECS world"
+/// Builds a new game's system from the sector tables: every planet and station first, then a belt
+/// of rocks round each belt's orbit. The rocks come from one fixed seed, so every new game starts
+/// with the same belts. Returns the home planet, the first planet the tables place.
+fn spawn_system(world: &mut World) -> Entity {
+    let mut home = None;
+    let mut belts = Vec::new();
+    for placement in SECTORS.into_iter().flat_map(parse_sector) {
+        match placement {
+            Placement::Body(body) => {
+                let planet = body.kind == BodyKind::Planet;
+                let entity = world.spawn(body);
+                if planet {
+                    home.get_or_insert(entity);
+                }
+            }
+            Placement::Belt(orbit) => belts.push(orbit),
+        }
+    }
+    let mut rng = Rng::new(DEFAULT_SEED);
+    for orbit in belts {
+        spawn_asteroids(world, &mut rng, orbit);
+    }
+    home.expect("the sector tables place a planet")
+}
+
+#item spawn_asteroids v1 @asteroids "Spawn asteroids on the outer orbits"
+/// Scatters the asteroid belt from one fixed seed, so every new game starts with the same belt.
+fn spawn_asteroids(world: &mut World) {
+    let mut rng = Rng::new(DEFAULT_SEED);
+    for _ in 0..ASTEROID_COUNT {
+        world.add(Body::asteroid(&mut rng, ASTEROID_ORBIT));
+    }
+}
+
+#item spawn_asteroids v2 @tempest-art "Build the system from the sector tables"
+/// Scatters a belt of rocks round `orbit`, each drawn from `rng`.
+fn spawn_asteroids(world: &mut World, rng: &mut Rng, orbit: f32) {
+    for _ in 0..ASTEROID_COUNT {
+        world.add(Body::asteroid(rng, orbit));
+    }
+}
+
+#item spawn_asteroids v3 @ecs-world "Store game objects in an ECS world"
+/// Scatters a belt of rocks round `orbit`, each drawn from `rng`.
+fn spawn_asteroids(world: &mut World, rng: &mut Rng, orbit: f32) {
+    for _ in 0..ASTEROID_COUNT {
+        world.spawn(Body::asteroid(rng, orbit));
+    }
+}
+
+#item spawn_asteroids v4 @fix-1-1-belt "Redraw a rock that would start inside a station"
+/// Scatters a belt of rocks round `orbit`, each drawn from `rng`. A rock that would start inside a
+/// station is drawn again, so no belt starts in a port.
+fn spawn_asteroids(world: &mut World, rng: &mut Rng, orbit: f32) {
+    let mut ports = Vec::new();
+    world.each_body(|_, body| {
+        if body.kind == BodyKind::Station {
+            ports.push((body.position, body.radius));
+        }
+    });
+    for _ in 0..ASTEROID_COUNT {
+        let rock = loop {
+            let rock = Body::asteroid(rng, orbit);
+            if ports
+                .iter()
+                .all(|&(at, radius)| rock.position.distance(at) > radius)
+            {
+                break rock;
+            }
+        };
+        world.spawn(rock);
+    }
+}
+
+#item restore v1 @save-files "Save and load the game state to a file"
+impl Flight {
+    /// Picks a saved game back up: the ship, its hold, the credits and the tick count.
+    pub fn restore(save: Save) -> Self {
+        let mut flight = Self::new();
+        flight.ship = save.ship;
+        flight.cargo = save.cargo;
+        flight.credits = save.credits;
+        flight.ticks = save.tick;
+        flight
+    }
+}
+
+#item restore v2 @save-v2 "Record when each game was started"
+impl Flight {
+    /// Picks a saved game back up: the ship, its hold, the credits, the tick count and the start.
+    pub fn restore(save: Save) -> Self {
+        let mut flight = Self::new();
+        flight.ship = save.ship;
+        flight.cargo = save.cargo;
+        flight.credits = save.credits;
+        flight.ticks = save.tick;
+        flight.created = save.created;
+        flight
+    }
+}
+
+#item restore v3 @save-v3 "Store open contracts in save format 3"
+impl Flight {
+    /// Picks a saved game back up: the ship, its hold, the credits, the tick count, the start and
+    /// the open contracts.
+    pub fn restore(save: Save) -> Self {
+        let mut flight = Self::new();
+        flight.ship = save.ship;
+        flight.cargo = save.cargo;
+        flight.credits = save.credits;
+        flight.ticks = save.tick;
+        flight.created = save.created;
+        flight.contracts = save.contracts;
+        flight
+    }
+}
+
+#item docked_at v1 @docking "Dock with a station to stop the ship"
+impl Flight {
+    /// The station the ship is latched on to, if it is docked.
+    pub fn docked_at(&self) -> Option<&Body> {
+        if self.ship.dock != Dock::Docked {
+            return None;
+        }
+        self.world
+            .bodies
+            .iter()
+            .find(|b| b.kind == BodyKind::Station && self.ship.body.can_dock(b))
+    }
+}
+
+#item docked_at v2 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// The station the ship is latched on to, if it is docked.
+    pub fn docked_at(&self) -> Option<&Body> {
+        if self.ship.dock != Dock::Docked {
+            return None;
+        }
+        self.world
+            .bodies
+            .iter()
+            .map(|(_, body)| body)
+            .find(|b| b.kind == BodyKind::Station && self.ship.body.can_dock(b))
+    }
+}
+
+#item in_port v1 @chime-twice "Tell when the ship is within a port's reach"
+impl Flight {
+    /// Whether the ship is within a station's docking reach and slow enough to latch on.
+    pub fn in_port(&self) -> bool {
+        self.world
+            .bodies
+            .iter()
+            .any(|b| b.kind == BodyKind::Station && self.ship.body.can_dock(b))
+    }
+}
+
+#item in_port v2 @ecs-world "Store game objects in an ECS world"
+impl Flight {
+    /// Whether the ship is within a station's docking reach and slow enough to latch on.
+    pub fn in_port(&self) -> bool {
+        self.world
+            .bodies
+            .iter()
+            .any(|(_, b)| b.kind == BodyKind::Station && self.ship.body.can_dock(b))
+    }
+}
+
+#item stations v1 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Flight {
+    /// The system's stations, in the order their markets and contracts number them.
+    pub fn stations(&self) -> impl Iterator<Item = &Body> {
+        self.world
+            .bodies
+            .iter()
+            .map(|(_, body)| body)
+            .filter(|b| b.kind == BodyKind::Station)
+    }
+}
+
+#item docked_station v1 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Flight {
+    /// The number of the station the ship is docked at, as the markets and contracts count them.
+    pub fn docked_station(&self) -> Option<usize> {
+        let here = self.docked_at()?;
+        self.stations().position(|s| s.name == here.name)
+    }
+}
+
+#item deliver v1 @contracts "Pay contracts on delivery at their station"
+impl Flight {
+    /// Hands over every contract for the station the ship is docked at whose goods are in the hold,
+    /// and pays their rewards. Returns the credits earned.
+    pub fn deliver(&mut self) -> f32 {
+        let Some(here) = self.docked_station() else {
+            return 0.0;
+        };
+        let cargo = &mut self.cargo;
+        let mut paid = 0.0;
+        self.contracts.retain(|c| {
+            let due = c.destination == here && cargo.tonnes_of(c.commodity) >= c.tonnes;
+            if due {
+                cargo.remove(c.commodity, c.tonnes);
+                paid += c.reward;
+            }
+            !due
+        });
+        self.credits += paid;
+        paid
+    }
+}
+
+#item offers v1 @contracts-ui "Offer contracts from the station the ship docks at"
+impl Flight {
+    /// The contracts the station the ship is docked at offers, as many as it has room for: each to
+    /// another station, and paid by the distance there.
+    pub fn offers(&self) -> Vec<Contract> {
+        let Some(from) = self.docked_station() else {
+            return Vec::new();
+        };
+        let here = self.stations().nth(from).map_or(Vec2::ZERO, |s| s.position);
+        let distances: Vec<f32> = self.stations().map(|s| s.position.distance(here)).collect();
+        let mut rng = Rng::new(self.ticks);
+        let mut offers = Vec::new();
+        while contracts::has_room(&offers) {
+            match contracts::generate(&mut rng, from, &distances) {
+                Some(contract) => offers.push(contract),
+                None => break,
+            }
+        }
+        offers
+    }
+}
+
+#test a_ship_stays_in_orbit_without_thrust v1 @camera-follow "Test that a coasting ship keeps its orbit"
+#[test]
+fn a_ship_stays_in_orbit_without_thrust() {
+    let mut flight = Flight::new();
+    for _ in 0..200 {
+        flight.tick();
+    }
+    assert!((flight.ship.position.length() - 1000.0).abs() < 25.0);
+}
+
+#test a_ship_stays_in_orbit_without_thrust v2 @thrust-fuel "Test that a coasting ship keeps its orbit"
+#[test]
+fn a_ship_stays_in_orbit_without_thrust() {
+    let mut flight = Flight::new();
+    for _ in 0..200 {
+        flight.tick();
+    }
+    assert!((flight.ship.body.position.length() - 1000.0).abs() < 25.0);
+}
+
+#test thrust_pushes_the_ship_forward v1 @thrust-fuel "Test that thrust speeds the ship up"
+#[test]
+fn thrust_pushes_the_ship_forward() {
+    let mut flight = Flight::new();
+    let before = flight.ship.body.velocity.length();
+    flight.press(Action::Thrust, true);
+    for _ in 0..20 {
+        flight.tick();
+    }
+    assert!(flight.ship.body.velocity.length() > before);
+}
+
+#test turning_changes_the_heading v1 @thrust-fuel "Test that the turn keys change the heading"
+#[test]
+fn turning_changes_the_heading() {
+    let mut flight = Flight::new();
+    flight.press(Action::TurnLeft, true);
+    flight.tick();
+    assert!(flight.heading > 0.0);
+}
+
+#test no_thrust_burns_no_fuel v1 @thrust-fuel "Test that coasting burns no fuel"
+#[test]
+fn no_thrust_burns_no_fuel() {
+    let mut flight = Flight::new();
+    let full = flight.ship.fuel;
+    for _ in 0..20 {
+        flight.tick();
+    }
+    assert_eq!(flight.ship.fuel, full);
+}
+
+#test a_hit_stops_the_ship v1 @collisions "Test that a hit stops the ship"
+#[test]
+fn a_hit_stops_the_ship() {
+    let mut flight = Flight::new();
+    let at = flight.ship.body.position;
+    flight
+        .world
+        .add(Body::planet("Rock", at + Vec2::new(3.0, 0.0), 0.5, 5.0));
+    flight.tick();
+    assert_eq!(flight.ship.body.velocity, Vec2::ZERO);
+}
+
+#test a_hit_stops_the_ship v2 @collision-stick "Drop the stop-dead test: a hit pushes the ship out now" !removed
+
+#test a_hit_pushes_the_ship_out v1 @collision-stick "Test that a hit pushes the ship out"
+#[test]
+fn a_hit_pushes_the_ship_out() {
+    let mut flight = Flight::new();
+    let at = flight.ship.body.position;
+    flight
+        .world
+        .add(Body::planet("Rock", at + Vec2::new(3.0, 0.0), 0.5, 5.0));
+    flight.tick();
+    let rock = flight.world.bodies.last().expect("the rock was added");
+    assert!(!flight.ship.body.overlaps(rock));
+}
+
+#test a_hit_pushes_the_ship_out v2 @ecs-world "Test that a hit pushes the ship out"
+#[test]
+fn a_hit_pushes_the_ship_out() {
+    let mut flight = Flight::new();
+    let at = flight.ship.body.position;
+    flight
+        .world
+        .spawn(Body::planet("Rock", at + Vec2::new(3.0, 0.0), 0.5, 5.0));
+    flight.tick();
+    let (_, rock) = flight.world.bodies.last().expect("the rock was added");
+    assert!(!flight.ship.body.overlaps(rock));
+}
+
+#test a_hard_hit_breaks_a_rock v1 @explosions "Test that a hard hit breaks a rock into an explosion"
+#[test]
+fn a_hard_hit_breaks_a_rock() {
+    let mut flight = Flight::new();
+    let at = flight.ship.body.position;
+    let mut rock = Body::asteroid(&mut Rng::new(1), 10.0);
+    rock.position = at + Vec2::new(0.1, 0.0);
+    flight.world.add(rock);
+    flight.ship.body.velocity = Vec2::new(5.0, 0.0);
+    flight.collide();
+    assert_eq!(flight.explosions.len(), 1);
+    assert!(flight.ship.body.hull < orbital_core::body::SHIP_HULL);
+}
+
+#test a_hard_hit_breaks_a_rock v2 @ecs-world "Store game objects in an ECS world"
+#[test]
+fn a_hard_hit_breaks_a_rock() {
+    let mut flight = Flight::new();
+    let at = flight.ship.body.position;
+    let mut rock = Body::asteroid(&mut Rng::new(1), 10.0);
+    rock.position = at + Vec2::new(0.1, 0.0);
+    flight.world.spawn(rock);
+    flight.ship.body.velocity = Vec2::new(5.0, 0.0);
+    flight.collide();
+    assert_eq!(flight.explosions.len(), 1);
+    assert!(flight.ship.body.hull < orbital_core::body::SHIP_HULL);
+}
+
+#test the_laser_mines_a_rock_in_range v1 @mining-laser "Test that the laser mines a rock in range into the hold"
+#[test]
+fn the_laser_mines_a_rock_in_range() {
+    let mut flight = Flight::new();
+    let mut rock = Body::asteroid(&mut Rng::new(1), 10.0);
+    rock.position = flight.ship.body.position + Vec2::new(20.0, 0.0);
+    flight.world.add(rock);
+    flight.tick();
+    assert!(flight.cargo.mass() > 0.0);
+    assert!(flight.mining());
+}
+
+#test the_laser_mines_a_rock_in_range v2 @ecs-world "Store game objects in an ECS world"
+#[test]
+fn the_laser_mines_a_rock_in_range() {
+    let mut flight = Flight::new();
+    let mut rock = Body::asteroid(&mut Rng::new(1), 10.0);
+    rock.position = flight.ship.body.position + Vec2::new(20.0, 0.0);
+    flight.world.spawn(rock);
+    flight.tick();
+    assert!(flight.cargo.tonnes_of(Commodity::Ore) > 0.0);
+    assert!(flight.mining());
+}
+
+#test asteroids_fill_the_belt v1 @asteroids "Test that the belt starts with its asteroids"
+#[test]
+fn asteroids_fill_the_belt() {
+    let flight = Flight::new();
+    assert!(flight.world.bodies.len() > ASTEROID_COUNT);
+}
+
+#test the_trail_follows_the_ship v1 @orbit-trails "Test that the trail records each tick"
+#[test]
+fn the_trail_follows_the_ship() {
+    let mut flight = Flight::new();
+    for _ in 0..3 {
+        flight.tick();
+    }
+    assert!(
+        !flight
+            .trail
+            .screen_points(&Camera::default(), Vec2::new(800.0, 600.0))
+            .is_empty()
+    );
+}
+
+#test markets_move_once_a_day v1 @economy-drift "Test that the markets move once a game day"
+#[test]
+fn markets_move_once_a_day() {
+    let mut flight = Flight::new();
+    flight.markets[0][0].stock = 0.0;
+    flight.ticks = DAY_TICKS - 2;
+    flight.tick();
+    assert!(flight.markets[0][0].stock.abs() < 1e-6, "not a day yet");
+    flight.tick();
+    assert!(flight.markets[0][0].stock > 0.0);
+}
+
+#test restore_keeps_the_saved_credits v1 @save-files "Test that a saved game keeps its credits"
+#[test]
+fn restore_keeps_the_saved_credits() {
+    let save = Save {
+        tick: 42,
+        credits: 900.0,
+        ship: Ship::new(Body::ship("Scout", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::new(),
+    };
+    let flight = Flight::restore(save);
+    assert_eq!(flight.credits, 900.0);
+    assert_eq!(flight.ticks, 42);
+}
+
+#test restore_keeps_the_saved_credits v2 @save-v2 "Test that a saved game keeps its credits"
+#[test]
+fn restore_keeps_the_saved_credits() {
+    let save = Save {
+        tick: 42,
+        created: 7,
+        credits: 900.0,
+        ship: Ship::new(Body::ship("Scout", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::new(),
+    };
+    let flight = Flight::restore(save);
+    assert_eq!(flight.credits, 900.0);
+    assert_eq!(flight.ticks, 42);
+    assert_eq!(flight.created, 7);
+}
+
+#test restore_keeps_the_saved_credits v3 @save-v3 "Test that a saved game keeps its credits"
+#[test]
+fn restore_keeps_the_saved_credits() {
+    let save = Save {
+        tick: 42,
+        created: 7,
+        credits: 900.0,
+        ship: Ship::new(Body::ship("Scout", Vec2::ZERO, Vec2::ZERO, 2.0)),
+        cargo: CargoHold::new(),
+        contracts: Vec::new(),
+    };
+    let flight = Flight::restore(save);
+    assert_eq!(flight.credits, 900.0);
+    assert_eq!(flight.ticks, 42);
+    assert_eq!(flight.created, 7);
+}
+
+#test delivering_pays_for_contracts_due_here v1 @contracts "Test that docking pays for the contracts due there"
+#[test]
+fn delivering_pays_for_contracts_due_here() {
+    use orbital_core::cargo::Commodity;
+    let mut flight = Flight::new();
+    let at = flight.stations().next().expect("a station").position;
+    flight.ship.body.position = at;
+    flight.ship.body.velocity = Vec2::ZERO;
+    flight.ship.dock = Dock::Docked;
+    let here = flight.docked_station().expect("docked");
+    flight.cargo.add(Commodity::Ore, 4.0).unwrap();
+    let contract = Contract {
+        commodity: Commodity::Ore,
+        tonnes: 4.0,
+        destination: here,
+        reward: 300.0,
+        ticks_left: 1000,
+    };
+    flight.contracts = vec![
+        contract.clone(),
+        Contract {
+            destination: here + 1,
+            ..contract
+        },
+    ];
+    let before = flight.credits;
+    assert!((flight.deliver() - 300.0).abs() < 1e-4);
+    assert!((flight.credits - before - 300.0).abs() < 1e-4);
+    assert_eq!(flight.contracts.len(), 1);
+    assert!(flight.cargo.mass() < 1e-4);
+}
+
+#test a_station_offers_contracts_elsewhere v1 @contracts-ui "Test that a station's offers go to other stations"
+#[test]
+fn a_station_offers_contracts_elsewhere() {
+    let mut flight = Flight::new();
+    assert!(flight.offers().is_empty(), "nothing is offered in flight");
+    let at = flight.stations().next().expect("a station").position;
+    flight.ship.body.position = at;
+    flight.ship.body.velocity = Vec2::ZERO;
+    flight.ship.dock = Dock::Docked;
+    let here = flight.docked_station().expect("docked");
+    let offers = flight.offers();
+    assert_eq!(offers.len(), contracts::MAX_OPEN);
+    assert!(offers.iter().all(|c| c.destination != here));
+}
+
+#test no_rock_starts_inside_a_station v1 @fix-1-1-belt "Test that no asteroid starts inside a station"
+#[test]
+fn no_rock_starts_inside_a_station() {
+    let port = Vec2::new(2400.0, 0.0);
+    let mut world = World::default();
+    world.spawn(Body::station("Port", port, 0.5, 3000.0));
+    spawn_asteroids(&mut world, &mut Rng::new(DEFAULT_SEED), port.x);
+    world.each_body(|_, body| {
+        if body.kind == BodyKind::Asteroid {
+            assert!(body.position.distance(port) > 3000.0);
+        }
+    });
+}
+
+#test no_flame_on_an_empty_tank v1 @rc-zero-fuel "Test that the flame goes out with the fuel"
+#[test]
+fn no_flame_on_an_empty_tank() {
+    use orbital_render::atlas::ATLAS_SIZE;
+    let mut atlas = Atlas::new(ATLAS_SIZE);
+    atlas.pack("thruster", 16, 32);
+    let mut flight = Flight::new();
+    flight.press(Action::Thrust, true);
+    let mut sprites = SpriteBatch::default();
+    flight.draw(&mut sprites, &atlas);
+    assert_eq!(sprites.sprites().len(), 1, "the flame burns under thrust");
+    flight.ship.fuel = 0.0;
+    let mut sprites = SpriteBatch::default();
+    flight.draw(&mut sprites, &atlas);
+    assert!(sprites.sprites().is_empty());
+}

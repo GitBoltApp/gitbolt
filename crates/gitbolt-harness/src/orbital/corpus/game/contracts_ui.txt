@@ -1,0 +1,88 @@
+#file crates/orbital-game/src/contracts_ui.rs
+#header v1 @contracts-ui
+//! The contracts panel: the open delivery contracts, listed on the trade panel of a docked ship.
+
+use glam::Vec2;
+use orbital_core::contracts::{self, Contract};
+use orbital_render::text::{Font, Glyph};
+
+#const CONTRACT_ROW_HEIGHT v1 @contracts-ui "Show open contracts on the trade screen"
+/// The space one contract's row takes, in pixels.
+pub const CONTRACT_ROW_HEIGHT: f32 = 14.0;
+
+#item draw_contracts v1 @contracts-ui "Show open contracts on the trade screen"
+/// Draws the open contracts from `at` down, one row each: the cargo, the tonnes, the reward and the
+/// days left.
+pub fn draw_contracts(font: &Font, glyphs: &mut Vec<Glyph>, contracts: &[Contract], at: Vec2) {
+    for (i, c) in contracts.iter().enumerate() {
+        let days = c.ticks_left as f32 / contracts::TICKS_PER_DAY as f32;
+        let row = format!(
+            "{} {:.0} T {:.0} CR {:.1} D",
+            c.commodity.key().replace('_', " "),
+            c.tonnes,
+            c.reward,
+            days
+        )
+        .to_uppercase();
+        font.draw(
+            glyphs,
+            &row,
+            at + Vec2::new(0.0, i as f32 * CONTRACT_ROW_HEIGHT),
+            [1.0; 4],
+        );
+    }
+}
+
+#item draw_contracts v2 @contracts-empty "Show an empty state when no contracts are open"
+/// Draws the open contracts from `at` down, one row each: the cargo, the tonnes, the reward and the
+/// days left. With none open, it says so on one line.
+pub fn draw_contracts(font: &Font, glyphs: &mut Vec<Glyph>, contracts: &[Contract], at: Vec2) {
+    if contracts.is_empty() {
+        font.draw(glyphs, "NO CONTRACTS OPEN", at, [1.0; 4]);
+        return;
+    }
+    for (i, c) in contracts.iter().enumerate() {
+        let days = c.ticks_left as f32 / contracts::TICKS_PER_DAY as f32;
+        let row = format!(
+            "{} {:.0} T {:.0} CR {:.1} D",
+            c.commodity.key().replace('_', " "),
+            c.tonnes,
+            c.reward,
+            days
+        )
+        .to_uppercase();
+        font.draw(
+            glyphs,
+            &row,
+            at + Vec2::new(0.0, i as f32 * CONTRACT_ROW_HEIGHT),
+            [1.0; 4],
+        );
+    }
+}
+
+#item payout_total v1 @contract-tests "Count contract payouts in the trade total"
+/// The rewards of the open contracts added up, for the trade panel's total.
+pub fn payout_total(contracts: &[Contract]) -> f32 {
+    contracts.iter().map(|c| c.reward).sum()
+}
+
+#test payout_total_adds_each_reward v1 @contract-tests "Test that the payout total adds every reward"
+#[test]
+fn payout_total_adds_each_reward() {
+    use orbital_core::rng::Rng;
+    assert_eq!(payout_total(&[]), 0.0);
+    let mut rng = Rng::new(3);
+    let open: Vec<Contract> = (0..2)
+        .filter_map(|_| contracts::generate(&mut rng, 0, &[40.0, 80.0]))
+        .collect();
+    assert!(payout_total(&open) > 0.0);
+}
+
+#test draw_contracts_draws_nothing_without_glyphs v1 @contracts-empty "Test that an empty contract list draws no rows"
+#[test]
+fn draw_contracts_draws_nothing_without_glyphs() {
+    let font = Font::new(Vec::new());
+    let mut glyphs = Vec::new();
+    draw_contracts(&font, &mut glyphs, &[], Vec2::ZERO);
+    assert!(glyphs.is_empty());
+}

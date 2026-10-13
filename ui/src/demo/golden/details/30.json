@@ -1,0 +1,30 @@
+{
+  "request": {
+    "method": "hexDump",
+    "params": {
+      "new": {
+        "kind": "object",
+        "oid": "60e4f6dee8b770aec2047820ba0ae18513171f9f"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "d1258f06d284a194abe3f89b0e9cb6e49ab942e5"
+      },
+      "path": "data.bin",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "cap": 262144,
+    "new": {
+      "dump": "00000000  42 49 4e 00 01 02 6e 65  77 21                    |BIN...new!|\n",
+      "shown": 10,
+      "size": 10
+    },
+    "old": {
+      "dump": "00000000  42 49 4e 00 01 02 6f 6c  64                       |BIN...old|\n",
+      "shown": 9,
+      "size": 9
+    }
+  }
+}

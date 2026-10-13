@@ -1,0 +1,280 @@
+#file crates/orbital-core/src/lib.rs
+#header v1 @workspace-setup
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+
+#header v2 @core-math
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+
+pub mod math;
+
+#header v3 @core-bodies
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+
+pub mod body;
+pub mod math;
+pub mod world;
+
+#header v4 @core-lints
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod world;
+
+#header v5 @units-doc
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod world;
+
+#header v6 @gravity
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod physics;
+pub mod world;
+
+#header v7 @integrator
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod physics;
+pub mod time;
+pub mod world;
+
+#header v8 @orbit-prediction
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod time;
+pub mod world;
+
+#header v9 @thrust-fuel
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod ship;
+pub mod time;
+pub mod world;
+
+#header v10 @asteroids
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod ship;
+pub mod time;
+pub mod world;
+
+#header v11 @cargo-hold
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod error;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod ship;
+pub mod time;
+pub mod world;
+
+#header v12 @docking
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod error;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod ship;
+pub mod station;
+pub mod time;
+pub mod world;
+
+#header v13 @market
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod economy;
+pub mod error;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod ship;
+pub mod station;
+pub mod time;
+pub mod world;
+
+#header v14 @save-files
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod economy;
+pub mod error;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod save;
+pub mod ship;
+pub mod station;
+pub mod time;
+pub mod world;
+
+#header v15 @tempest-art
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod economy;
+pub mod error;
+pub mod level;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod save;
+pub mod ship;
+pub mod station;
+pub mod time;
+pub mod world;
+
+#header v16 @ecs-world
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod economy;
+pub mod error;
+pub mod level;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod save;
+pub mod ship;
+pub mod station;
+pub mod time;
+pub mod world;
+
+pub use world::{Entity, World};
+
+#header v17 @systems
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod economy;
+pub mod error;
+pub mod level;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod save;
+pub mod ship;
+pub mod station;
+pub mod systems;
+pub mod time;
+pub mod world;
+
+pub use world::{Entity, World};
+
+#header v18 @contracts
+//! The core of Orbital: bodies, orbits and the fixed-step world, with no rendering.
+//!
+//! Distances are in kilometres, times in seconds and masses in tonnes. Angles are in radians.
+
+#![warn(clippy::pedantic)]
+
+pub mod body;
+pub mod cargo;
+pub mod contracts;
+pub mod economy;
+pub mod error;
+pub mod level;
+pub mod math;
+pub mod orbit;
+pub mod physics;
+pub mod rng;
+pub mod save;
+pub mod ship;
+pub mod station;
+pub mod systems;
+pub mod time;
+pub mod world;
+
+pub use world::{Entity, World};

@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "docs/manual.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "3ef495e6aced236e5a5585e91352a7ca9d583369",
+      "index": "3ef495e6aced236e5a5585e91352a7ca9d583369",
+      "worktree": "81d6e81d3f8b6db9edb83a76b05a2a3e915ce461"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          12
+        ],
+        "del": [],
+        "newLines": 4,
+        "newStart": 9,
+        "oldLines": 3,
+        "oldStart": 9
+      }
+    ],
+    "refused": null
+  }
+}

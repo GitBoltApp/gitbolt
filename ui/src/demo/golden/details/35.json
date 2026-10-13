@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "selectionLines",
+    "params": {
+      "path": "docs/manual.txt",
+      "repo": "$repo",
+      "selection": {
+        "hunks": [
+          0
+        ],
+        "kind": "hunks"
+      },
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "apply": 1,
+    "discard": 1
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "7b1e942d13816664489eb606d4e65ac17985f2b8"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "c8d369bcc5c8aa10f466c7c496cf6a15c29574ed"
+      },
+      "path": "images/scout.png",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": true,
+    "new": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAADwAAAA8CAMAAAANIilAAAAAYFBMVEUAAAAHChQOFCQYITolMlUsH0pLL3N0RqOodc8LOkATYGYfj4o8wq6k8M5KHBSKNBjQYCrwlTr/yV7/8rA9DyJ9HTbJNEorDS5EOkZSWnR+iJ+0vMvx7+YXPSovbjxqqE9X6DcLAAAAAXRSTlMAQObYZgAAAKxJREFUeNrllDsOhDAQQ9Puslvzvf85saVYGhIEgc7wGpRk3hRmkpQO6EG6i6FMcQa3GhjKEskILjUwl/9gAE+XY1g/MGaaGpjLDKvLNIdmLneBt8hkAkPmqXIUOSSUGVjT5TCUS1GBUTptYChzYwHx0ZsyGpIv4LdqYCgrKA2ECqIoquCMZYkfoDULosh9nm8eRHOZB/rvkmMDDQbrqsDMZAnl/S4pz/cXFvIKowOtMXIIby4AAAAASUVORK5CYII=",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "7b1e942d13816664489eb606d4e65ac17985f2b8",
+      "size": 350,
+      "text": null
+    },
+    "old": {
+      "base64": "iVBORw0KGgoAAAANSUhEUgAAADQAAAA4CAMAAACFZCuiAAAAYFBMVEUAAAAHChQOFCQYITolMlUsH0pLL3N0RqOodc8LOkATYGYfj4o8wq6k8M5KHBSKNBjQYCrwlTr/yV7/8rA9DyJ9HTbJNEorDS5EOkZSWnR+iJ+0vMvx7+YXPSovbjxqqE9X6DcLAAAAAXRSTlMAQObYZgAAAJlJREFUeNrd1bsKgDAMheHuKuhkq77/c3oCORDrBbsl/RdB/QZjaVN6aUWpNcdIwI6aoGNEIBX0CwZBE+oB2SGMqGifMAiSIQxaRj0gaUFZi4osICqmR+gYyY0DEWyIiMO4QceIA5AX+dFE2XQZSAAkL3FhbtqM7IKNiFaNh5kdAp9FQVx/vNqfXG8st1XuGNX7Rd2v090POgGOBZ8RY1JLBwAAAABJRU5ErkJggg==",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "c8d369bcc5c8aa10f466c7c496cf6a15c29574ed",
+      "size": 331,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

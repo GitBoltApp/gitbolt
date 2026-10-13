@@ -1,0 +1,11 @@
+{
+  "request": {
+    "method": "mergeBase",
+    "params": {
+      "a": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+      "b": "c0470c5d6046e1709cdf3ff8126165ddd3c63cf4",
+      "repo": "$repo"
+    }
+  },
+  "response": "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e"
+}

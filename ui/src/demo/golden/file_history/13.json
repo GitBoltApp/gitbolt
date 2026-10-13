@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "searchHistory",
+    "params": {
+      "query": "other.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "author": "Lars Tidemann",
+      "id": "3170490ad378e1028eef5ba55bdf2343a31ad363",
+      "summary": "Unrelated change",
+      "time": 1767225900
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "6c152a60719be726c6a6fdda4bad37402fc6672f"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "94c95923d5e13f804621a924655d1487c3e5654c"
+      },
+      "path": "images/fuel.svg",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "6c152a60719be726c6a6fdda4bad37402fc6672f",
+      "size": 2328,
+      "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 12 12\" shape-rendering=\"crispEdges\">\n  <rect x=\"5\" y=\"0\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"1\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"5\" y=\"1\" width=\"1\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"1\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"2\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"5\" y=\"2\" width=\"1\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"2\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"3\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"3\" width=\"2\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"3\" width=\"1\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"7\" y=\"3\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"4\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"4\" width=\"3\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"4\" width=\"2\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"8\" y=\"4\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"5\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"5\" width=\"3\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"5\" width=\"2\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"8\" y=\"5\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"1\" y=\"6\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"6\" width=\"3\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"5\" y=\"6\" width=\"4\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"9\" y=\"6\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"1\" y=\"7\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"7\" width=\"1\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"3\" y=\"7\" width=\"5\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"8\" y=\"7\" width=\"1\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"9\" y=\"7\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"1\" y=\"8\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"8\" width=\"7\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"9\" y=\"8\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"9\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"9\" width=\"5\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"8\" y=\"9\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"10\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"10\" width=\"3\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"7\" y=\"10\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"11\" width=\"3\" height=\"1\" fill=\"#173d2a\"/>\n</svg>\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "94c95923d5e13f804621a924655d1487c3e5654c",
+      "size": 2270,
+      "text": "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"96\" height=\"96\" viewBox=\"0 0 12 12\" shape-rendering=\"crispEdges\">\n  <rect x=\"5\" y=\"0\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"1\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"5\" y=\"1\" width=\"1\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"1\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"2\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"5\" y=\"2\" width=\"1\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"2\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"3\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"3\" width=\"2\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"3\" width=\"1\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"7\" y=\"3\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"4\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"4\" width=\"3\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"4\" width=\"2\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"8\" y=\"4\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"5\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"5\" width=\"3\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"6\" y=\"5\" width=\"2\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"8\" y=\"5\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"1\" y=\"6\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"6\" width=\"3\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"5\" y=\"6\" width=\"4\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"9\" y=\"6\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"1\" y=\"7\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"7\" width=\"2\" height=\"1\" fill=\"#6aa84f\"/>\n  <rect x=\"4\" y=\"7\" width=\"5\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"9\" y=\"7\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"1\" y=\"8\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"8\" width=\"7\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"9\" y=\"8\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"2\" y=\"9\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"9\" width=\"5\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"8\" y=\"9\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"3\" y=\"10\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"10\" width=\"3\" height=\"1\" fill=\"#2f6e3c\"/>\n  <rect x=\"7\" y=\"10\" width=\"1\" height=\"1\" fill=\"#173d2a\"/>\n  <rect x=\"4\" y=\"11\" width=\"3\" height=\"1\" fill=\"#173d2a\"/>\n</svg>\n"
+    },
+    "tooLarge": false
+  }
+}

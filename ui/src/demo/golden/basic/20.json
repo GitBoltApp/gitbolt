@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "file_1.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": "a0054e492840f572e48a3cb791d2e083afaf08f6",
+      "index": "a0054e492840f572e48a3cb791d2e083afaf08f6",
+      "worktree": "065e9d1c71aa492e9588ac906ff84e1b552aa388"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          1
+        ],
+        "del": [
+          1
+        ],
+        "newLines": 1,
+        "newStart": 1,
+        "oldLines": 1,
+        "oldStart": 1
+      }
+    ],
+    "refused": null
+  }
+}

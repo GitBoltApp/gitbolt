@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "60e4f6dee8b770aec2047820ba0ae18513171f9f"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "d1258f06d284a194abe3f89b0e9cb6e49ab942e5"
+      },
+      "path": "data.bin",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "60e4f6dee8b770aec2047820ba0ae18513171f9f",
+      "size": 10,
+      "text": null
+    },
+    "old": {
+      "base64": null,
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "d1258f06d284a194abe3f89b0e9cb6e49ab942e5",
+      "size": 9,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

@@ -1,0 +1,730 @@
+#file crates/orbital-game/src/docked.rs
+#header v1 @docking
+//! The docked screen: what the ship can do while it is latched on to a station.
+
+use glam::Vec2;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::flight::Flight;
+use crate::input::Action;
+
+#header v2 @trade-screen
+//! The docked screen: what the ship can do while it is latched on to a station.
+
+use glam::Vec2;
+use orbital_core::economy::Market;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::trade_screen;
+
+#header v3 @contracts-ui
+//! The docked screen: what the ship can do while it is latched on to a station.
+
+use glam::Vec2;
+use orbital_core::contracts::Contract;
+use orbital_core::economy::Market;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::contracts_ui;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::trade_screen;
+
+#header v4 @mod-loader
+//! The docked screen: what the ship can do while it is latched on to a station.
+
+use glam::Vec2;
+use orbital_core::contracts::Contract;
+use orbital_core::economy::Market;
+use orbital_core::ship::ShipClass;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::contracts_ui;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::trade_screen;
+
+#header v5 @station-services
+//! The docked screen: what the ship can do while it is latched on to a station.
+
+use glam::Vec2;
+use orbital_core::contracts::Contract;
+use orbital_core::economy::Market;
+use orbital_core::ship::ShipClass;
+use orbital_core::station;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::contracts_ui;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::trade_screen;
+
+#header v6 @repair-price
+//! The docked screen: what the ship can do while it is latched on to a station.
+
+use glam::Vec2;
+use orbital_core::contracts::Contract;
+use orbital_core::economy::Market;
+use orbital_core::ship::ShipClass;
+use orbital_core::station::{self, REPAIR_RATE};
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::contracts_ui;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::trade_screen;
+
+#const SHIPYARD_TOP v1 @mod-loader
+/// Where the shipyard list starts, in pixels from the top of the window, under the offers.
+pub const SHIPYARD_TOP: f32 = 240.0;
+
+#item Docked v1 @docking "Dock with a station to stop the ship"
+/// The screen shown while the ship is docked, with the station's name.
+#[derive(Debug)]
+pub struct Docked {
+    station: String,
+}
+
+#item Docked v2 @trade-screen "Show the trade screen at a station"
+/// The screen shown while the ship is docked: the station's name, its market for each good, and
+/// the good the player has selected.
+#[derive(Debug)]
+pub struct Docked {
+    station: String,
+    markets: Vec<Market>,
+    selected: usize,
+}
+
+#item Docked v3 @economy-drift "Keep each station's market between visits, and move it once a day"
+/// The screen shown while the ship is docked: the station's name and number, its market for each
+/// good, and the good the player has selected.
+#[derive(Debug)]
+pub struct Docked {
+    station: String,
+    port: Option<usize>,
+    markets: Vec<Market>,
+    selected: usize,
+}
+
+#item Docked v4 @contracts-ui "Offer the station's contracts on the docked screen"
+/// The screen shown while the ship is docked: the station's name and number, its market for each
+/// good, the good the player has selected, and the contracts the station offers.
+#[derive(Debug)]
+pub struct Docked {
+    station: String,
+    port: Option<usize>,
+    markets: Vec<Market>,
+    selected: usize,
+    offers: Vec<Contract>,
+}
+
+#item new v1 @docking "Dock with a station to stop the ship"
+impl Docked {
+    /// The docked screen for the station with this name.
+    pub fn new(station: &str) -> Self {
+        Self {
+            station: station.to_string(),
+        }
+    }
+}
+
+#item new v2 @trade-screen "Show the trade screen at a station"
+impl Docked {
+    /// The docked screen for the station with this name, trading the goods every station lists,
+    /// with the first one selected.
+    pub fn new(station: &str) -> Self {
+        Self {
+            station: station.to_string(),
+            markets: trade_screen::station_markets(),
+            selected: 0,
+        }
+    }
+}
+
+#item new v3 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Docked {
+    /// The docked screen for the station with this name, trading the goods every station lists,
+    /// with the first one selected.
+    pub fn new(station: &str) -> Self {
+        Self {
+            station: station.to_string(),
+            port: None,
+            markets: trade_screen::station_markets(),
+            selected: 0,
+        }
+    }
+}
+
+#item new v4 @contracts-ui "Offer the station's contracts on the docked screen"
+impl Docked {
+    /// The docked screen for the station with this name, trading the goods every station lists,
+    /// with the first one selected, and offering `offers`.
+    pub fn new(station: &str, offers: Vec<Contract>) -> Self {
+        Self {
+            station: station.to_string(),
+            port: None,
+            markets: trade_screen::station_markets(),
+            selected: 0,
+            offers,
+        }
+    }
+}
+
+#item at_port v1 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Docked {
+    /// The same screen trading on the market of the station the ship is docked at, which goes back
+    /// to the flight when the ship undocks.
+    #[must_use]
+    pub fn at_port(mut self, flight: &Flight) -> Self {
+        if let Some(port) = flight.docked_station() {
+            self.port = Some(port);
+            self.markets = flight.markets[port].clone();
+        }
+        self
+    }
+}
+
+#item handle v1 @docking "Dock with a station to stop the ship"
+impl Docked {
+    /// Undocks on the undock key. Other keys do nothing yet.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                flight.ship.undock();
+                Step::Pop
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item handle v2 @trade-screen "Buy and sell a tonne at a time on the trade screen"
+impl Docked {
+    /// Undocks on the undock key, moves the selection through the goods with up and down, and buys
+    /// or sells a tonne of the selected good.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                flight.ship.undock();
+                Step::Pop
+            }
+            Action::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                Step::Stay
+            }
+            Action::Down => {
+                self.selected = (self.selected + 1).min(self.markets.len() - 1);
+                Step::Stay
+            }
+            Action::Buy => {
+                trade_screen::buy(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Sell => {
+                trade_screen::sell(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item handle v3 @economy-drift "Keep each station's market between visits, and move it once a day"
+impl Docked {
+    /// Undocks on the undock key, handing the station's market back to the flight, moves the
+    /// selection through the goods with up and down, and buys or sells a tonne of the selected
+    /// good.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                if let Some(port) = self.port {
+                    flight.markets[port] = std::mem::take(&mut self.markets);
+                }
+                flight.ship.undock();
+                Step::Pop
+            }
+            Action::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                Step::Stay
+            }
+            Action::Down => {
+                self.selected = (self.selected + 1).min(self.markets.len() - 1);
+                Step::Stay
+            }
+            Action::Buy => {
+                trade_screen::buy(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Sell => {
+                trade_screen::sell(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item handle v4 @contracts-ui "Accept the station's first contract offer"
+impl Docked {
+    /// Undocks on the undock key, moves the selection through the goods with up and down, buys or
+    /// sells a tonne of the selected good, and accepts the first contract on offer.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                if let Some(port) = self.port {
+                    flight.markets[port] = std::mem::take(&mut self.markets);
+                }
+                flight.ship.undock();
+                Step::Pop
+            }
+            Action::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                Step::Stay
+            }
+            Action::Down => {
+                self.selected = (self.selected + 1).min(self.markets.len() - 1);
+                Step::Stay
+            }
+            Action::Buy => {
+                trade_screen::buy(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Sell => {
+                trade_screen::sell(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Accept => {
+                if !self.offers.is_empty() {
+                    flight.contracts.push(self.offers.remove(0));
+                }
+                Step::Stay
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item handle v5 @station-services "Set the refuel price per unit of fuel"
+impl Docked {
+    /// Undocks on the undock key, moves the selection through the goods with up and down, buys or
+    /// sells a tonne of the selected good, accepts the first contract on offer, and refuels on the
+    /// refuel key when the credits cover the bill.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                if let Some(port) = self.port {
+                    flight.markets[port] = std::mem::take(&mut self.markets);
+                }
+                flight.ship.undock();
+                Step::Pop
+            }
+            Action::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                Step::Stay
+            }
+            Action::Down => {
+                self.selected = (self.selected + 1).min(self.markets.len() - 1);
+                Step::Stay
+            }
+            Action::Buy => {
+                trade_screen::buy(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Sell => {
+                trade_screen::sell(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Accept => {
+                if !self.offers.is_empty() {
+                    flight.contracts.push(self.offers.remove(0));
+                }
+                Step::Stay
+            }
+            Action::Refuel => {
+                if station::bill(&flight.ship) <= flight.credits {
+                    flight.credits -= station::service(&mut flight.ship);
+                }
+                Step::Stay
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item handle v6 @repair-price "Price repairs by hull damage"
+impl Docked {
+    /// Undocks on the undock key, moves the selection through the goods with up and down, buys or
+    /// sells a tonne of the selected good, and accepts the first contract on offer. Refuels on the
+    /// refuel key, and repairs on the repair key, when the credits cover the bill.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                if let Some(port) = self.port {
+                    flight.markets[port] = std::mem::take(&mut self.markets);
+                }
+                flight.ship.undock();
+                Step::Pop
+            }
+            Action::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                Step::Stay
+            }
+            Action::Down => {
+                self.selected = (self.selected + 1).min(self.markets.len() - 1);
+                Step::Stay
+            }
+            Action::Buy => {
+                trade_screen::buy(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Sell => {
+                trade_screen::sell(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Accept => {
+                if !self.offers.is_empty() {
+                    flight.contracts.push(self.offers.remove(0));
+                }
+                Step::Stay
+            }
+            Action::Refuel => {
+                let cost = station::bill(&flight.ship) + flight.ship.hull_lost() * REPAIR_RATE;
+                if cost <= flight.credits {
+                    flight.credits -= cost;
+                    station::service(&mut flight.ship);
+                }
+                Step::Stay
+            }
+            Action::Repair => {
+                let cost = flight.ship.hull_lost() * REPAIR_RATE;
+                if cost <= flight.credits {
+                    flight.credits -= cost;
+                    flight.ship.repair();
+                }
+                Step::Stay
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item handle v7 @fix-1-1-repair "Bill the repairs once when the refuel button repairs the hull\n\nThe station's bill counts the repairs already, and the button added them a second time."
+impl Docked {
+    /// Undocks on the undock key, moves the selection through the goods with up and down, buys or
+    /// sells a tonne of the selected good, and accepts the first contract on offer. Refuels and
+    /// repairs on the refuel key, for the station's one bill, and repairs on the repair key, when
+    /// the credits cover it.
+    pub fn handle(&mut self, action: Action, flight: &mut Flight) -> Step {
+        match action {
+            Action::Undock => {
+                if let Some(port) = self.port {
+                    flight.markets[port] = std::mem::take(&mut self.markets);
+                }
+                flight.ship.undock();
+                Step::Pop
+            }
+            Action::Up => {
+                self.selected = self.selected.saturating_sub(1);
+                Step::Stay
+            }
+            Action::Down => {
+                self.selected = (self.selected + 1).min(self.markets.len() - 1);
+                Step::Stay
+            }
+            Action::Buy => {
+                trade_screen::buy(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Sell => {
+                trade_screen::sell(&mut self.markets[self.selected], flight);
+                Step::Stay
+            }
+            Action::Accept => {
+                if !self.offers.is_empty() {
+                    flight.contracts.push(self.offers.remove(0));
+                }
+                Step::Stay
+            }
+            Action::Refuel => {
+                if station::bill(&flight.ship) <= flight.credits {
+                    flight.credits -= station::service(&mut flight.ship);
+                }
+                Step::Stay
+            }
+            Action::Repair => {
+                let cost = flight.ship.hull_lost() * REPAIR_RATE;
+                if cost <= flight.credits {
+                    flight.credits -= cost;
+                    flight.ship.repair();
+                }
+                Step::Stay
+            }
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item selected v1 @rc-trade-scroll "Open the trade screen on the good last traded"
+impl Docked {
+    /// The row of the good that is selected.
+    pub fn selected(&self) -> usize {
+        self.selected
+    }
+}
+
+#item at_row v1 @rc-trade-scroll "Open the trade screen on the good last traded"
+impl Docked {
+    /// The same screen with `row` selected, or the last good if the list is shorter now.
+    #[must_use]
+    pub fn at_row(mut self, row: usize) -> Self {
+        self.selected = row.min(self.markets.len().saturating_sub(1));
+        self
+    }
+}
+
+#item draw v1 @docking "Dock with a station to stop the ship"
+impl Docked {
+    /// Draws the station's name, and the key that undocks.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        font.draw(
+            glyphs,
+            &self.station.to_uppercase(),
+            Vec2::new(120.0, 200.0),
+            [1.0; 4],
+        );
+        font.draw(
+            glyphs,
+            "U TO UNDOCK",
+            Vec2::new(120.0, 232.0),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+    }
+}
+
+#item draw v2 @trade-screen "Show the trade screen at a station"
+impl Docked {
+    /// Draws the station's name and the keys that work here, beside the trade panel with the
+    /// station's prices.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>, flight: &Flight) {
+        font.draw(
+            glyphs,
+            &self.station.to_uppercase(),
+            Vec2::new(400.0, 96.0),
+            [1.0; 4],
+        );
+        font.draw(
+            glyphs,
+            "U UNDOCK  B BUY  S SELL",
+            Vec2::new(400.0, 112.0),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        trade_screen::draw_trade(font, glyphs, flight, &self.markets, self.selected);
+    }
+}
+
+#item draw v3 @contracts-ui "Offer the station's contracts on the docked screen"
+impl Docked {
+    /// Draws the station's name and the keys that work here, beside the trade panel with the
+    /// station's prices, and the contracts the station offers under them.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>, flight: &Flight) {
+        font.draw(
+            glyphs,
+            &self.station.to_uppercase(),
+            Vec2::new(400.0, 96.0),
+            [1.0; 4],
+        );
+        font.draw(
+            glyphs,
+            "U UNDOCK  B BUY  S SELL  C ACCEPT",
+            Vec2::new(400.0, 112.0),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        trade_screen::draw_trade(font, glyphs, flight, &self.markets, self.selected);
+        contracts_ui::draw_contracts(font, glyphs, &self.offers, Vec2::new(400.0, 144.0));
+    }
+}
+
+#item draw v4 @mod-loader "List the ship classes on the docked screen"
+impl Docked {
+    /// Draws the station's name and the keys that work here, beside the trade panel with the
+    /// station's prices, then the contracts the station offers and the shipyard's list of classes
+    /// with their prices, the mods' among them.
+    pub fn draw(
+        &self,
+        font: &Font,
+        glyphs: &mut Vec<Glyph>,
+        flight: &Flight,
+        classes: &[ShipClass],
+    ) {
+        font.draw(
+            glyphs,
+            &self.station.to_uppercase(),
+            Vec2::new(400.0, 96.0),
+            [1.0; 4],
+        );
+        font.draw(
+            glyphs,
+            "U UNDOCK  B BUY  S SELL  C ACCEPT",
+            Vec2::new(400.0, 112.0),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        trade_screen::draw_trade(font, glyphs, flight, &self.markets, self.selected);
+        contracts_ui::draw_contracts(font, glyphs, &self.offers, Vec2::new(400.0, 144.0));
+        let grey = [0.6, 0.6, 0.6, 1.0];
+        font.draw(glyphs, "SHIPYARD", Vec2::new(400.0, SHIPYARD_TOP), grey);
+        for (i, class) in classes.iter().enumerate() {
+            let row = format!("{} {:.0} CR", class.name, class.price).to_uppercase();
+            let at = Vec2::new(400.0, SHIPYARD_TOP + (i + 1) as f32 * 14.0);
+            font.draw(glyphs, &row, at, [1.0; 4]);
+        }
+    }
+}
+
+#test undock_leaves_the_station v1 @docking "Test that the undock key pops the docked screen"
+#[test]
+fn undock_leaves_the_station() {
+    let mut flight = Flight::new();
+    let mut docked = Docked::new("Ring");
+    assert!(matches!(
+        docked.handle(Action::Undock, &mut flight),
+        Step::Pop
+    ));
+}
+
+#test undock_leaves_the_station v2 @contracts-ui "Test undocking from a station with offers"
+#[test]
+fn undock_leaves_the_station() {
+    let mut flight = Flight::new();
+    let mut docked = Docked::new("Ring", Vec::new());
+    assert!(matches!(
+        docked.handle(Action::Undock, &mut flight),
+        Step::Pop
+    ));
+}
+
+#test the_selection_stays_on_the_list v1 @trade-screen "Test that the selection stops at both ends of the goods"
+#[test]
+fn the_selection_stays_on_the_list() {
+    let mut flight = Flight::new();
+    let mut docked = Docked::new("Ring");
+    docked.handle(Action::Up, &mut flight);
+    assert_eq!(docked.selected, 0);
+    for _ in 0..20 {
+        docked.handle(Action::Down, &mut flight);
+    }
+    assert_eq!(docked.selected, docked.markets.len() - 1);
+}
+
+#test the_selection_stays_on_the_list v2 @contracts-ui "Test the selection on a station with offers"
+#[test]
+fn the_selection_stays_on_the_list() {
+    let mut flight = Flight::new();
+    let mut docked = Docked::new("Ring", Vec::new());
+    docked.handle(Action::Up, &mut flight);
+    assert_eq!(docked.selected, 0);
+    for _ in 0..20 {
+        docked.handle(Action::Down, &mut flight);
+    }
+    assert_eq!(docked.selected, docked.markets.len() - 1);
+}
+
+#test undocking_hands_the_market_back v1 @economy-drift "Test that a trade stays in the station's market after undocking"
+#[test]
+fn undocking_hands_the_market_back() {
+    use orbital_core::economy::BASE_STOCK;
+    use orbital_core::ship::Dock;
+    let mut flight = Flight::new();
+    let at = flight.stations().next().expect("a station").position;
+    flight.ship.body.position = at;
+    flight.ship.body.velocity = Vec2::ZERO;
+    flight.ship.dock = Dock::Docked;
+    let port = flight.docked_station().expect("docked");
+    let mut docked = Docked::new("Ring").at_port(&flight);
+    docked.handle(Action::Buy, &mut flight);
+    docked.handle(Action::Undock, &mut flight);
+    assert!(flight.markets[port][0].stock < BASE_STOCK);
+}
+
+#test undocking_hands_the_market_back v2 @contracts-ui "Test the market hand-back on a station with offers"
+#[test]
+fn undocking_hands_the_market_back() {
+    use orbital_core::economy::BASE_STOCK;
+    use orbital_core::ship::Dock;
+    let mut flight = Flight::new();
+    let at = flight.stations().next().expect("a station").position;
+    flight.ship.body.position = at;
+    flight.ship.body.velocity = Vec2::ZERO;
+    flight.ship.dock = Dock::Docked;
+    let port = flight.docked_station().expect("docked");
+    let mut docked = Docked::new("Ring", Vec::new()).at_port(&flight);
+    docked.handle(Action::Buy, &mut flight);
+    docked.handle(Action::Undock, &mut flight);
+    assert!(flight.markets[port][0].stock < BASE_STOCK);
+}
+
+#test accepting_takes_the_first_offer v1 @contracts-ui "Test that accepting takes the first offer"
+#[test]
+fn accepting_takes_the_first_offer() {
+    let mut flight = Flight::new();
+    let offer = Contract {
+        commodity: orbital_core::cargo::Commodity::Ore,
+        tonnes: 4.0,
+        destination: 1,
+        reward: 300.0,
+        ticks_left: 1000,
+    };
+    let mut docked = Docked::new("Ring", vec![offer.clone()]);
+    docked.handle(Action::Accept, &mut flight);
+    assert_eq!(flight.contracts, vec![offer]);
+    assert!(docked.offers.is_empty());
+}
+
+#test refuelling_charges_the_bill v1 @station-services "Test that refuelling fills the tank and charges for it"
+#[test]
+fn refuelling_charges_the_bill() {
+    let mut flight = Flight::new();
+    flight.ship.fuel = 10.0;
+    flight.credits = 1000.0;
+    Docked::new("Ring", Vec::new()).handle(Action::Refuel, &mut flight);
+    assert!(flight.ship.fuel > 10.0);
+    assert!(flight.credits < 1000.0);
+}
+
+#test a_full_hull_costs_nothing_to_repair v1 @repair-price "Test that a full hull costs nothing to repair"
+#[test]
+fn a_full_hull_costs_nothing_to_repair() {
+    let mut flight = Flight::new();
+    let before = flight.credits;
+    Docked::new("Ring", Vec::new()).handle(Action::Repair, &mut flight);
+    assert_eq!(flight.credits, before);
+}
+
+#test refuelling_bills_the_repairs_once v1 @fix-1-1-repair "Test that the refuel button bills the repairs once"
+#[test]
+fn refuelling_bills_the_repairs_once() {
+    let mut flight = Flight::new();
+    flight.ship.fuel = 10.0;
+    flight.ship.body.hull *= 0.5;
+    flight.credits = 1000.0;
+    let bill = station::bill(&flight.ship);
+    Docked::new("Ring", Vec::new()).handle(Action::Refuel, &mut flight);
+    assert!((1000.0 - flight.credits - bill).abs() < 1e-3);
+    assert!(flight.ship.hull_lost() < 1e-4);
+}
+
+#test a_reopened_screen_keeps_its_row v1 @rc-trade-scroll "Test that the trade screen opens on the row it was left on"
+#[test]
+fn a_reopened_screen_keeps_its_row() {
+    let docked = Docked::new("Ring", Vec::new()).at_row(3);
+    assert_eq!(docked.selected(), 3);
+    let last = docked.markets.len() - 1;
+    assert_eq!(Docked::new("Ring", Vec::new()).at_row(99).selected(), last);
+}

@@ -1,0 +1,17 @@
+{
+  "request": {
+    "method": "signature",
+    "params": {
+      "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "detail": null,
+    "fingerprint": "",
+    "key": "",
+    "kind": "unsigned",
+    "signer": "",
+    "trust": ""
+  }
+}

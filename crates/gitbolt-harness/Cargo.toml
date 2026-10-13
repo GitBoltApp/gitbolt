@@ -19,6 +19,8 @@ futures-util.workspace = true
 tempfile.workspace = true
 # The fake releases' SHA256SUMS.
 sha2.workspace = true
+# Deflate for the showcase media (src/media).
+flate2.workspace = true
 
 [dev-dependencies]
 tokio-tungstenite.workspace = true

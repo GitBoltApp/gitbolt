@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "commit": "75a57458b5df93fc4ebe2b7c480acde314b9643d",
+        "kind": "atCommit"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "scripts/pack-assets.sh",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "150206b5e28fa2d7be015a8cd89ff7a9e71540fe",
+      "size": 126,
+      "text": "#!/bin/sh\n# Zips the press kit for the website's download link.\nset -eu\nzip -qr orbital-press-kit.zip images audio media docs\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "findPaths",
+    "params": {
+      "query": "mixed",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "810fba25c47748a55f9bf2ae704a536fdf3decbc",
+    "f7f3e660e938bd28c89489fb84880788efeb1536"
+  ]
+}

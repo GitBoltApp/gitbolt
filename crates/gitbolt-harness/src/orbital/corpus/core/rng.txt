@@ -1,0 +1,101 @@
+#file crates/orbital-core/src/rng.rs
+#header v1 @asteroids
+//! A small xorshift generator for gameplay: asteroid spawns and the like. Never used for saves.
+#const DEFAULT_SEED v1 @asteroids "Spawn asteroids on the outer orbits"
+/// The seed a new system starts from when it has none of its own.
+pub const DEFAULT_SEED: u64 = 2_654_435_769;
+#item Rng v1 @asteroids "Add a small xorshift generator for gameplay"
+/// A xorshift64 generator. The state is never zero, so it never gets stuck.
+#[derive(Clone, Debug)]
+pub struct Rng {
+    state: u64,
+}
+#item new v1 @asteroids "Add a small xorshift generator for gameplay"
+impl Rng {
+    /// A generator from `seed`. A zero seed is bumped to one, since xorshift needs a non-zero state.
+    pub fn new(seed: u64) -> Self {
+        Self { state: seed.max(1) }
+    }
+}
+#item default v1 @asteroids "Start a default generator from DEFAULT_SEED"
+impl Default for Rng {
+    /// A generator from the system's default seed.
+    fn default() -> Self {
+        Self::new(DEFAULT_SEED)
+    }
+}
+#item next_u64 v1 @asteroids "Add the xorshift step"
+impl Rng {
+    /// The next 64 random bits.
+    pub fn next_u64(&mut self) -> u64 {
+        let mut x = self.state;
+        x ^= x << 13;
+        x ^= x >> 7;
+        x ^= x << 17;
+        self.state = x;
+        x
+    }
+}
+#item next_f32 v1 @asteroids "Add random floats from the top bits"
+impl Rng {
+    /// A float in `0.0..1.0`, from the top 24 bits of the next value.
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / 16_777_215.0
+    }
+}
+#item next_f32 v2 @belt-spawn "Keep random floats strictly below one"
+impl Rng {
+    /// A float in `0.0..1.0`, from the top 24 bits of the next value.
+    pub fn next_f32(&mut self) -> f32 {
+        (self.next_u64() >> 40) as f32 / 16_777_216.0
+    }
+}
+#item range v1 @asteroids "Add random floats within a range"
+impl Rng {
+    /// A float in `lo..hi`.
+    pub fn range(&mut self, lo: f32, hi: f32) -> f32 {
+        lo + (hi - lo) * self.next_f32()
+    }
+}
+#test zero_seed_still_moves v1 @asteroids "Test that a zero seed still gives numbers"
+#[test]
+fn zero_seed_still_moves() {
+    let mut rng = Rng::new(0);
+    assert_ne!(rng.next_u64(), 0);
+}
+#test same_seed_same_sequence v1 @asteroids "Test that the same seed gives the same numbers"
+#[test]
+fn same_seed_same_sequence() {
+    let mut a = Rng::new(42);
+    let mut b = Rng::new(42);
+    for _ in 0..16 {
+        assert_eq!(a.next_u64(), b.next_u64());
+    }
+}
+#test floats_stay_in_unit_interval v1 @asteroids "Test that floats stay in the unit interval"
+#[test]
+fn floats_stay_in_unit_interval() {
+    let mut rng = Rng::new(9);
+    for _ in 0..1000 {
+        let x = rng.next_f32();
+        assert!((0.0..1.0).contains(&x));
+    }
+}
+#test floats_stay_in_unit_interval v2 @belt-spawn "Check the upper bound over a longer run"
+#[test]
+fn floats_stay_in_unit_interval() {
+    let mut rng = Rng::new(9);
+    for _ in 0..100_000 {
+        let x = rng.next_f32();
+        assert!((0.0..1.0).contains(&x));
+    }
+}
+#test range_respects_bounds v1 @asteroids "Test that range stays within its bounds"
+#[test]
+fn range_respects_bounds() {
+    let mut rng = Rng::new(3);
+    for _ in 0..100 {
+        let x = rng.range(-2.0, 5.0);
+        assert!((-2.0..5.0).contains(&x));
+    }
+}

@@ -1,0 +1,265 @@
+#file crates/orbital-render/src/camera.rs
+#header v1 @camera-follow "Follow the ship with the camera"
+//! The camera: which part of the system is on screen, and how far in it is zoomed. Positions are
+//! in kilometres; the screen is in pixels, with y growing downwards.
+
+use glam::Vec2;
+#const FOLLOW_RATE v1 @camera-follow
+/// How fast the view closes the gap to its target, in 1/s.
+pub const FOLLOW_RATE: f32 = 6.0;
+#item Camera v1 @camera-follow "Follow the ship with the camera"
+/// The view onto the system: a centre in kilometres and a zoom in pixels per kilometre.
+#[derive(Clone, Copy, Debug)]
+pub struct Camera {
+    pub centre: Vec2,
+    pub zoom: f32,
+}
+#item Camera v2 @explosion-shake "Shake the camera when the ship hits a rock"
+/// The view onto the system: a centre in kilometres, a zoom in pixels per kilometre, and how hard it shakes.
+#[derive(Clone, Copy, Debug)]
+pub struct Camera {
+    pub centre: Vec2,
+    pub zoom: f32,
+    pub shake: f32,
+}
+#item Camera v3 @explosion-shake "Keep a clock for the shake's wobble"
+/// The view onto the system: a centre in kilometres, a zoom in pixels per kilometre, how hard it
+/// shakes, and the clock its wobble runs on.
+#[derive(Clone, Copy, Debug)]
+pub struct Camera {
+    pub centre: Vec2,
+    pub zoom: f32,
+    pub shake: f32,
+    pub phase: f32,
+}
+#item default v1 @camera-follow "Start the camera over the origin at a zoom of one"
+impl Default for Camera {
+    /// A camera over the origin, one pixel to the kilometre.
+    fn default() -> Self {
+        Self {
+            centre: Vec2::ZERO,
+            zoom: 1.0,
+        }
+    }
+}
+#item default v2 @explosion-shake "Shake the camera when the ship hits a rock"
+impl Default for Camera {
+    /// A camera over the origin, one pixel to the kilometre, and steady.
+    fn default() -> Self {
+        Self {
+            centre: Vec2::ZERO,
+            zoom: 1.0,
+            shake: 0.0,
+        }
+    }
+}
+#item default v3 @explosion-shake "Start the shake's wobble clock at zero"
+impl Default for Camera {
+    /// A camera over the origin, one pixel to the kilometre, and steady.
+    fn default() -> Self {
+        Self {
+            centre: Vec2::ZERO,
+            zoom: 1.0,
+            shake: 0.0,
+            phase: 0.0,
+        }
+    }
+}
+#item follow v1 @camera-follow "Follow the ship with the camera"
+impl Camera {
+    /// Moves the centre towards `target` by the share of the gap that `dt` seconds closes.
+    pub fn follow(&mut self, target: Vec2, dt: f32) {
+        let share = 1.0 - (-FOLLOW_RATE * dt).exp();
+        self.centre = self.centre.lerp(target, share);
+    }
+}
+#item to_screen v1 @camera-follow "Map kilometres onto the window's pixels"
+impl Camera {
+    /// The pixel at `world` in a window of `screen` pixels.
+    #[must_use]
+    pub fn to_screen(&self, world: Vec2, screen: Vec2) -> Vec2 {
+        let offset = (world - self.centre) * self.zoom;
+        Vec2::new(offset.x, -offset.y) + screen * 0.5
+    }
+}
+#const ZOOM_STEP v1 @camera-zoom
+/// How much one notch of the scroll wheel multiplies the zoom by.
+pub const ZOOM_STEP: f32 = 1.1;
+#const MIN_ZOOM v1 @camera-zoom
+/// The furthest out the view goes, in pixels per kilometre: the whole star system on one screen.
+pub const MIN_ZOOM: f32 = 0.02;
+#const MAX_ZOOM v1 @camera-zoom
+/// The closest the view gets, in pixels per kilometre: a ship's hull fills the screen.
+pub const MAX_ZOOM: f32 = 20.0;
+#item zoom_by v1 @camera-zoom "Zoom the camera with the scroll wheel"
+impl Camera {
+    /// Zooms by `steps` notches of the scroll wheel, staying within the zoom limits.
+    pub fn zoom_by(&mut self, steps: f32) {
+        self.zoom = (self.zoom * ZOOM_STEP.powf(steps)).clamp(MIN_ZOOM, MAX_ZOOM);
+    }
+}
+#item zoom_by v2 @map-zoom "Keep the orbit map zoom centred on the cursor"
+impl Camera {
+    /// Zooms by `steps` notches, keeping the world point under `anchor` where it was.
+    pub fn zoom_by(&mut self, steps: f32, anchor: Vec2, screen: Vec2) {
+        let before = self.screen_to_world(anchor, screen);
+        self.zoom = (self.zoom * ZOOM_STEP.powf(steps)).clamp(MIN_ZOOM, MAX_ZOOM);
+        let after = self.screen_to_world(anchor, screen);
+        self.centre += before - after;
+    }
+}
+#item visible v1 @camera-zoom "Cull what the window can't see"
+impl Camera {
+    /// Whether `world` lands inside a window of `screen` pixels.
+    #[must_use]
+    pub fn visible(&self, world: Vec2, screen: Vec2) -> bool {
+        let p = self.to_screen(world, screen);
+        p.x >= 0.0 && p.x < screen.x && p.y >= 0.0 && p.y < screen.y
+    }
+}
+#item visible v2 @prediction-jump "Fix the predicted orbit jumping at the camera edge\n\nPoints just past the edge were culled, so an orbit popped in and out as it crossed."
+impl Camera {
+    /// Whether `world` lands within `margin` pixels of a window of `screen` pixels.
+    #[must_use]
+    pub fn visible(&self, world: Vec2, screen: Vec2, margin: f32) -> bool {
+        let p = self.to_screen(world, screen);
+        p.x >= -margin && p.x < screen.x + margin && p.y >= -margin && p.y < screen.y + margin
+    }
+}
+#item visible v3 @map-edge "Count the orbit map's far edge as inside"
+impl Camera {
+    /// Whether `world` lands within `margin` pixels of a window of `screen` pixels, far edges included.
+    #[must_use]
+    pub fn visible(&self, world: Vec2, screen: Vec2, margin: f32) -> bool {
+        let p = self.to_screen(world, screen);
+        p.x >= -margin && p.x <= screen.x + margin && p.y >= -margin && p.y <= screen.y + margin
+    }
+}
+#item screen_to_world v1 @map-zoom "Keep the orbit map zoom centred on the cursor"
+impl Camera {
+    /// The world position under pixel `p` in a window of `screen` pixels.
+    #[must_use]
+    pub fn screen_to_world(&self, p: Vec2, screen: Vec2) -> Vec2 {
+        let offset = p - screen * 0.5;
+        self.centre + Vec2::new(offset.x, -offset.y) / self.zoom
+    }
+}
+#const SHAKE_DECAY v1 @explosion-shake
+/// How fast a shake dies away, in kilometres a second.
+pub const SHAKE_DECAY: f32 = 2.0;
+#item shake v1 @explosion-shake "Shake the camera when the ship hits a rock"
+impl Camera {
+    /// Shakes the view at least as hard as `strength`, in kilometres.
+    pub fn shake(&mut self, strength: f32) {
+        self.shake = self.shake.max(strength);
+    }
+}
+#item decay v1 @explosion-shake "Shake the camera when the ship hits a rock"
+impl Camera {
+    /// Calms the shake by what `dt` seconds of decay take off it.
+    pub fn decay(&mut self, dt: f32) {
+        self.shake = (self.shake - SHAKE_DECAY * dt).max(0.0);
+    }
+}
+#item decay v2 @explosion-shake "Run the wobble's clock on while the shake decays"
+impl Camera {
+    /// Calms the shake by what `dt` seconds of decay take off it, and moves the wobble on by `dt`.
+    pub fn decay(&mut self, dt: f32) {
+        self.shake = (self.shake - SHAKE_DECAY * dt).max(0.0);
+        self.phase = (self.phase + dt) % std::f32::consts::TAU;
+    }
+}
+#item shake_offset v1 @explosion-shake "Shake the camera when the ship hits a rock"
+impl Camera {
+    /// The nudge for this frame: a wobble at `phase` seconds, scaled by how hard the view shakes.
+    #[must_use]
+    pub fn shake_offset(&self, phase: f32) -> Vec2 {
+        Vec2::new((phase * 53.0).sin(), (phase * 71.0).cos()) * self.shake
+    }
+}
+#test follow_moves_towards_the_target v1 @camera-follow "Test that the view eases towards the ship"
+#[test]
+fn follow_moves_towards_the_target() {
+    let mut cam = Camera::default();
+    cam.follow(Vec2::new(100.0, 0.0), 1.0);
+    assert!(cam.centre.x > 99.0 && cam.centre.x < 100.0);
+    assert!(cam.centre.y.abs() < 1e-6);
+}
+#test to_screen_centres_the_camera v1 @camera-follow "Test that the centre of the view lands mid-window"
+#[test]
+fn to_screen_centres_the_camera() {
+    let cam = Camera::default();
+    let p = cam.to_screen(Vec2::ZERO, Vec2::new(800.0, 600.0));
+    assert!((p - Vec2::new(400.0, 300.0)).length() < 1e-4);
+}
+#test zoom_steps_are_clamped v1 @camera-zoom "Test that zooming stays within the zoom limits"
+#[test]
+fn zoom_steps_are_clamped() {
+    let mut cam = Camera::default();
+    cam.zoom_by(1000.0);
+    assert!((cam.zoom - MAX_ZOOM).abs() < 1e-4);
+    cam.zoom_by(-1000.0);
+    assert!((cam.zoom - MIN_ZOOM).abs() < 1e-6);
+}
+#test zoom_steps_are_clamped v2 @map-zoom "Test that zooming at the cursor stays within the limits"
+#[test]
+fn zoom_steps_are_clamped() {
+    let mut cam = Camera::default();
+    let (anchor, screen) = (Vec2::new(400.0, 300.0), Vec2::new(800.0, 600.0));
+    cam.zoom_by(1000.0, anchor, screen);
+    assert!((cam.zoom - MAX_ZOOM).abs() < 1e-4);
+    cam.zoom_by(-1000.0, anchor, screen);
+    assert!((cam.zoom - MIN_ZOOM).abs() < 1e-6);
+}
+#test visible_respects_the_screen v1 @camera-zoom "Test that off-screen points are culled"
+#[test]
+fn visible_respects_the_screen() {
+    let cam = Camera::default();
+    let screen = Vec2::new(800.0, 600.0);
+    assert!(cam.visible(Vec2::ZERO, screen));
+    assert!(!cam.visible(Vec2::new(1000.0, 0.0), screen));
+}
+#test visible_respects_the_screen v2 @prediction-jump "Test that the margin keeps points just past the edge"
+#[test]
+fn visible_respects_the_screen() {
+    let cam = Camera::default();
+    let screen = Vec2::new(800.0, 600.0);
+    assert!(cam.visible(Vec2::ZERO, screen, 0.0));
+    assert!(!cam.visible(Vec2::new(1000.0, 0.0), screen, 0.0));
+    assert!(cam.visible(Vec2::new(1000.0, 0.0), screen, 1000.0));
+}
+#test zoom_keeps_the_cursor_point v1 @map-zoom "Test that the point under the cursor stays put"
+#[test]
+fn zoom_keeps_the_cursor_point() {
+    let mut cam = Camera::default();
+    let (anchor, screen) = (Vec2::new(600.0, 200.0), Vec2::new(800.0, 600.0));
+    let before = cam.screen_to_world(anchor, screen);
+    cam.zoom_by(2.0, anchor, screen);
+    let after = cam.screen_to_world(anchor, screen);
+    assert!((before - after).length() < 1e-3);
+}
+#test far_edge_counts_as_inside v1 @map-edge "Test that a point on the far edge is visible"
+#[test]
+fn far_edge_counts_as_inside() {
+    let cam = Camera::default();
+    let screen = Vec2::new(800.0, 600.0);
+    assert!(cam.visible(Vec2::new(400.0, 0.0), screen, 0.0));
+}
+#test shake_decays_to_zero v1 @explosion-shake "Test that a shake settles back to steady"
+#[test]
+fn shake_decays_to_zero() {
+    let mut cam = Camera::default();
+    cam.shake(1.0);
+    cam.decay(0.25);
+    assert!((cam.shake - 0.5).abs() < 1e-6);
+    cam.decay(10.0);
+    assert_eq!(cam.shake, 0.0);
+}
+#test decay_moves_the_wobble_on v1 @explosion-shake "Test that the wobble's clock moves on as the shake decays"
+#[test]
+fn decay_moves_the_wobble_on() {
+    let mut cam = Camera::default();
+    cam.shake(1.0);
+    cam.decay(0.5);
+    assert!((cam.phase - 0.5).abs() < 1e-6);
+}

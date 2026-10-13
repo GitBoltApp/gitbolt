@@ -262,3 +262,22 @@ Paths are the XDG defaults. `$XDG_CONFIG_HOME`, `$XDG_CACHE_HOME` and `$XDG_DATA
    ```
 
    `secret-tool` comes with libsecret, packaged as `libsecret-tools` on Debian and Ubuntu.
+
+## The website
+
+The website, [gitboltapp.github.io/gitbolt](https://gitboltapp.github.io/gitbolt/), is static
+files on GitHub Pages, and its live demo runs in your browser. GitHub serves the files, so it sees
+your IP address and browser as for any site it hosts (GitHub's
+[privacy statement](https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement)).
+Beyond that:
+
+- **Nothing from other sites.** The pages, the demo and their stylesheets load everything from the
+  site itself, fonts included: nothing from another host. The deploy checks this
+  (`ui/scripts/check-site.mjs`), including each page's Content-Security-Policy, and stops if a
+  page would.
+- **No cookies, analytics or tracking.**
+- **The demo stays in the tab.** Its repositories download with the page and live in memory.
+  Nothing you do in it leaves the tab, and it's gone when you reload or reset the demo.
+- **Browser storage.** Like the app, the demo's UI keeps preferences and unsent drafts in your
+  browser's storage for the site. Clearing the site's data in your browser deletes them.
+- **Downloads** link to the release's files on GitHub (github.com), which serves them.

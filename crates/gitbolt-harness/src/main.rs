@@ -30,6 +30,21 @@ async fn harness_main() {
             let harness = gitbolt_harness::Harness::new(gitbolt_harness::HarnessOptions { config_dir, fixture_root, ..Default::default() }).await;
             gitbolt_harness::serve(listener, harness).await;
         }
+        Some("showcase") if args.len() == 3 => {
+            let root = PathBuf::from(&args[2]);
+            if let Err(e) = prepare_fixture_root(&root) {
+                eprintln!("{e}");
+                std::process::exit(2);
+            }
+            if !gitbolt_harness::showcase::NAMES.contains(&args[1].as_str()) {
+                eprintln!("unknown showcase {}: one of {}", args[1], gitbolt_harness::showcase::NAMES.join(", "));
+                std::process::exit(2);
+            }
+            let repo = TestRepo::init_at(&root);
+            assert!(gitbolt_harness::showcase::build(&args[1], &repo), "showcase {} isn't built yet", args[1]);
+            std::fs::write(root.join(FIXTURE_MARKER), "").expect("write fixture marker");
+            println!("{}", repo.path().display());
+        }
         Some("fixture") if args.len() == 3 => {
             let root = PathBuf::from(&args[2]);
             if let Err(e) = prepare_fixture_root(&root) {
@@ -58,14 +73,44 @@ async fn harness_main() {
                 "rebase_lab" => fixtures::rebase_lab(&repo),
                 "file_history" => fixtures::file_history(&repo),
                 // The showcase repositories (previews, submodules, lfs).
-                other if gitbolt_harness::fixtures_showcase::build(other, &repo) => {}
+                other if ["orbital", "previews", "submodules", "lfs"].contains(&other) && gitbolt_harness::showcase::build(other, &repo) => {}
                 other => panic!("unknown fixture {other}"),
             }
             std::fs::write(root.join(FIXTURE_MARKER), "").expect("write fixture marker");
             println!("{}", repo.path().display());
         }
+        Some("golden") if args.len() == 5 => {
+            if let Err(e) = gitbolt_harness::golden::write(Path::new(&args[1]), &args[2], Path::new(&args[3]), Path::new(&args[4])).await {
+                eprintln!("{e}");
+                std::process::exit(2);
+            }
+        }
+        Some("golden-defaults") if args.len() == 2 => {
+            let text = serde_json::to_string_pretty(&gitbolt_harness::golden::defaults()).expect("defaults serialize") + "\n";
+            std::fs::write(&args[1], text).expect("write the defaults");
+        }
+        Some("media") if args.len() == 3 && args[1] == "preview" => {
+            let dir = PathBuf::from(&args[2]);
+            gitbolt_harness::media::preview::write(&dir, &gitbolt_harness::orbital::art::preview_items()).expect("write the preview");
+            println!("{}", dir.join("index.html").display());
+        }
+        Some("media") if args.len() == 4 && args[1] == "frames" => {
+            let (dir, version): (PathBuf, u16) = (PathBuf::from(&args[2]), args[3].parse().expect("a version"));
+            std::fs::create_dir_all(&dir).expect("create the frames folder");
+            for i in 0..48 {
+                let frame = gitbolt_harness::orbital::scenes::trailer_frame(version, i, 48).scaled(2);
+                std::fs::write(dir.join(format!("frame-{i:03}.png")), frame.to_png()).expect("write a frame");
+            }
+        }
+        Some("media") if args.len() == 3 && args[1] == "wav" => {
+            use gitbolt_harness::media::audio::{docking_chime, menu_music, wav};
+            let dir = PathBuf::from(&args[2]);
+            std::fs::create_dir_all(&dir).expect("create the wav folder");
+            std::fs::write(dir.join("menu-loop.wav"), wav(&menu_music())).expect("write the music");
+            std::fs::write(dir.join("docking-chime.wav"), wav(&docking_chime(2))).expect("write the chime");
+        }
         _ => {
-            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|wip_crlf|sync|conflicts|stack|rebase60|worktrees|irebase|rebase_lab|file_history|previews|submodules|lfs> <dir>");
+            eprintln!("usage: gitbolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitbolt-harness fixture <orbital|basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|wip_crlf|sync|conflicts|stack|rebase60|worktrees|irebase|rebase_lab|file_history|previews|submodules|lfs> <dir> | gitbolt-harness showcase <orbital|basic|sync|conflicts|stack|wip_staging|rebase_lab|previews|submodules|lfs> <dir> | gitbolt-harness media preview <dir> | gitbolt-harness media frames <dir> <version> | gitbolt-harness media wav <dir> | gitbolt-harness golden <requests.json> <fixture> <fixture-root> <out-dir> | gitbolt-harness golden-defaults <out.json>");
             std::process::exit(2);
         }
     }

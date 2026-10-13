@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "f4b28df26ce59681707ee79fe4409f48d486a01f"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "483366b2ba32edbaca6439861bf36c909fc4b7e7"
+      },
+      "path": "src/app.php",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "f4b28df26ce59681707ee79fe4409f48d486a01f",
+      "size": 2542,
+      "text": "<?php\ndeclare(strict_types=1);\n// long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line \n\nenum Suit: string { case Hearts = 'H'; case Spades = 'S'; }\n\n#[Attribute]\nfinal class Card {\n    public function __construct(public readonly Suit $suit) {}\n}\nfunction filler11(): int { return 11; }\nfunction filler12(): int { return 12; }\nfunction filler13(): int { return 13; }\nfunction filler14(): int { return 14; }\nfunction filler15(): int { return 15; }\nfunction filler16(): int { return 16; }\nfunction filler17(): int { return 17; }\nfunction filler18(): int { return 18; }\nfunction filler19(): int { return 19; }\nfunction filler20(): int { return 20; }\nfunction filler21(): int { return 21; }\nfunction filler22(): int { return 22; }\nfunction filler23(): int { return 23; }\nfunction filler24(): int { return 24; }\nfunction filler25(): int { return 25; }\nfunction filler26(): int { return 26; }\nfunction filler27(): int { return 27; }\nfunction filler28(): int { return 28; }\nfunction filler29(): int { return 29; }\nfunction filler30(): int { return 30; }\nfunction filler31(): int { return 31; }\nfunction filler32(): int { return 32; }\nfunction filler33(): int { return 33; }\nfunction filler34(): int { return 34; }\nfunction filler35(): int { return 35; }\nfunction filler36(): int { return 36; }\nfunction filler37(): int { return 37; }\nfunction filler38(): int { return 38; }\nfunction filler39(): int { return 39; }\nfunction filler40(): int { return 40; }\nfunction filler41(): int { return 41; }\nfunction filler42(): int { return 42; }\nfunction filler43(): int { return 43; }\nfunction filler44(): int { return 44; }\nfunction filler45(): int { return 45; }\nfunction filler46(): int { return 46; }\nfunction filler47(): int { return 47; }\nfunction filler48(): int { return 48; }\nfunction filler49(): int { return 49; }\nfunction filler50(): int { return 50; }\nfunction filler51(): int { return 51; }\nfunction filler52(): int { return 52; }\nfunction filler53(): int { return 53; }\nfunction filler54(): int { return 54; }\n$label = match ($card?->suit) { Suit::Hearts => 'red', default => 'black' };\nfunction tail56(): never { exit(56); }\nfunction tail57(): never { exit(57); }\nfunction tail58(): never { exit(58); }\nfunction tail59(): never { exit(59); }\nfunction tail60(): never { exit(60); }\n// staged tweak\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "483366b2ba32edbaca6439861bf36c909fc4b7e7",
+      "size": 2526,
+      "text": "<?php\ndeclare(strict_types=1);\n// long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line long line \n\nenum Suit: string { case Hearts = 'H'; case Spades = 'S'; }\n\n#[Attribute]\nfinal class Card {\n    public function __construct(public readonly Suit $suit) {}\n}\nfunction filler11(): int { return 11; }\nfunction filler12(): int { return 12; }\nfunction filler13(): int { return 13; }\nfunction filler14(): int { return 14; }\nfunction filler15(): int { return 15; }\nfunction filler16(): int { return 16; }\nfunction filler17(): int { return 17; }\nfunction filler18(): int { return 18; }\nfunction filler19(): int { return 19; }\nfunction filler20(): int { return 20; }\nfunction filler21(): int { return 21; }\nfunction filler22(): int { return 22; }\nfunction filler23(): int { return 23; }\nfunction filler24(): int { return 24; }\nfunction filler25(): int { return 25; }\nfunction filler26(): int { return 26; }\nfunction filler27(): int { return 27; }\nfunction filler28(): int { return 28; }\nfunction filler29(): int { return 29; }\nfunction filler30(): int { return 30; }\nfunction filler31(): int { return 31; }\nfunction filler32(): int { return 32; }\nfunction filler33(): int { return 33; }\nfunction filler34(): int { return 34; }\nfunction filler35(): int { return 35; }\nfunction filler36(): int { return 36; }\nfunction filler37(): int { return 37; }\nfunction filler38(): int { return 38; }\nfunction filler39(): int { return 39; }\nfunction filler40(): int { return 40; }\nfunction filler41(): int { return 41; }\nfunction filler42(): int { return 42; }\nfunction filler43(): int { return 43; }\nfunction filler44(): int { return 44; }\nfunction filler45(): int { return 45; }\nfunction filler46(): int { return 46; }\nfunction filler47(): int { return 47; }\nfunction filler48(): int { return 48; }\nfunction filler49(): int { return 49; }\nfunction filler50(): int { return 50; }\nfunction filler51(): int { return 51; }\nfunction filler52(): int { return 52; }\nfunction filler53(): int { return 53; }\nfunction filler54(): int { return 54; }\n$label = match ($card?->suit) { Suit::Hearts => 'red', default => 'black' };\nfunction tail56(): never { exit(56); }\nfunction tail57(): never { exit(57); }\nfunction tail58(): never { exit(58); }\nfunction tail59(): never { exit(59); }\nfunction tail60(): never { exit(60); }\n"
+    },
+    "tooLarge": false
+  }
+}

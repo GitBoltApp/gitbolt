@@ -1,0 +1,118 @@
+#file crates/orbital-core/src/world.rs
+#header v1 @core-bodies
+//! The objects in one system, kept in a plain list until the entity layer arrives.
+
+use crate::body::Body;
+#header v2 @ecs-world
+//! The objects in one system, kept in one table per component. An entity indexes every table.
+
+use crate::body::Body;
+#item World v1 @core-bodies "Keep the bodies of a system in one list"
+/// The bodies of one system, in the order they were added.
+#[derive(Debug, Default)]
+pub struct World {
+    pub bodies: Vec<Body>,
+}
+#item World v2 @ecs-world "Spawn bodies with fresh entity ids"
+/// The objects of one system: one table per component, with an entity id indexing each row.
+#[derive(Debug, Default)]
+pub struct World {
+    next: u32,
+    pub bodies: Vec<(Entity, Body)>,
+}
+#item add v1 @core-bodies "Add a body to the world"
+impl World {
+    /// Adds `body` at the end of the list.
+    pub fn add(&mut self, body: Body) {
+        self.bodies.push(body);
+    }
+}
+#item add v2 @ecs-world "Replace add with spawn, which returns the new entity" !removed
+#item Entity v1 @ecs-world "Spawn bodies with fresh entity ids"
+/// A handle to one object in a [`World`]. Ids are never reused.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Entity(pub u32);
+#item spawn v1 @ecs-world "Spawn bodies with fresh entity ids"
+impl World {
+    /// Adds `body` and returns its entity. Ids are never reused.
+    pub fn spawn(&mut self, body: Body) -> Entity {
+        let id = Entity(self.next);
+        self.next += 1;
+        self.bodies.push((id, body));
+        id
+    }
+}
+#item despawn v1 @ecs-world "Despawn an entity and its components"
+impl World {
+    /// Removes every component of `id`. Other entities keep their ids.
+    pub fn despawn(&mut self, id: Entity) {
+        self.bodies.retain(|(e, _)| *e != id);
+    }
+}
+#item each_body v1 @ecs-world "Visit every body with a closure"
+impl World {
+    /// Calls `f` with each entity and its body, in order.
+    pub fn each_body(&self, mut f: impl FnMut(Entity, &Body)) {
+        for index in 0..self.bodies.len().saturating_sub(1) {
+            let (id, body) = &self.bodies[index];
+            f(*id, body);
+        }
+    }
+}
+#item each_body v2 @query-skip "Fix queries skipping the last entity in a system\n\nThe loop bound was one short, so the last body was never visited."
+impl World {
+    /// Calls `f` with each entity and its body, in order.
+    pub fn each_body(&self, mut f: impl FnMut(Entity, &Body)) {
+        for (id, body) in &self.bodies {
+            f(*id, body);
+        }
+    }
+}
+#test add_keeps_order v1 @core-bodies "Test that add keeps the order"
+#[test]
+fn add_keeps_order() {
+    let mut world = World::default();
+    world.add(Body::planet("First", glam::Vec2::ZERO, 1.0, 1.0));
+    world.add(Body::moon("Second", glam::Vec2::ZERO, 1.0, 1.0));
+    assert_eq!(world.bodies[0].name, "First");
+}
+#test add_keeps_order v2 @ecs-world "Retire the add test with the add method" !removed
+#test spawn_keeps_order v1 @ecs-world "Test that spawn keeps the order"
+#[test]
+fn spawn_keeps_order() {
+    let mut world = World::default();
+    let first = world.spawn(Body::planet("First", glam::Vec2::ZERO, 1.0, 1.0));
+    let second = world.spawn(Body::moon("Second", glam::Vec2::ZERO, 1.0, 1.0));
+    assert_ne!(first, second);
+    assert_eq!(world.bodies[1].0, second);
+}
+#test despawn_removes_only_that_entity v1 @ecs-world "Test that despawn removes one entity"
+#[test]
+fn despawn_removes_only_that_entity() {
+    let mut world = World::default();
+    let a = world.spawn(Body::planet("A", glam::Vec2::ZERO, 1.0, 1.0));
+    let b = world.spawn(Body::moon("B", glam::Vec2::ZERO, 1.0, 1.0));
+    world.despawn(a);
+    assert_eq!(world.bodies.len(), 1);
+    assert_eq!(world.bodies[0].0, b);
+}
+#test spawn_returns_fresh_ids v1 @ecs-world "Test that despawned ids are not reused"
+#[test]
+fn spawn_returns_fresh_ids() {
+    let mut world = World::default();
+    let a = world.spawn(Body::planet("A", glam::Vec2::ZERO, 1.0, 1.0));
+    world.despawn(a);
+    let b = world.spawn(Body::planet("B", glam::Vec2::ZERO, 1.0, 1.0));
+    assert_ne!(a, b);
+}
+#test query_visits_every_entity v1 @query-skip "Test that queries visit every entity"
+#[test]
+fn query_visits_every_entity() {
+    let mut world = World::default();
+    for _ in 0..3 {
+        world.spawn(Body::moon("M", glam::Vec2::ZERO, 1.0, 1.0));
+    }
+    let mut seen = 0;
+    world.each_body(|_, _| seen += 1);
+    assert_eq!(seen, 3);
+}

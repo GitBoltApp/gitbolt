@@ -1,0 +1,721 @@
+#file crates/orbital-game/src/input.rs
+#header v1 @thrust-fuel
+//! Key bindings: one table maps each action to its keys, so the settings menu can read it later.
+
+use winit::keyboard::KeyCode;
+
+#header v2 @gamepad-thrust
+//! Key bindings: one table maps each action to its keys, so the settings menu can read it later.
+//! The gamepad's left stick reads through the same actions as the keys.
+
+use gilrs::{Axis, Gilrs};
+use glam::Vec2;
+use winit::keyboard::KeyCode;
+
+#item Action v1 @thrust-fuel "Map keys to the ship's controls"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+}
+
+#item Action v2 @docking "Add the undock key"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+}
+
+#item Action v3 @trade-screen "Add the buy and sell keys"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+}
+
+#item Action v4 @title-screen "Add the menu keys to the table"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+}
+
+#item Action v5 @orbit-map "Add the orbit map key"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+}
+
+#item Action v6 @settings-menu "Add the left and right keys for the settings sliders"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+}
+
+#item Action v7 @shader-reload "Reload the shaders from the keyboard"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+    /// Rebuild the render pipelines from the shader files.
+    ReloadShaders,
+}
+
+#item Action v8 @debug-draw "Add the debug overlay key"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+    /// Rebuild the render pipelines from the shader files.
+    ReloadShaders,
+    /// Show or hide the frame-time overlay.
+    Debug,
+}
+
+#item Action v9 @contract-pause "Add the pause key"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+    /// Rebuild the render pipelines from the shader files.
+    ReloadShaders,
+    /// Show or hide the frame-time overlay.
+    Debug,
+    /// Freeze the clock and the contract deadlines.
+    Pause,
+}
+
+#item Action v10 @contracts-ui "Add the key that accepts a contract"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+    /// Rebuild the render pipelines from the shader files.
+    ReloadShaders,
+    /// Show or hide the frame-time overlay.
+    Debug,
+    /// Freeze the clock and the contract deadlines.
+    Pause,
+    /// Take the first contract a station offers.
+    Accept,
+}
+
+#item Action v11 @station-services "Add the refuel key"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+    /// Rebuild the render pipelines from the shader files.
+    ReloadShaders,
+    /// Show or hide the frame-time overlay.
+    Debug,
+    /// Freeze the clock and the contract deadlines.
+    Pause,
+    /// Take the first contract a station offers.
+    Accept,
+    /// Top up the fuel tank at a station.
+    Refuel,
+}
+
+#item Action v12 @repair-price "Add the repair key"
+/// What the player can ask for. Keys and the gamepad both map onto these.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Action {
+    /// Fire the main drive.
+    Thrust,
+    /// Turn the ship anticlockwise.
+    TurnLeft,
+    /// Turn the ship clockwise.
+    TurnRight,
+    /// Leave the station and get the ship flying again.
+    Undock,
+    /// Buy a tonne of the selected good at a station.
+    Buy,
+    /// Sell a tonne of the selected good at a station.
+    Sell,
+    /// Move the menu focus up.
+    Up,
+    /// Move the menu focus down.
+    Down,
+    /// Pick the focused menu entry.
+    Select,
+    /// Leave the current screen.
+    Back,
+    /// Open the orbit map of the whole system.
+    Map,
+    /// Lower the focused setting.
+    Left,
+    /// Raise the focused setting.
+    Right,
+    /// Rebuild the render pipelines from the shader files.
+    ReloadShaders,
+    /// Show or hide the frame-time overlay.
+    Debug,
+    /// Freeze the clock and the contract deadlines.
+    Pause,
+    /// Take the first contract a station offers.
+    Accept,
+    /// Top up the fuel tank at a station.
+    Refuel,
+    /// Patch the hull at a station.
+    Repair,
+}
+
+#item BINDINGS v1 @thrust-fuel "Bind the ship's controls to keys"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 3] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyA),
+];
+
+#item BINDINGS v2 @input-table "Fix keys bound twice in the input table\n\nA was both turn left and turn right, so the ship could only turn left."
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 3] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+];
+
+#item BINDINGS v3 @docking "Bind the undock key"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 4] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+];
+
+#item BINDINGS v4 @trade-screen "Bind B and S to buying and selling"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 6] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+];
+
+#item BINDINGS v5 @title-screen "Bind the menu keys"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 10] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+];
+
+#item BINDINGS v6 @orbit-map "Bind the orbit map key"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 11] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+];
+
+#item BINDINGS v7 @settings-menu "Bind the arrows to the settings sliders"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 13] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+];
+
+#item BINDINGS v8 @shader-reload "Bind F5 to reloading the shaders"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 14] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+    (Action::ReloadShaders, KeyCode::F5),
+];
+
+#item BINDINGS v9 @debug-draw "Bind F3 to the debug overlay"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 15] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+    (Action::ReloadShaders, KeyCode::F5),
+    (Action::Debug, KeyCode::F3),
+];
+
+#item BINDINGS v10 @contract-pause "Bind P to pause"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 16] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+    (Action::ReloadShaders, KeyCode::F5),
+    (Action::Debug, KeyCode::F3),
+    (Action::Pause, KeyCode::KeyP),
+];
+
+#item BINDINGS v11 @contracts-ui "Bind C to accepting a contract"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 17] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+    (Action::ReloadShaders, KeyCode::F5),
+    (Action::Debug, KeyCode::F3),
+    (Action::Pause, KeyCode::KeyP),
+    (Action::Accept, KeyCode::KeyC),
+];
+
+#item BINDINGS v12 @station-services "Bind R to refuelling"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 18] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+    (Action::ReloadShaders, KeyCode::F5),
+    (Action::Debug, KeyCode::F3),
+    (Action::Pause, KeyCode::KeyP),
+    (Action::Accept, KeyCode::KeyC),
+    (Action::Refuel, KeyCode::KeyR),
+];
+
+#item BINDINGS v13 @repair-price "Bind T to repairs"
+/// The default keys, one row per binding. A key appears in one row only.
+pub const BINDINGS: [(Action, KeyCode); 19] = [
+    (Action::Thrust, KeyCode::KeyW),
+    (Action::TurnLeft, KeyCode::KeyA),
+    (Action::TurnRight, KeyCode::KeyD),
+    (Action::Undock, KeyCode::KeyU),
+    (Action::Buy, KeyCode::KeyB),
+    (Action::Sell, KeyCode::KeyS),
+    (Action::Up, KeyCode::ArrowUp),
+    (Action::Down, KeyCode::ArrowDown),
+    (Action::Select, KeyCode::Enter),
+    (Action::Back, KeyCode::Escape),
+    (Action::Map, KeyCode::KeyM),
+    (Action::Left, KeyCode::ArrowLeft),
+    (Action::Right, KeyCode::ArrowRight),
+    (Action::ReloadShaders, KeyCode::F5),
+    (Action::Debug, KeyCode::F3),
+    (Action::Pause, KeyCode::KeyP),
+    (Action::Accept, KeyCode::KeyC),
+    (Action::Refuel, KeyCode::KeyR),
+    (Action::Repair, KeyCode::KeyT),
+];
+
+#item action_for v1 @thrust-fuel "Look up the action a key is bound to"
+/// The action bound to `key`, if any: the first row of the table that names it.
+pub fn action_for(key: KeyCode) -> Option<Action> {
+    BINDINGS
+        .iter()
+        .find(|(_, bound)| *bound == key)
+        .map(|(action, _)| *action)
+}
+
+#item action_for v2 @settings-menu "Look up bindings in the player's copy of the table"
+impl Bindings {
+    /// The action bound to `key`, if any: the first row of the table that names it.
+    pub fn action_for(&self, key: KeyCode) -> Option<Action> {
+        self.rows
+            .iter()
+            .find(|(_, bound)| *bound == key)
+            .map(|(action, _)| *action)
+    }
+}
+
+#item Bindings v1 @settings-menu "Keep a copy of the table the settings menu can change"
+/// The player's key bindings: a copy of the default table that the settings menu can change.
+#[derive(Debug)]
+pub struct Bindings {
+    rows: Vec<(Action, KeyCode)>,
+}
+
+#item default v1 @settings-menu "Keep a copy of the table the settings menu can change"
+impl Default for Bindings {
+    fn default() -> Self {
+        Self {
+            rows: BINDINGS.to_vec(),
+        }
+    }
+}
+
+#item rebind v1 @settings-menu "Let the settings menu rebind a control"
+impl Bindings {
+    /// Moves `action` to `key`, replacing the key it had first.
+    pub fn rebind(&mut self, action: Action, key: KeyCode) {
+        if let Some(row) = self.rows.iter_mut().find(|(a, _)| *a == action) {
+            row.1 = key;
+        }
+    }
+}
+
+#item Pad v1 @gamepad-thrust "Read the gamepad's left stick"
+/// The first connected gamepad's left stick, each axis from -1 to 1.
+pub struct Pad {
+    gilrs: Gilrs,
+}
+
+#item open v1 @gamepad-thrust "Read the gamepad's left stick"
+impl Pad {
+    /// Opens the gamepad library. With no gamepad connected the stick reads as centred.
+    pub fn open() -> Self {
+        Self {
+            gilrs: Gilrs::new().expect("the gamepad library starts"),
+        }
+    }
+}
+
+#item stick v1 @gamepad-thrust "Read the gamepad's left stick"
+impl Pad {
+    /// The left stick as a vector: x to the right, y up.
+    pub fn stick(&mut self) -> Vec2 {
+        while self.gilrs.next_event().is_some() {}
+        match self.gilrs.gamepads().next() {
+            Some((_, pad)) => Vec2::new(pad.value(Axis::LeftStickX), pad.value(Axis::LeftStickY)),
+            None => Vec2::ZERO,
+        }
+    }
+}
+
+#const STICK_DEADZONE v1 @stick-deadzone "Ignore small tilts of the gamepad stick"
+/// How far the stick must tilt before it counts, as a fraction of full tilt.
+pub const STICK_DEADZONE: f32 = 0.15;
+
+#item deadzone v1 @stick-deadzone "Ignore small tilts of the gamepad stick\n\nA worn stick drifted and the ship turned on its own."
+/// A stick reading inside the deadzone reads as centred; past it, the range is rescaled to full tilt.
+pub fn deadzone(stick: Vec2) -> Vec2 {
+    let length = stick.length();
+    if length < STICK_DEADZONE {
+        Vec2::ZERO
+    } else {
+        stick / length * ((length - STICK_DEADZONE) / (1.0 - STICK_DEADZONE))
+    }
+}
+
+#test binding_table_maps_keys_to_actions v1 @thrust-fuel "Test that the table maps keys to the ship's controls"
+#[test]
+fn binding_table_maps_keys_to_actions() {
+    assert_eq!(action_for(KeyCode::KeyW), Some(Action::Thrust));
+    assert_eq!(action_for(KeyCode::KeyQ), None);
+}
+
+#test binding_table_maps_keys_to_actions v2 @settings-menu "Test that the table maps keys to the ship's controls"
+#[test]
+fn binding_table_maps_keys_to_actions() {
+    assert_eq!(
+        Bindings::default().action_for(KeyCode::KeyW),
+        Some(Action::Thrust)
+    );
+    assert_eq!(Bindings::default().action_for(KeyCode::KeyQ), None);
+}
+
+#test binding_table_has_no_duplicate_keys v1 @input-table "Test that no key is bound twice"
+#[test]
+fn binding_table_has_no_duplicate_keys() {
+    for (i, (_, key)) in BINDINGS.iter().enumerate() {
+        assert!(BINDINGS[i + 1..].iter().all(|(_, other)| other != key));
+    }
+}
+
+#test rebinding_replaces_the_key v1 @settings-menu "Test that rebinding moves an action to a new key"
+#[test]
+fn rebinding_replaces_the_key() {
+    let mut bindings = Bindings::default();
+    bindings.rebind(Action::Thrust, KeyCode::KeyJ);
+    assert_eq!(bindings.action_for(KeyCode::KeyJ), Some(Action::Thrust));
+    assert_eq!(bindings.action_for(KeyCode::KeyW), None);
+}
+
+#test stick_deadzone_ignores_small_tilts v1 @stick-deadzone "Test that the deadzone ignores small tilts"
+#[test]
+fn stick_deadzone_ignores_small_tilts() {
+    assert_eq!(deadzone(Vec2::new(0.1, 0.0)), Vec2::ZERO);
+    assert!((deadzone(Vec2::X).x - 1.0).abs() < 1e-4);
+}

@@ -1,0 +1,259 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "75a57458b5df93fc4ebe2b7c480acde314b9643d",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 35,
+    "deleted": 16,
+    "files": [
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "3345c8509c958e5ec6ac3d10bf37035f8d5f3080"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "9d948f62134a533a5d5bc16342df12985640a349"
+        },
+        "oldPath": null,
+        "path": "audio/laser.wav",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 4,
+        "deletions": 3,
+        "new": {
+          "kind": "object",
+          "oid": "cb5f4bb0c339ba1d58ce3e634450906de10e7fd1"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "c43edc9b58fb360a06ee0b74625c5bad93417529"
+        },
+        "oldPath": null,
+        "path": "data/commodities.csv",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 2,
+        "new": {
+          "kind": "object",
+          "oid": "eed78ee70dea2696e2387b5314bc822f8de8075f"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "f727d04e35880950b42539b848456377cad22f11"
+        },
+        "oldPath": null,
+        "path": "data/stations.tsv",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "581bf3fe693aa4403d41c2450092f1d7f6207a34"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "5961e399a0fad9ef0f36727bed97b3ab83490baa"
+        },
+        "oldPath": null,
+        "path": "docs/design.pdf",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "a2e4e60e71c1799bc2d6f4c46256507a5b713c2a"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "4321c8b5b4c5b97b7c8a4a0f6d2a59af850ddbed"
+        },
+        "oldPath": null,
+        "path": "fonts/OrbitalHud.ttf",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 3,
+        "deletions": 2,
+        "new": {
+          "kind": "object",
+          "oid": "6c152a60719be726c6a6fdda4bad37402fc6672f"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "94c95923d5e13f804621a924655d1487c3e5654c"
+        },
+        "oldPath": null,
+        "path": "images/fuel.svg",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "bd6a3ec7d4aa4cbef66308bc4370ece8a73675fe"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "bb242c7979500c6e926bb01126fa6580bcdfbaad"
+        },
+        "oldPath": null,
+        "path": "images/orbital.ico",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "7b1e942d13816664489eb606d4e65ac17985f2b8"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "c8d369bcc5c8aa10f466c7c496cf6a15c29574ed"
+        },
+        "oldPath": null,
+        "path": "images/scout.png",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "a7536d4c3ce2d3f291d91274e37bfcfd6bfbc9f0"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "9f7068193b924108f4db0ae90a4231262ad8b9a8"
+        },
+        "oldPath": null,
+        "path": "images/thruster.gif",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "1f5564d66cb9179224126e5b9f5cb238f58bab0f"
+        },
+        "oldPath": null,
+        "path": "images/title.png",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "c11a1f084d23bacc10cc94625c09b974033195ce"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "92aab403d530e62bbd718f958bb4ca5610776ccb"
+        },
+        "oldPath": null,
+        "path": "media/trailer.webm",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 12,
+        "deletions": 4,
+        "new": {
+          "kind": "object",
+          "oid": "fe7b386e097190793d26b5842f91721a8dd4c7d0"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "9ea6fab64b499e6be4b4ab7714d23cdf6c97c8a6"
+        },
+        "oldPath": null,
+        "path": "notes/devlog.md",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": null,
+        "deletions": null,
+        "new": {
+          "kind": "object",
+          "oid": "5fe8488b17289f0ef6a8cd5b3112ce9c0cad8aa4"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "b560391932604b5ccf3b8bd28b906967d97dd788"
+        },
+        "oldPath": null,
+        "path": "saves/slot1.orbsave",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 8,
+        "deletions": 2,
+        "new": {
+          "kind": "object",
+          "oid": "3c88d8e3ad42df552daa35dd652c2987a13d37ad"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "97dc33117bc95fe53a0625204bb7dfefdb2aba0e"
+        },
+        "oldPath": null,
+        "path": "site/index.html",
+        "status": "M",
+        "submodule": false
+      },
+      {
+        "additions": 5,
+        "deletions": 3,
+        "new": {
+          "kind": "object",
+          "oid": "3563956e90c34676af9b575e4fb451c2a9368f32"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "c6b2b3a63933cf88dda7cc84ff87a52269390ab4"
+        },
+        "oldPath": null,
+        "path": "site/style.css",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

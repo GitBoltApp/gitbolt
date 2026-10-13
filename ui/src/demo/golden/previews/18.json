@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "5fe8488b17289f0ef6a8cd5b3112ce9c0cad8aa4"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "b560391932604b5ccf3b8bd28b906967d97dd788"
+      },
+      "path": "saves/slot1.orbsave",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "5fe8488b17289f0ef6a8cd5b3112ce9c0cad8aa4",
+      "size": 120,
+      "text": null
+    },
+    "old": {
+      "base64": null,
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "b560391932604b5ccf3b8bd28b906967d97dd788",
+      "size": 104,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

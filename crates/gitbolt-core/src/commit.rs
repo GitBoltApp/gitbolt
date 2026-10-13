@@ -104,17 +104,9 @@ pub fn parse_commit(raw: &[u8]) -> Result<ParsedCommit, GbError> {
     let author = parse_signature(author_raw, encoding.as_deref());
     let committer = parse_signature(committer_raw, encoding.as_deref());
     let message = decode_with(encoding.as_deref(), message);
-    // Normalize CRLF line endings so the "\n\n" summary/body split (and any consumer of the
-    // body) never has to deal with a stray '\r'.
-    let message = message.replace("\r\n", "\n");
-    let mut message = message;
-    message.truncate(message.trim_end().len());
-    let (summary, body) = match message.split_once("\n\n") {
-        Some((s, b)) => (s, b.trim()),
-        None => (message.as_str(), ""),
-    };
-    let summary = summary.lines().next().unwrap_or("").trim().to_string();
-    let body = body.to_string();
+    // CRLF normalized and trailing whitespace trimmed before the "\n\n" summary/body split, so no
+    // consumer of the body meets a stray '\r' (the graph crate's split, shared with the demo).
+    let (message, summary, body) = gitbolt_graph::split_message(&message);
     Ok(ParsedCommit { parents, author, committer, summary, body, message, signed })
 }
 

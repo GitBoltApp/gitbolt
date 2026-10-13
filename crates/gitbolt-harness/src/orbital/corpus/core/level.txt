@@ -1,0 +1,67 @@
+#file crates/orbital-core/src/level.rs
+#header v1 @tempest-art
+//! Levels: the sector tables that place a system's planets, stations and asteroid belts.
+
+use crate::body::Body;
+use glam::Vec2;
+
+#item Placement v1 @tempest-art "Read the system's bodies from the sector tables"
+/// One row of a sector table: a body to place, or a belt of rocks round the system's centre.
+#[derive(Clone, Debug)]
+pub enum Placement {
+    Body(Body),
+    /// A belt of rocks round the centre, at this orbit radius in kilometres.
+    Belt(f32),
+}
+
+#item parse_sector v1 @tempest-art "Read the system's bodies from the sector tables"
+/// Reads a sector table, `kind,name,x_km,y_km,radius_km,mass_t` under a header row. Planets and
+/// stations become bodies at rest, and a belt's radius is the orbit its rocks circle. A row of a
+/// kind the game doesn't know, or with a number that doesn't read, is left out.
+pub fn parse_sector(csv: &str) -> Vec<Placement> {
+    csv.lines().skip(1).filter_map(parse_row).collect()
+}
+
+#item parse_row v1 @tempest-art "Read the system's bodies from the sector tables"
+/// One row of a sector table, if it reads.
+fn parse_row(line: &str) -> Option<Placement> {
+    let cells: Vec<&str> = line.split(',').map(str::trim).collect();
+    let [kind, name, x, y, radius, mass] = cells.as_slice() else {
+        return None;
+    };
+    let at = Vec2::new(x.parse().ok()?, y.parse().ok()?);
+    let radius = radius.parse().ok()?;
+    let mass = mass.parse().ok()?;
+    match *kind {
+        "planet" => Some(Placement::Body(Body::planet(name, at, mass, radius))),
+        "station" => Some(Placement::Body(Body::station(name, at, mass, radius))),
+        "belt" => Some(Placement::Belt(radius)),
+        _ => None,
+    }
+}
+
+#test a_sector_places_planets_stations_and_belts v1 @tempest-art "Test that a sector table places each kind of row"
+#[test]
+fn a_sector_places_planets_stations_and_belts() {
+    let rows = parse_sector(
+        "kind,name,x_km,y_km,radius_km,mass_t\nplanet,P,0,0,60,100\nstation,S,1400,0,15,0.5\nbelt,B,0,0,2400,0\ncomet,C,0,0,1,1\n",
+    );
+    assert_eq!(rows.len(), 3);
+    assert!(
+        matches!(&rows[0], Placement::Body(p) if (p.radius - 60.0).abs() < 1e-6 && (p.mass - 100.0).abs() < 1e-6)
+    );
+    assert!(matches!(&rows[1], Placement::Body(s) if s.position == Vec2::new(1400.0, 0.0)));
+    assert!(matches!(rows[2], Placement::Belt(orbit) if (orbit - 2400.0).abs() < 1e-3));
+}
+
+#test home_is_verdant_at_the_centre v1 @tempest-art "Test that sector 1 puts Verdant at the centre"
+#[test]
+fn home_is_verdant_at_the_centre() {
+    let rows = parse_sector(include_str!("../../../assets/data/levels/sector-01.csv"));
+    let Some(Placement::Body(home)) = rows.first() else {
+        panic!("sector 1 starts with a planet");
+    };
+    assert_eq!(home.name, "Verdant");
+    assert_eq!(home.position, Vec2::ZERO);
+    assert!((home.radius - 60.0).abs() < 1e-6);
+}

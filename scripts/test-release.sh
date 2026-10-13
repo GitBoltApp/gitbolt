@@ -194,8 +194,9 @@ eq ui-package "$(jq -r .version "$repo/ui/package.json")" 0.1.0-alpha.1
 eq ui-lock "$(jq -r '.version + " " + .packages[""].version' "$repo/ui/package-lock.json")" '0.1.0-alpha.1 0.1.0-alpha.1'
 # Cargo.lock: exactly the workspace members' versions changed (one line each), nothing else.
 lockdiff=$(git -C "$repo" diff -U0 HEAD~1 HEAD -- Cargo.lock | grep -E '^[-+][^-+]' | sort | uniq -c | sed 's/^ *//')
-eq cargo-lock "$lockdiff" "$(printf '4 +version = "0.1.0-alpha.1"\n4 -version = "%s"' "$old")"
-for m in gitbolt-app gitbolt-core gitbolt-forge gitbolt-harness; do
+members=$(python3 -c 'import tomllib,sys; print(len(tomllib.load(open(sys.argv[1],"rb"))["workspace"]["members"]))' "$repo/Cargo.toml")
+eq cargo-lock "$lockdiff" "$(printf '%s +version = "0.1.0-alpha.1"\n%s -version = "%s"' "$members" "$members" "$old")"
+for m in gitbolt-app gitbolt-core gitbolt-forge gitbolt-graph gitbolt-graph-wasm gitbolt-harness; do
   grep -A1 -xF "name = \"$m\"" "$repo/Cargo.lock" | grep -qxF 'version = "0.1.0-alpha.1"' || fail "Cargo.lock: $m not bumped"
 done
 # Each JSON/TOML edit changed only the version line.

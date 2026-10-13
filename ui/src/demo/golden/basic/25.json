@@ -1,0 +1,20 @@
+{
+  "request": {
+    "method": "integratePreview",
+    "params": {
+      "kind": "merge",
+      "repo": "$repo",
+      "target": "hotfix",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "ahead": 0,
+    "behind": 1,
+    "conflicts": [],
+    "lossyMerge": null,
+    "merged": false,
+    "stacked": [],
+    "updateRefsDefault": true
+  }
+}

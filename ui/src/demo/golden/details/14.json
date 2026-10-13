@@ -1,0 +1,23 @@
+{
+  "request": {
+    "method": "worktreeFiles",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    "big.txt",
+    "crlf.txt",
+    "data.bin",
+    "dir with space/ünï.txt",
+    "docs/manual.txt",
+    "feature.txt",
+    "icon.svg",
+    "latin1.txt",
+    "logo.png",
+    "src/app.php",
+    "utf16.txt",
+    "ws.txt"
+  ]
+}

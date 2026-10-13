@@ -1,0 +1,203 @@
+#file crates/orbital-render/src/panels.rs
+#header v1 @hud-cargo
+//! HUD panels: the painter's fills and strokes, replayed as solid quads in window pixels.
+
+use bytemuck::{Pod, Zeroable};
+use glam::Vec2;
+
+use crate::painter::{Color, Command, Rect};
+#const QUAD_CAPACITY v1 @hud-cargo
+/// The most quads one frame uploads. A stroke takes four, and the HUD never comes near it.
+pub const QUAD_CAPACITY: usize = 1024;
+#item GpuQuad v1 @hud-cargo "Replay the painter's fills and strokes as quads"
+/// One solid quad as the panel shader reads it: its top-left corner and size in pixels, and its
+/// colour in linear light.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+struct GpuQuad {
+    origin: [f32; 2],
+    size: [f32; 2],
+    colour: [f32; 4],
+}
+#item from_rect v1 @hud-cargo "Replay the painter's fills and strokes as quads"
+impl GpuQuad {
+    /// The quad covering `rect` in `color`. The painter's colours are sRGB, and the surface blends
+    /// in linear light, so each channel is converted on the way.
+    fn from_rect(rect: Rect, color: Color) -> Self {
+        let linear = |channel: u8| (f32::from(channel) / 255.0).powf(2.2);
+        Self {
+            origin: [rect.x as f32, rect.y as f32],
+            size: [rect.w as f32, rect.h as f32],
+            colour: [
+                linear(color.r),
+                linear(color.g),
+                linear(color.b),
+                f32::from(color.a) / 255.0,
+            ],
+        }
+    }
+}
+#item quads v1 @hud-cargo "Replay the painter's fills and strokes as quads"
+/// The quads that draw `commands`, in order: one per fill, and a one-pixel edge on each side of a
+/// stroke.
+fn quads(commands: &[Command]) -> Vec<GpuQuad> {
+    let mut out = Vec::with_capacity(commands.len());
+    for command in commands {
+        match *command {
+            Command::Fill { rect, color } => out.push(GpuQuad::from_rect(rect, color)),
+            Command::Stroke { rect, color } => {
+                let right = rect.x + rect.w.saturating_sub(1);
+                let bottom = rect.bottom().saturating_sub(1);
+                let edges = [
+                    Rect::new(rect.x, rect.y, rect.w, 1),
+                    Rect::new(rect.x, bottom, rect.w, 1),
+                    Rect::new(rect.x, rect.y, 1, rect.h),
+                    Rect::new(right, rect.y, 1, rect.h),
+                ];
+                out.extend(edges.map(|edge| GpuQuad::from_rect(edge, color)));
+            }
+        }
+    }
+    out
+}
+#item PanelPass v1 @hud-cargo "Draw the HUD's panels in their own pass"
+/// The panels' GPU pass: its pipeline, its bind group, the window size it lays quads out in, and
+/// the buffer its quads are uploaded to.
+pub struct PanelPass {
+    pipeline: wgpu::RenderPipeline,
+    group: wgpu::BindGroup,
+    screen: wgpu::Buffer,
+    quads: wgpu::Buffer,
+}
+#item pass_new v1 @hud-cargo "Draw the HUD's panels in their own pass"
+impl PanelPass {
+    /// Builds the panel pass for a surface of `format`. Panels are blended over the scene, so a
+    /// translucent fill shows the flight through it.
+    #[must_use]
+    pub fn new(device: &wgpu::Device, format: wgpu::TextureFormat) -> Self {
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("panel"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/panel.wgsl").into()),
+        });
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("panel"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let screen = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("panel screen"),
+            size: 8,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let quads = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("panel quads"),
+            size: (QUAD_CAPACITY * std::mem::size_of::<GpuQuad>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let group = device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("panel"),
+            layout: &pipeline.get_bind_group_layout(0),
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: screen.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: quads.as_entire_binding(),
+                },
+            ],
+        });
+        Self {
+            pipeline,
+            group,
+            screen,
+            quads,
+        }
+    }
+}
+#item pass_draw v1 @hud-cargo "Draw the HUD's panels in their own pass"
+impl PanelPass {
+    /// Draws `commands` into the open `pass` over a window of `screen` pixels, in the order they
+    /// were recorded, so a bar drawn after its frame lands on top of it.
+    pub fn pass_draw(
+        &self,
+        queue: &wgpu::Queue,
+        pass: &mut wgpu::RenderPass<'_>,
+        commands: &[Command],
+        screen: Vec2,
+    ) {
+        let mut gpu = quads(commands);
+        if gpu.len() > QUAD_CAPACITY {
+            log::warn!("the HUD drew {} quads; the rest are dropped", gpu.len());
+            gpu.truncate(QUAD_CAPACITY);
+        }
+        queue.write_buffer(&self.screen, 0, bytemuck::cast_slice(&screen.to_array()));
+        queue.write_buffer(&self.quads, 0, bytemuck::cast_slice(&gpu));
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.group, &[]);
+        pass.draw(0..4, 0..gpu.len() as u32);
+    }
+}
+#test a_fill_is_one_quad_and_a_stroke_is_four v1 @hud-cargo "Test that a fill is one quad and a stroke four"
+#[test]
+fn a_fill_is_one_quad_and_a_stroke_is_four() {
+    let rect = Rect::new(10, 10, 40, 8);
+    let fill = Command::Fill {
+        rect,
+        color: Color::GOLD,
+    };
+    let stroke = Command::Stroke {
+        rect,
+        color: Color::FRAME,
+    };
+    assert_eq!(quads(&[fill]).len(), 1);
+    assert_eq!(quads(&[fill, stroke]).len(), 5);
+}
+#test stroke_edges_sit_inside_the_rect v1 @hud-cargo "Test that a stroke's edges stay inside its rectangle"
+#[test]
+fn stroke_edges_sit_inside_the_rect() {
+    let rect = Rect::new(10, 20, 40, 8);
+    let edges = quads(&[Command::Stroke {
+        rect,
+        color: Color::FRAME,
+    }]);
+    let right = edges[3].origin[0] + edges[3].size[0];
+    let bottom = edges[1].origin[1] + edges[1].size[1];
+    assert!((right - 50.0).abs() < 1e-6);
+    assert!((bottom - 28.0).abs() < 1e-6);
+}
+#test colours_reach_the_gpu_in_linear_light v1 @hud-cargo "Test that panel colours are converted to linear light"
+#[test]
+fn colours_reach_the_gpu_in_linear_light() {
+    let quad = GpuQuad::from_rect(Rect::new(0, 0, 1, 1), Color::rgb(255, 128, 0));
+    assert!((quad.colour[0] - 1.0).abs() < 1e-6);
+    assert!(quad.colour[1] > 0.2 && quad.colour[1] < 0.25);
+    assert_eq!(quad.colour[2], 0.0);
+    assert!((quad.colour[3] - 1.0).abs() < 1e-6);
+}

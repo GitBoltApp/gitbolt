@@ -1,0 +1,384 @@
+#file crates/orbital-game/src/map_view.rs
+#header v1 @orbit-map
+//! The orbit map: the whole system from far out, with every body as a dot on its orbit.
+
+use glam::Vec2;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::app::Step;
+use crate::flight::Flight;
+use crate::input::Action;
+
+#header v2 @colour-blind
+//! The orbit map: the whole system from far out, with every body as a dot on its orbit.
+
+use glam::Vec2;
+use orbital_core::body::BodyKind;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::painter::Color;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+
+use crate::app::Step;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::settings::Settings;
+
+#header v3 @map-labels
+//! The orbit map: the whole system from far out, with every body as a dot on its orbit.
+
+use glam::Vec2;
+use orbital_core::body::BodyKind;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::painter::Color;
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::settings::Settings;
+
+#header v4 @map-legend
+//! The orbit map: the whole system from far out, with every body as a dot on its orbit.
+
+use glam::Vec2;
+use orbital_core::body::BodyKind;
+use orbital_render::atlas::Atlas;
+use orbital_render::camera::Camera;
+use orbital_render::painter::{Color, Painter, Rect};
+use orbital_render::sprite_batch::{Sprite, SpriteBatch};
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::flight::Flight;
+use crate::input::Action;
+use crate::settings::Settings;
+
+#const MAP_ZOOM v1 @orbit-map
+/// How far out the map starts, so the whole system fits on the screen.
+pub const MAP_ZOOM: f32 = 0.05;
+
+#const MAP_MARGIN v1 @orbit-map
+/// How far past the screen's edge a body may be and still be drawn, in kilometres.
+pub const MAP_MARGIN: f32 = 400.0;
+
+#const MARKER_SIZE v1 @orbit-map
+/// How wide a body's marker is on the map, in screen pixels.
+pub const MARKER_SIZE: f32 = 12.0;
+
+#const LABEL_HEIGHT v1 @map-labels
+/// How far apart stacked labels sit, in pixels: a line of the HUD font.
+pub const LABEL_HEIGHT: f32 = 14.0;
+
+#const LABEL_WIDTH v1 @map-labels
+/// How much room a label takes across, in pixels: a twelve-letter name.
+pub const LABEL_WIDTH: f32 = 96.0;
+
+#const LEGEND_MARGIN v1 @map-legend
+/// The space between the legend and the window's bottom-left corner, in pixels.
+pub const LEGEND_MARGIN: u32 = 20;
+
+#const LEGEND_ROW v1 @map-legend
+/// How far apart the legend's rows sit, in pixels.
+pub const LEGEND_ROW: u32 = 16;
+
+#item LEGEND v1 @map-legend "Draw the orbit map's legend"
+/// The legend's rows, top to bottom: each kind of body the map colours, and its name.
+pub const LEGEND: [(BodyKind, &str); 3] = [
+    (BodyKind::Planet, "PLANET"),
+    (BodyKind::Station, "STATION"),
+    (BodyKind::Asteroid, "ROCK"),
+];
+
+#item MapView v1 @orbit-map "Show the orbit map for the whole system"
+/// The orbit map's own camera, which starts zoomed out to the whole system.
+#[derive(Debug)]
+pub struct MapView {
+    camera: Camera,
+}
+
+#item MapView v2 @map-labels "Label the planets, the stations and the ship on the orbit map"
+/// The orbit map's own camera, which starts zoomed out to the whole system, and the labels laid
+/// out for the frame: each name and where it goes on the screen.
+#[derive(Debug)]
+pub struct MapView {
+    camera: Camera,
+    labels: Vec<(String, Vec2)>,
+}
+
+#item new v1 @orbit-map "Show the orbit map for the whole system"
+impl MapView {
+    /// The map as it opens: zoomed out, and centred on the middle of the system.
+    pub fn new() -> Self {
+        Self {
+            camera: Camera {
+                zoom: MAP_ZOOM,
+                ..Camera::default()
+            },
+        }
+    }
+}
+
+#item new v2 @map-labels "Label the planets, the stations and the ship on the orbit map"
+impl MapView {
+    /// The map as it opens: zoomed out, and centred on the middle of the system.
+    pub fn new() -> Self {
+        Self {
+            camera: Camera {
+                zoom: MAP_ZOOM,
+                ..Camera::default()
+            },
+            labels: Vec::new(),
+        }
+    }
+}
+
+#item default v1 @orbit-map "Show the orbit map for the whole system"
+impl Default for MapView {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#item camera v1 @orbit-map "Show the orbit map for the whole system"
+impl MapView {
+    /// The camera the map is seen through.
+    pub fn camera(&self) -> &Camera {
+        &self.camera
+    }
+}
+
+#item zoom v1 @map-zoom "Keep the orbit map zoom centred on the cursor"
+impl MapView {
+    /// Zooms the map by a number of scroll lines, keeping the point under the cursor in place.
+    pub fn zoom(&mut self, lines: f32, cursor: Vec2, screen: Vec2) {
+        self.camera.zoom_by(lines, cursor, screen);
+    }
+}
+
+#item handle v1 @orbit-map "Show the orbit map for the whole system"
+impl MapView {
+    /// Closes the map on back, or on the map key again.
+    pub fn handle(&mut self, action: Action) -> Step {
+        match action {
+            Action::Back | Action::Map => Step::Pop,
+            _ => Step::Stay,
+        }
+    }
+}
+
+#item draw v1 @orbit-map "Show the orbit map for the whole system"
+impl MapView {
+    /// Adds a marker for each body in view, and one for the ship, at its place on the map.
+    pub fn draw(&self, sprites: &mut SpriteBatch, flight: &Flight, atlas: &Atlas, screen: Vec2) {
+        let size = Vec2::splat(MARKER_SIZE / self.camera.zoom);
+        if let Some(dot) = atlas.region("dot") {
+            for body in &flight.world.bodies {
+                if self.camera.visible(body.position, screen, MAP_MARGIN) {
+                    sprites.push(Sprite::new(body.position, size, dot));
+                }
+            }
+        }
+        if let Some(scout) = atlas.region("scout") {
+            sprites.push(Sprite::new(flight.ship.body.position, size, scout));
+        }
+    }
+}
+
+#item draw v2 @ecs-world "Store game objects in an ECS world"
+impl MapView {
+    /// Adds a marker for each body in view, and one for the ship, at its place on the map.
+    pub fn draw(&self, sprites: &mut SpriteBatch, flight: &Flight, atlas: &Atlas, screen: Vec2) {
+        let size = Vec2::splat(MARKER_SIZE / self.camera.zoom);
+        if let Some(dot) = atlas.region("dot") {
+            for (_, body) in &flight.world.bodies {
+                if self.camera.visible(body.position, screen, MAP_MARGIN) {
+                    sprites.push(Sprite::new(body.position, size, dot));
+                }
+            }
+        }
+        if let Some(scout) = atlas.region("scout") {
+            sprites.push(Sprite::new(flight.ship.body.position, size, scout));
+        }
+    }
+}
+
+#item draw v3 @colour-blind "Colour the orbit map's markers for the colour-blind palette"
+impl MapView {
+    /// Adds a marker for each body in view, in its kind's colour, and one for the ship, at its
+    /// place on the map.
+    pub fn draw(
+        &self,
+        sprites: &mut SpriteBatch,
+        flight: &Flight,
+        atlas: &Atlas,
+        screen: Vec2,
+        settings: &Settings,
+    ) {
+        let size = Vec2::splat(MARKER_SIZE / self.camera.zoom);
+        if let Some(dot) = atlas.region("dot") {
+            for (_, body) in &flight.world.bodies {
+                if self.camera.visible(body.position, screen, MAP_MARGIN) {
+                    let marker = Sprite::new(body.position, size, dot);
+                    sprites.push(marker.tinted(marker_colour(body.kind, settings)));
+                }
+            }
+        }
+        if let Some(scout) = atlas.region("scout") {
+            sprites.push(Sprite::new(flight.ship.body.position, size, scout));
+        }
+    }
+}
+
+#item marker_colour v1 @colour-blind "Colour the orbit map's markers for the colour-blind palette"
+/// The colour of a body's marker on the map: green planets, gold stations, red rocks and a teal
+/// ship. The colour-blind palette turns the green and the red into blue and orange.
+pub fn marker_colour(kind: BodyKind, settings: &Settings) -> Color {
+    let colour = match kind {
+        BodyKind::Planet | BodyKind::Moon => Color::GREEN,
+        BodyKind::Station => Color::GOLD,
+        BodyKind::Asteroid => Color::RED,
+        BodyKind::Ship => Color::TEAL,
+    };
+    if settings.colour_blind {
+        colour.colour_blind()
+    } else {
+        colour
+    }
+}
+
+#item place_labels v1 @map-labels "Label the planets, the stations and the ship on the orbit map"
+impl MapView {
+    /// Lays out a name beside the dot of each planet and station, and the ship's. A label that
+    /// would land on one already placed moves down a line, so the names of bodies that share an
+    /// orbit don't overlap.
+    pub fn place_labels(&mut self, flight: &Flight, screen: Vec2) {
+        self.labels.clear();
+        let named = flight
+            .world
+            .bodies
+            .iter()
+            .map(|(_, body)| body)
+            .filter(|body| matches!(body.kind, BodyKind::Planet | BodyKind::Station))
+            .map(|body| (body.name.to_uppercase(), body.position))
+            .chain(std::iter::once((
+                String::from("YOU"),
+                flight.ship.body.position,
+            )));
+        for (name, at) in named {
+            let mut spot = self.camera.to_screen(at, screen) + Vec2::new(MARKER_SIZE, 0.0);
+            while self.labels.iter().any(|(_, taken)| {
+                (taken.y - spot.y).abs() < LABEL_HEIGHT && (taken.x - spot.x).abs() < LABEL_WIDTH
+            }) {
+                spot.y += LABEL_HEIGHT;
+            }
+            self.labels.push((name, spot));
+        }
+    }
+}
+
+#item draw_labels v1 @map-labels "Label the planets, the stations and the ship on the orbit map"
+impl MapView {
+    /// Draws the names that `place_labels` laid out.
+    pub fn draw_labels(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        for (name, at) in &self.labels {
+            font.draw(glyphs, name, *at, [0.8, 0.8, 0.8, 1.0]);
+        }
+    }
+}
+
+#item draw_legend v1 @map-legend "Draw the orbit map's legend"
+/// Draws the legend in the window's bottom-left corner: a swatch of each kind of body's colour on
+/// the map, and its name.
+pub fn draw_legend(
+    painter: &mut Painter,
+    font: &Font,
+    glyphs: &mut Vec<Glyph>,
+    settings: &Settings,
+) {
+    let mut y = painter.bounds().bottom().saturating_sub(LEGEND_MARGIN);
+    for &(kind, name) in LEGEND.iter().rev() {
+        y = y.saturating_sub(LEGEND_ROW);
+        painter.fill_rect(
+            Rect::new(LEGEND_MARGIN, y, 10, 10),
+            marker_colour(kind, settings),
+        );
+        let at = Vec2::new((LEGEND_MARGIN + 16) as f32, y as f32);
+        font.draw(glyphs, name, at, [1.0; 4]);
+    }
+}
+
+#test the_map_opens_zoomed_out v1 @orbit-map "Test that the map opens zoomed out to the system"
+#[test]
+fn the_map_opens_zoomed_out() {
+    let map = MapView::new();
+    assert!((map.camera().zoom - MAP_ZOOM).abs() < 1e-6);
+}
+
+#test back_closes_the_map v1 @orbit-map "Test that back closes the map"
+#[test]
+fn back_closes_the_map() {
+    let mut map = MapView::new();
+    assert!(matches!(map.handle(Action::Back), Step::Pop));
+}
+
+#test the_map_zoom_keeps_the_cursor_steady v1 @map-zoom "Test that zooming keeps the point under the cursor"
+#[test]
+fn the_map_zoom_keeps_the_cursor_steady() {
+    let mut map = MapView::new();
+    let cursor = Vec2::new(300.0, 200.0);
+    let screen = Vec2::new(800.0, 600.0);
+    let before = map.camera().screen_to_world(cursor, screen);
+    map.zoom(2.0, cursor, screen);
+    let after = map.camera().screen_to_world(cursor, screen);
+    assert!((before - after).length() < 1e-2);
+}
+
+#test the_colour_blind_palette_moves_off_green_and_red v1 @colour-blind "Test that the colour-blind palette moves the map off green and red"
+#[test]
+fn the_colour_blind_palette_moves_off_green_and_red() {
+    let mut settings = Settings::default();
+    assert_eq!(marker_colour(BodyKind::Planet, &settings), Color::GREEN);
+    assert_eq!(marker_colour(BodyKind::Asteroid, &settings), Color::RED);
+    settings.colour_blind = true;
+    assert_ne!(marker_colour(BodyKind::Planet, &settings), Color::GREEN);
+    assert_ne!(marker_colour(BodyKind::Asteroid, &settings), Color::RED);
+    assert_eq!(marker_colour(BodyKind::Station, &settings), Color::GOLD);
+}
+
+#test labels_in_one_spot_stack v1 @map-labels "Test that labels in one spot stack instead of overlapping"
+#[test]
+fn labels_in_one_spot_stack() {
+    use orbital_core::body::Body;
+    let mut flight = Flight::new();
+    let at = flight.ship.body.position;
+    flight.world.spawn(Body::station("Near", at, 0.5, 1.0));
+    let mut map = MapView::new();
+    map.place_labels(&flight, Vec2::new(800.0, 600.0));
+    let spot = |name: &str| {
+        map.labels
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, at)| *at)
+    };
+    let (near, you) = (spot("NEAR").unwrap(), spot("YOU").unwrap());
+    assert!((near.y - you.y).abs() >= LABEL_HEIGHT);
+}
+
+#test the_legend_has_a_swatch_per_kind v1 @map-legend "Test that the legend draws a swatch for each kind of body"
+#[test]
+fn the_legend_has_a_swatch_per_kind() {
+    let mut painter = Painter::recording(800, 600);
+    let mut glyphs = Vec::new();
+    draw_legend(
+        &mut painter,
+        &Font::new(Vec::new()),
+        &mut glyphs,
+        &Settings::default(),
+    );
+    assert_eq!(painter.commands().len(), LEGEND.len());
+}

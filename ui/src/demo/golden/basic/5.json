@@ -1,0 +1,222 @@
+{
+  "request": {
+    "method": "graph",
+    "params": {
+      "active": "$wt:wt-hotfix",
+      "limit": 4,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/hotfix",
+      "detached": false,
+      "target": "2e44250bec93fcd4bb1ae583e583b5b1cb576d3e",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/.extra/basic/wt-hotfix",
+        "isHead": true,
+        "local": "refs/heads/hotfix",
+        "name": "hotfix",
+        "remotes": [],
+        "row": 2,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": "/demo/basic",
+        "isHead": false,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [
+          {
+            "fullName": "refs/remotes/origin/main",
+            "host": null,
+            "hostKind": "generic",
+            "remote": "origin"
+          }
+        ],
+        "row": 4,
+        "tag": false,
+        "worktree": "/demo/basic"
+      }
+    ],
+    "maxLanes": 3,
+    "openWorktree": "/demo/.extra/basic/wt-hotfix",
+    "pinnedRefs": [
+      "refs/heads/main",
+      "refs/remotes/origin/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "",
+        "authorName": "",
+        "authorTime": 0,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 0,
+        "id": "wip:/demo/.extra/basic/wt-hotfix",
+        "kind": "wip",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "2e44250bec93fcd4bb1ae583e583b5b1cb576d3e"
+        ],
+        "segments": [
+          72352769
+        ],
+        "summary": "// WIP",
+        "wip": {
+          "added": 0,
+          "conflicted": 0,
+          "deleted": 0,
+          "modified": 1,
+          "renamed": 0,
+          "worktreeName": "wt-hotfix",
+          "worktreePath": "/demo/.extra/basic/wt-hotfix"
+        }
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227520,
+        "bodyFirstLine": "",
+        "color": 2,
+        "committerTime": 1767227520,
+        "id": "eeb9e8f775bdbda7386fbbd7889d6b342839771b",
+        "kind": "stash",
+        "lane": 2,
+        "mrRefs": [],
+        "parents": [
+          "9ca365ee5aa057c07a3d39385eb10310b7be9cdc"
+        ],
+        "segments": [
+          73401345,
+          9439234
+        ],
+        "summary": "On main: Experiment",
+        "wip": null
+      },
+      {
+        "authorEmail": "grace@example.com",
+        "authorName": "Grace Hopper",
+        "authorTime": 1767227340,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1767227340,
+        "id": "2e44250bec93fcd4bb1ae583e583b5b1cb576d3e",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "9ca365ee5aa057c07a3d39385eb10310b7be9cdc"
+        ],
+        "segments": [
+          71304193,
+          10487810,
+          5243905
+        ],
+        "summary": "Hotfix: null check",
+        "wip": null
+      },
+      {
+        "authorEmail": "",
+        "authorName": "",
+        "authorTime": 0,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 0,
+        "id": "wip:/demo/basic",
+        "kind": "wip",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "9ca365ee5aa057c07a3d39385eb10310b7be9cdc"
+        ],
+        "segments": [
+          6292481,
+          10487810,
+          68157440
+        ],
+        "summary": "// WIP",
+        "wip": {
+          "added": 0,
+          "conflicted": 0,
+          "deleted": 0,
+          "modified": 1,
+          "renamed": 0,
+          "worktreeName": null,
+          "worktreePath": "/demo/basic"
+        }
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227040,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767227040,
+        "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+        "kind": "merge",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "4f624c760503f39b11585ee6ce2f2fe87c15fbf7",
+          "e4c6d940a4965218a12ccdb06eb44eac2ad6a747"
+        ],
+        "segments": [
+          67108864,
+          4194305,
+          8388610,
+          1048576,
+          5243904
+        ],
+        "summary": "Merge branch 'feature/login'",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226920,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226920,
+        "id": "4f624c760503f39b11585ee6ce2f2fe87c15fbf7",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437"
+        ],
+        "segments": [
+          0,
+          6292481,
+          1048576
+        ],
+        "summary": "Fix typo",
+        "wip": null
+      }
+    ],
+    "truncated": true,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/basic"
+      },
+      {
+        "branch": "refs/heads/hotfix",
+        "head": "2e44250bec93fcd4bb1ae583e583b5b1cb576d3e",
+        "inProgress": null,
+        "isMain": false,
+        "locked": false,
+        "path": "/demo/.extra/basic/wt-hotfix"
+      }
+    ]
+  }
+}

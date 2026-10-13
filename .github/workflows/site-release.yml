@@ -1,0 +1,143 @@
+# The website's downloads (docs/website.md): writes site/data/release.json with
+# scripts/site-release.py for the newest published release that isn't a pre-release (the newest
+# pre-release while there's no other), or the tag given by hand; commits it to main as
+# github-actions[bot] ("Site: downloads for 0.6.0") when it changed; then starts site.yml on main.
+# A push made with the workflow's token starts no workflow, but a workflow_dispatch does, and on
+# main the github-pages environment accepts the deploy (a release event's ref is its tag). It runs
+# when a release is published, and by hand (Run workflow on main) after editing or deleting one.
+# Only the job that pushes holds a write token; the releases are read with a read-only one.
+# Actions are pinned by commit, as in release.yml.
+name: Site downloads
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Show this release (v1.2.3). Empty: the newest that isn't a pre-release (the newest pre-release while there's no other)."
+        required: false
+        default: ''
+
+permissions: {}
+
+concurrency:
+  group: site-release
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  # Reads the releases and writes release.json with a read-only token; the file and its tag go to
+  # the next job as outputs (release.json base64-encoded on one line: a few KB).
+  read:
+    name: Write release.json
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read # read the releases (drafts aren't listed) and download SHA256SUMS
+    outputs:
+      tag: ${{ steps.write.outputs.tag }}
+      release-json: ${{ steps.write.outputs.release-json }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Write release.json
+        id: write
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          INPUT_TAG: ${{ inputs.tag }}
+        run: |
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[]' | jq -s . > "$RUNNER_TEMP/releases.json"
+          tag=$(python3 scripts/site-release.py pick "$RUNNER_TEMP/releases.json" "$INPUT_TAG")
+          if [ -z "$tag" ]; then
+            python3 scripts/site-release.py empty > "$RUNNER_TEMP/release.json"
+            echo "No published release yet."
+          else
+            gh release download "$tag" --pattern SHA256SUMS --output "$RUNNER_TEMP/SHA256SUMS"
+            python3 scripts/site-release.py write "$GH_REPO" "$RUNNER_TEMP/releases.json" "$tag" "$RUNNER_TEMP/SHA256SUMS" > "$RUNNER_TEMP/release.json"
+            echo "The site's downloads: $tag"
+          fi
+          {
+            echo "tag=$tag"
+            echo "release-json=$(base64 -w0 "$RUNNER_TEMP/release.json")"
+          } >> "$GITHUB_OUTPUT"
+
+  # The only job with a write token: commits the file to main when it changed. The checkout keeps
+  # no credentials: the token goes to the push alone. main may have moved since the checkout; then
+  # this one commit is rebased onto it and pushed again.
+  update:
+    name: Commit release.json to main
+    needs: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write # push release.json to main
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Commit to main
+        id: commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.read.outputs.tag }}
+          RELEASE_JSON: ${{ needs.read.outputs.release-json }}
+        run: |
+          [ -n "$RELEASE_JSON" ] || { echo "::error::No release.json from the read job"; exit 1; }
+          mkdir -p site/data
+          printf '%s' "$RELEASE_JSON" | base64 -d > site/data/release.json
+          jq -e . site/data/release.json > /dev/null || { echo "::error::release.json isn't JSON"; exit 1; }
+          if [ -z "$(git status --porcelain -- site/data/release.json)" ]; then
+            echo "release.json is up to date (${TAG:-no release})." | tee -a "$GITHUB_STEP_SUMMARY"
+            echo changed=false >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          v=$(jq -r '.release.version // empty' site/data/release.json)
+          if [ -n "$v" ]; then msg="Site: downloads for $v"; else msg="Site: no downloads yet"; fi
+          export GIT_AUTHOR_NAME='github-actions[bot]' GIT_AUTHOR_EMAIL='41898282+github-actions[bot]@users.noreply.github.com'
+          export GIT_COMMITTER_NAME=$GIT_AUTHOR_NAME GIT_COMMITTER_EMAIL=$GIT_AUTHOR_EMAIL
+          git add site/data/release.json
+          git commit -q -m "$msg"
+          auth=$(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)
+          echo "::add-mask::$auth"
+          for i in 1 2 3; do
+            if git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic $auth" push -q origin HEAD:main; then
+              echo "$msg" | tee -a "$GITHUB_STEP_SUMMARY"
+              echo changed=true >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            if [ "$i" -lt 3 ]; then
+              sleep $((i * 5))
+              git pull -q --rebase origin main
+            fi
+          done
+          echo "::error::Couldn't push release.json to main"
+          exit 1
+
+  deploy:
+    name: Start the Site workflow
+    needs: update
+    if: needs.update.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      actions: write # workflow_dispatch site.yml
+    steps:
+      - name: Run Site on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh workflow run site.yml --ref main
+          echo "Started Site on main: it deploys the new downloads." | tee -a "$GITHUB_STEP_SUMMARY"

@@ -1,0 +1,36 @@
+{
+  "request": {
+    "method": "commitDetails",
+    "params": {
+      "id": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "author": {
+      "email": "grace@example.com",
+      "name": "Grace Hopper",
+      "time": 1767226320
+    },
+    "coAuthors": [
+      {
+        "email": "maren@example.com",
+        "name": "Maren Holt"
+      },
+      {
+        "email": "lars@example.com",
+        "name": "Lars Tidemann"
+      }
+    ],
+    "committer": {
+      "email": "ada@example.com",
+      "name": "Ada Lovelace",
+      "time": 1767226320
+    },
+    "id": "dd8f687416ebed6d829f5c1e90f688a811ab41cd",
+    "parents": [
+      "e7e0597e1b1e7b974bbffb158f5250b7b6f3438e"
+    ],
+    "signed": false
+  }
+}

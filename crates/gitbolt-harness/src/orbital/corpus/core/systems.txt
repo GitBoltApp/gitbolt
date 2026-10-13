@@ -1,0 +1,268 @@
+#file crates/orbital-core/src/systems.rs
+#header v1 @systems
+//! The per-tick systems. Each one reads and writes the world's tables, and they run in a fixed
+//! order.
+
+use crate::body::{Body, BodyKind};
+use crate::economy::BASE_STOCK;
+use crate::economy::Market;
+use crate::physics;
+use crate::ship::Ship;
+use crate::world::{Entity, World};
+use glam::Vec2;
+
+#header v2 @economy-drift
+//! The per-tick systems. Each one reads and writes the world's tables, and they run in a fixed
+//! order.
+
+use crate::body::{Body, BodyKind};
+use crate::economy::BASE_STOCK;
+use crate::economy::Market;
+use crate::physics;
+use crate::rng::Rng;
+use crate::ship::Ship;
+use crate::world::{Entity, World};
+use glam::Vec2;
+
+#item run_gravity v1 @systems "Run gravity and the integrator as a system"
+/// Steps every body under the pull of the others, from a snapshot taken before any moves.
+pub fn run_gravity(world: &mut World, dt: f32) {
+    let snapshot: Vec<Body> = world.bodies.iter().map(|(_, b)| b.clone()).collect();
+    for (_, body) in world.bodies.iter_mut() {
+        let accel = physics::gravity(body.position, &snapshot);
+        physics::step(body, accel, dt);
+    }
+}
+
+#item run_gravity v2 @verlet "Run gravity with the Verlet step"
+/// Steps every body under the pull of the others, from a snapshot taken before any moves.
+pub fn run_gravity(world: &mut World, dt: f32) {
+    let snapshot = world.bodies.clone();
+    for (id, body) in world.bodies.iter_mut() {
+        let id = *id;
+        let others: Vec<Body> = snapshot
+            .iter()
+            .filter(|(other, _)| *other != id)
+            .map(|(_, b)| b.clone())
+            .collect();
+        physics::step(body, dt, |at| physics::gravity(at, &others));
+    }
+}
+
+#item run_thrust v1 @systems "Burn fuel for the thrust command"
+/// Applies a ship's thrust command for a tick: the ship burns the fuel for it and turns the thrust
+/// into velocity.
+pub fn run_thrust(ship: &mut Ship, command: Vec2, dt: f32) {
+    ship.thrust(command, dt);
+}
+
+#item run_collisions v1 @systems "Push apart every pair of overlapping bodies"
+/// Pushes apart every pair of bodies that overlap.
+pub fn run_collisions(world: &mut World) {
+    let n = world.bodies.len();
+    for i in 0..n {
+        for j in (i + 1)..n {
+            let (left, right) = world.bodies.split_at_mut(j);
+            let (_, a) = &mut left[i];
+            let (_, b) = &mut right[0];
+            if a.overlaps(b) {
+                a.separate(b);
+            }
+        }
+    }
+}
+
+#item run_mining v1 @systems "Run mining as a system"
+/// Mines the first asteroid in the ship's range, and returns the ore it gave up.
+pub fn run_mining(ship: &Body, rocks: &mut [(Entity, Body)], dt: f32) -> f32 {
+    let target = rocks
+        .iter_mut()
+        .find(|(_, rock)| rock.kind == BodyKind::Asteroid && ship.in_mining_range(rock));
+    match target {
+        Some((_, rock)) => ship.mine(rock, dt),
+        None => 0.0,
+    }
+}
+
+#item run_mining v2 @mining-yield "Mine every rock in range, not only the first"
+/// Mines every asteroid in the ship's range, and returns the ore they gave up.
+pub fn run_mining(ship: &Body, rocks: &mut [(Entity, Body)], dt: f32) -> f32 {
+    rocks
+        .iter_mut()
+        .filter(|(_, rock)| rock.kind == BodyKind::Asteroid && ship.in_mining_range(rock))
+        .map(|(_, rock)| ship.mine(rock, dt))
+        .sum()
+}
+
+#item run_docking v1 @systems "Dock ships that reach a station"
+/// Stops every ship that may dock with a station.
+pub fn run_docking(world: &mut World) {
+    let stations: Vec<Body> = world
+        .bodies
+        .iter()
+        .filter(|(_, b)| b.kind == BodyKind::Station)
+        .map(|(_, b)| b.clone())
+        .collect();
+    for (_, ship) in world.bodies.iter_mut() {
+        if ship.kind == BodyKind::Ship && stations.iter().any(|s| ship.can_dock(s)) {
+            ship.velocity = Vec2::ZERO;
+        }
+    }
+}
+
+#item run_economy v1 @systems "Pull market stock back towards its usual level"
+/// Pulls every market's stock a tenth of the way back towards its usual level.
+pub fn run_economy(markets: &mut [Market]) {
+    for m in markets {
+        m.stock += (BASE_STOCK - m.stock) * 0.1;
+    }
+}
+
+#item run_economy v2 @economy-drift "Run a day of each market: a shake by its volatility, then the drift"
+/// Runs a day of every market: shakes each stock by up to its good's volatility either way, as a
+/// share of the usual level, then lets it drift a day's worth back towards that level.
+pub fn run_economy(markets: &mut [Market], rng: &mut Rng) {
+    for m in markets {
+        m.stock += rng.range(-1.0, 1.0) * m.volatility * BASE_STOCK;
+        m.drift(1.0);
+    }
+}
+
+#item run_economy v3 @drift-floor "Keep a shaken market's stock from going negative"
+/// Runs a day of every market: shakes each stock by up to its good's volatility either way, as a
+/// share of the usual level, then lets it drift a day's worth back towards that level. Stock never
+/// goes below zero.
+pub fn run_economy(markets: &mut [Market], rng: &mut Rng) {
+    for m in markets {
+        m.stock = (m.stock + rng.range(-1.0, 1.0) * m.volatility * BASE_STOCK).max(0.0);
+        m.drift(1.0);
+    }
+}
+
+#const EXPLOSION_SECONDS v1 @explosion-lifetime
+/// Seconds an explosion stays on screen: the length of its animation.
+pub const EXPLOSION_SECONDS: f32 = 0.6;
+
+#item Explosion v1 @explosion-lifetime "Age explosions and end them with their animation"
+/// An explosion where a body was destroyed, and how long ago it went off, in seconds.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Explosion {
+    pub at: Vec2,
+    pub age: f32,
+}
+
+#item explosion_new v1 @explosion-lifetime "Age explosions and end them with their animation"
+impl Explosion {
+    /// An explosion going off now at `at`.
+    pub fn new(at: Vec2) -> Self {
+        Self { at, age: 0.0 }
+    }
+}
+
+#item run_explosions v1 @explosion-lifetime "Age explosions and end them with their animation"
+/// Ages every explosion by `dt` seconds, and drops the ones whose animation has finished.
+pub fn run_explosions(explosions: &mut Vec<Explosion>, dt: f32) {
+    explosions.retain_mut(|blast| {
+        blast.age += dt;
+        blast.age < EXPLOSION_SECONDS
+    });
+}
+
+#test gravity_moves_a_ship v1 @systems "Test that gravity moves a ship in the system"
+#[test]
+fn gravity_moves_a_ship() {
+    let mut world = World::default();
+    world.spawn(Body::planet("P", Vec2::ZERO, 100.0, 10.0));
+    world.spawn(Body::ship("S", Vec2::new(50.0, 0.0), Vec2::ZERO, 1.0));
+    run_gravity(&mut world, 0.1);
+    assert!(world.bodies[1].1.velocity.x < 0.0);
+}
+
+#test docking_stops_a_ship v1 @systems "Test that docking stops a ship"
+#[test]
+fn docking_stops_a_ship() {
+    let mut world = World::default();
+    world.spawn(Body::station("Ring", Vec2::ZERO, 1.0, 10.0));
+    let ship = Body::ship("S", Vec2::new(5.0, 0.0), Vec2::new(1.0, 0.0), 1.0);
+    world.spawn(ship);
+    run_docking(&mut world);
+    assert_eq!(world.bodies[1].1.velocity, Vec2::ZERO);
+}
+
+#test thrust_burns_fuel v1 @systems "Test that thrust burns fuel and adds velocity"
+#[test]
+fn thrust_burns_fuel() {
+    let mut ship = Ship::new(Body::ship("S", Vec2::ZERO, Vec2::ZERO, 2.0));
+    let fuel = ship.fuel;
+    run_thrust(&mut ship, Vec2::new(1.0, 0.0), 1.0);
+    assert!(ship.fuel < fuel);
+    assert!(ship.body.velocity.x > 0.0);
+}
+
+#test mining_takes_ore_from_the_first_rock v1 @systems "Test that mining takes ore from the first rock"
+#[test]
+fn mining_takes_ore_from_the_first_rock() {
+    let ship = Body::ship("S", Vec2::ZERO, Vec2::ZERO, 1.0);
+    let rock = Body {
+        kind: BodyKind::Asteroid,
+        ..Body::moon("R", Vec2::new(1.0, 0.0), 2.0, 1.0)
+    };
+    let mut rocks = vec![(Entity(1), rock)];
+    let ore = run_mining(&ship, &mut rocks, 1.0);
+    assert!(ore > 0.0);
+}
+
+#test mining_takes_ore_from_every_rock v1 @mining-yield "Test that mining takes ore from every rock"
+#[test]
+fn mining_takes_ore_from_every_rock() {
+    let ship = Body::ship("S", Vec2::ZERO, Vec2::ZERO, 1.0);
+    let a = Body {
+        kind: BodyKind::Asteroid,
+        ..Body::moon("A", Vec2::new(1.0, 0.0), 2.0, 1.0)
+    };
+    let b = Body {
+        kind: BodyKind::Asteroid,
+        ..Body::moon("B", Vec2::new(0.0, 1.0), 2.0, 1.0)
+    };
+    let mut rocks = vec![(Entity(1), a), (Entity(2), b)];
+    let ore = run_mining(&ship, &mut rocks, 1.0);
+    assert!(ore > 0.0);
+}
+
+#test economy_pulls_prices_to_base v1 @systems "Test that stock moves back towards its usual level"
+#[test]
+fn economy_pulls_prices_to_base() {
+    let mut markets = [Market::new(crate::cargo::Commodity::Ore, 40.0)];
+    markets[0].stock = 60.0;
+    run_economy(&mut markets);
+    assert!(markets[0].stock < 60.0);
+}
+
+#test economy_pulls_prices_to_base v2 @economy-drift "Test the economy with its random shake"
+#[test]
+fn economy_pulls_prices_to_base() {
+    let mut markets = [Market::new(crate::cargo::Commodity::Ore, 40.0)];
+    markets[0].stock = 60.0;
+    let mut rng = Rng::new(5);
+    run_economy(&mut markets, &mut rng);
+    assert!(markets[0].stock < 60.0);
+}
+
+#test price_never_drops_below_the_floor v1 @drift-floor "Test that a heavy market's price stops at the floor"
+#[test]
+fn price_never_drops_below_the_floor() {
+    let mut markets = [Market::new(crate::cargo::Commodity::Alloy, 90.0)];
+    markets[0].stock = 200.0;
+    run_economy(&mut markets, &mut Rng::new(1));
+    assert!(markets[0].buy_price() >= crate::economy::MIN_PRICE);
+}
+
+#test an_explosion_ends_with_its_animation v1 @explosion-lifetime "Test that an explosion ends with its animation"
+#[test]
+fn an_explosion_ends_with_its_animation() {
+    let mut explosions = vec![Explosion::new(Vec2::ZERO)];
+    run_explosions(&mut explosions, EXPLOSION_SECONDS * 0.5);
+    assert_eq!(explosions.len(), 1);
+    run_explosions(&mut explosions, EXPLOSION_SECONDS * 0.6);
+    assert!(explosions.is_empty());
+}

@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "commit": "75a57458b5df93fc4ebe2b7c480acde314b9643d",
+        "kind": "atCommit"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "site/leaderboard.html",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "0f1ea4ffdae85182b3a1996cdd2f735b33c8a110",
+      "size": 385,
+      "text": "<!doctype html>\n<html lang=\"en\">\n<head>\n  <meta charset=\"utf-8\">\n  <title>Orbital leaderboard</title>\n  <script src=\"https://cdn.example.net/charts@4.2.0/charts.min.js\"></script>\n</head>\n<body>\n  <h1>Top traders</h1>\n  <canvas id=\"board\" width=\"600\" height=\"300\"></canvas>\n  <script>new Charts.Bar(document.getElementById('board'), { source: 'scores.json' });</script>\n</body>\n</html>\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

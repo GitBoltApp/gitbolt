@@ -1,0 +1,150 @@
+#file crates/orbital-core/src/orbit.rs
+#header v1 @orbit-prediction
+//! Orbits: the elements of a ship's path around its parent, its period, and where it will be.
+
+use crate::body::Body;
+use crate::physics;
+use crate::time::TICK_SECONDS;
+use glam::Vec2;
+#item Elements v1 @orbit-prediction "Add orbit elements for a ship around its parent"
+/// A ship's orbit around its parent: the size and shape of the ellipse, and the parent's pull.
+#[derive(Clone, Copy, Debug)]
+pub struct Elements {
+    pub semi_major_axis: f32,
+    pub eccentricity: f32,
+    pub mu: f32,
+}
+#item elements v1 @orbit-prediction "Work out a ship's orbit elements from its state"
+/// The orbit elements of `body` around `parent`, from its position and velocity.
+pub fn elements(body: &Body, parent: &Body) -> Elements {
+    let mu = physics::G * parent.mass;
+    let r = body.position - parent.position;
+    let v = body.velocity;
+    let energy = 0.5 * v.length_squared() - mu / r.length();
+    let semi_major_axis = -mu / (2.0 * energy);
+    let h = r.perp_dot(v).abs();
+    let eccentricity = (1.0 - h * h / (mu * semi_major_axis)).max(0.0).sqrt();
+    Elements {
+        semi_major_axis,
+        eccentricity,
+        mu,
+    }
+}
+#item elements v2 @prediction-jump "Use the velocity relative to the parent for the elements"
+/// The orbit elements of `body` around `parent`, from its position and velocity.
+pub fn elements(body: &Body, parent: &Body) -> Elements {
+    let mu = physics::G * parent.mass;
+    let r = body.position - parent.position;
+    let v = body.velocity - parent.velocity;
+    let energy = 0.5 * v.length_squared() - mu / r.length();
+    let semi_major_axis = -mu / (2.0 * energy);
+    let h = r.perp_dot(v).abs();
+    let eccentricity = (1.0 - h * h / (mu * semi_major_axis)).max(0.0).sqrt();
+    Elements {
+        semi_major_axis,
+        eccentricity,
+        mu,
+    }
+}
+#item period v1 @orbit-prediction "Add the orbital period from the semi-major axis"
+/// The time for one full orbit, in seconds: Kepler's third law.
+pub fn period(e: &Elements) -> f32 {
+    std::f32::consts::TAU * (e.semi_major_axis.powi(3) / e.mu).sqrt()
+}
+#item predict v1 @orbit-prediction "Predict a ship's orbit a few hundred ticks ahead"
+/// Where `ship` will be after each of the next `steps` ticks, if it doesn't burn.
+pub fn predict(ship: &Body, parent: &Body, steps: usize) -> Vec<Vec2> {
+    let mut body = ship.clone();
+    let mut points = Vec::with_capacity(steps);
+    for _ in 0..steps {
+        let accel = physics::gravity(body.position, std::slice::from_ref(parent));
+        physics::step(&mut body, accel, TICK_SECONDS);
+        points.push(body.position);
+    }
+    points
+}
+#item predict v2 @verlet "Predict orbits with the Verlet step"
+/// Where `ship` will be after each of the next `steps` ticks, if it doesn't burn.
+pub fn predict(ship: &Body, parent: &Body, steps: usize) -> Vec<Vec2> {
+    let mut body = ship.clone();
+    let mut points = Vec::with_capacity(steps);
+    for _ in 0..steps {
+        let pull = |at| physics::gravity(at, std::slice::from_ref(parent));
+        physics::step(&mut body, TICK_SECONDS, pull);
+        points.push(body.position);
+    }
+    points
+}
+#item plan_path v1 @autopilot-stub "Add a path planner stub for the autopilot"
+/// The autopilot's path from `from` to `to`, as the points to fly through. A stub until the
+/// planner lands: a straight line, which goes through anything in the way.
+pub fn plan_path(from: Vec2, to: Vec2) -> Vec<Vec2> {
+    vec![from, to]
+}
+#item vis_viva v1 @autopilot-burns "Add the vis-viva speed for a point on an orbit"
+/// The speed at distance `r` on an orbit of semi-major axis `a` around a body of `mu`.
+pub fn vis_viva(r: f32, a: f32, mu: f32) -> f32 {
+    (mu * (2.0 / r - 1.0 / a)).sqrt()
+}
+#item hohmann_dv v1 @autopilot-burns "Plan transfer burns for the autopilot"
+/// The two burns of a Hohmann transfer from a circular orbit at `r1` to one at `r2`, in order.
+pub fn hohmann_dv(r1: f32, r2: f32, mu: f32) -> (f32, f32) {
+    let transfer_a = (r1 + r2) / 2.0;
+    let dv1 = (mu * (2.0 / r1 - 1.0 / transfer_a)).sqrt() - (mu / r1).sqrt();
+    let dv2 = (mu / r2).sqrt() - (mu * (2.0 / r2 - 1.0 / transfer_a)).sqrt();
+    (dv1, dv2)
+}
+#item hohmann_dv v2 @autopilot-burns "Use vis-viva in the transfer burns"
+/// The two burns of a Hohmann transfer from a circular orbit at `r1` to one at `r2`, in order.
+pub fn hohmann_dv(r1: f32, r2: f32, mu: f32) -> (f32, f32) {
+    let transfer_a = (r1 + r2) / 2.0;
+    let dv1 = vis_viva(r1, transfer_a, mu) - vis_viva(r1, r1, mu);
+    let dv2 = vis_viva(r2, r2, mu) - vis_viva(r2, transfer_a, mu);
+    (dv1, dv2)
+}
+#test circular_orbit_has_no_eccentricity v1 @orbit-prediction "Test that a circular orbit is round"
+#[test]
+fn circular_orbit_has_no_eccentricity() {
+    let parent = Body::planet("P", Vec2::ZERO, 100.0, 10.0);
+    let speed = (physics::G * 100.0 / 50.0).sqrt();
+    let ship = Body::ship("S", Vec2::new(50.0, 0.0), Vec2::new(0.0, speed), 1.0);
+    let e = elements(&ship, &parent);
+    assert!(e.eccentricity < 1e-3);
+    assert!((e.semi_major_axis - 50.0).abs() < 1e-2);
+}
+#test period_matches_keplers_third_law v1 @orbit-prediction "Test the period against Kepler's law"
+#[test]
+fn period_matches_keplers_third_law() {
+    let e = Elements {
+        semi_major_axis: 10.0,
+        eccentricity: 0.0,
+        mu: 4.0,
+    };
+    assert!((period(&e) - 99.346).abs() < 1e-2);
+}
+#test predict_returns_one_point_per_step v1 @orbit-prediction "Test that predict returns one point per step"
+#[test]
+fn predict_returns_one_point_per_step() {
+    let parent = Body::planet("P", Vec2::ZERO, 100.0, 10.0);
+    let ship = Body::ship("S", Vec2::new(50.0, 0.0), Vec2::new(0.0, 1.4), 1.0);
+    let path = predict(&ship, &parent, 300);
+    assert_eq!(path.len(), 300);
+}
+#test the_stub_path_is_a_straight_line v1 @autopilot-stub "Test that the planner stub flies a straight line"
+#[test]
+fn the_stub_path_is_a_straight_line() {
+    let (from, to) = (Vec2::new(0.0, 1000.0), Vec2::new(1400.0, 0.0));
+    assert_eq!(plan_path(from, to), vec![from, to]);
+}
+#test hohmann_transfer_costs_two_burns v1 @autopilot-burns "Test that a transfer needs two burns"
+#[test]
+fn hohmann_transfer_costs_two_burns() {
+    let (dv1, dv2) = hohmann_dv(10.0, 40.0, 4.0);
+    assert!(dv1 > 0.0 && dv2 > 0.0);
+}
+#test vis_viva_matches_circular_speed v1 @autopilot-burns "Test vis-viva on a circular orbit"
+#[test]
+fn vis_viva_matches_circular_speed() {
+    let v = vis_viva(20.0, 20.0, 5.0);
+    assert!((v - 0.5).abs() < 1e-6);
+}

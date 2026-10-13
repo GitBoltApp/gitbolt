@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "3ef495e6aced236e5a5585e91352a7ca9d583369"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "952d103345eed4749929d8a47bc6d2be08ba4929"
+      },
+      "oldPath": "docs/guide.txt",
+      "path": "docs/manual.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "3ef495e6aced236e5a5585e91352a7ca9d583369",
+      "size": 114,
+      "text": "Guide\n\nStep one.\nStep two, revised.\nStep three.\nStep five.\nStep six.\nStep seven.\nStep eight.\nStep nine.\nStep ten.\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "952d103345eed4749929d8a47bc6d2be08ba4929",
+      "size": 105,
+      "text": "Guide\n\nStep one.\nStep two.\nStep three.\nStep five.\nStep six.\nStep seven.\nStep eight.\nStep nine.\nStep ten.\n"
+    },
+    "tooLarge": false
+  }
+}

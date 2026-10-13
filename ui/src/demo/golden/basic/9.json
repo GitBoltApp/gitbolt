@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "commitMessage",
+    "params": {
+      "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "body": "",
+    "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+    "summary": "Merge branch 'feature/login'"
+  }
+}

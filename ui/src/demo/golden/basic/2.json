@@ -1,0 +1,22 @@
+{
+  "request": {
+    "method": "repoInfo",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "commonDir": "/demo/basic/.git",
+    "mainWorktree": null,
+    "remotes": [
+      {
+        "host": null,
+        "hostKind": "generic",
+        "name": "origin",
+        "path": null,
+        "url": "/demo/.origins/basic.git"
+      }
+    ],
+    "submodules": {}
+  }
+}

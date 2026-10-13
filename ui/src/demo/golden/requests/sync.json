@@ -1,0 +1,14 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "sidebar",
+  "params": {
+   "repo": "$repo"
+  }
+ }
+]

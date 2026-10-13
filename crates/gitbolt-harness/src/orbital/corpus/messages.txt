@@ -1,0 +1,162 @@
+# Commit message pools for the generated fillers. [pool] then one template per line.
+# Placeholders: {what} {old} {new} {row} {column} {dep} {version}
+[tune-up]
+Raise {what} from {old} to {new}
+Make {what} a little stronger ({old} → {new})
+Playtest: {what} {old} → {new}
+Bump {what} from {old} to {new}
+Give {what} more punch: {old} → {new}
+Increase {what} to {new}
+Nudge {what} up to {new}
+Buff {what}: {old} → {new}
+Raise {what} to {new} after playtesting
+Make {what} easier to feel ({old} → {new})
+Turn {what} up from {old} to {new}
+Tune {what} up to {new}
+Lift {what} to {new} so the early game lands
+Strengthen {what} at the start: {old} → {new}
+Raise {what} from {old} to {new} for new players
+Set {what} to {new} (was {old})
+Adjust {what}: {old} → {new}
+Balance pass: raise {what} to {new}
+Give {what} a boost, {old} → {new}
+Raise {what} slightly, to {new}
+Make {what} respond faster: {old} → {new}
+Bring {what} up to {new} to match the others
+Raise {what} to {new}; it felt weak
+Increase {what} after the last playtest ({old} → {new})
+Up {what} from {old} to {new}
+[tune-down]
+Lower {what} from {old} to {new}
+Ease {what} back from {old} to {new}
+Playtest: {what} {old} → {new}
+Make {what} a little gentler ({old} → {new})
+Tone down {what}: {old} → {new}
+Cut {what} from {old} to {new}
+Reduce {what} to {new}
+Dial {what} back to {new}
+Calm {what} down from {old} to {new}
+Soften {what}: {old} → {new}
+Lower {what} to {new} after the last playtest
+Make {what} less punishing ({old} → {new})
+Trim {what} from {old} to {new}
+Bring {what} down to {new} to match the rest
+Lower {what}: {old} → {new}; it felt too strong
+Reduce {what} from {old} to {new} for the early game
+Set {what} down to {new} (was {old})
+Tweak {what} down to {new}
+Ease off {what}: {old} → {new}
+Lower {what} a notch, {old} → {new}
+Cap {what} at {new} (was {old})
+Reduce {what} from {old} to {new} after feedback
+Make {what} less harsh ({old} → {new})
+Drop {what} from {old} to {new}
+Reduce the pull of {what}: {old} → {new}
+[tune-cell]
+Balance: {row} {column} {old} → {new}
+Adjust {row} {column} to {new}
+Tune {row} {column}: {old} → {new}
+Set {row} {column} to {new}
+Playtest: {row} {column} {old} → {new}
+Change {row} {column} from {old} to {new}
+Retune {row} {column} to {new}
+Set {row} {column} to {new} after playtesting
+Rebalance {row} {column} from {old} to {new}
+Nudge {row} {column} to {new}
+Price check: {row} {column} {old} → {new}
+Set {column} for {row} to {new}
+Balance {row}: {column} {old} → {new}
+Correct {row} {column} (was {old}, now {new})
+Adjust the {column} of {row} to {new}
+Set {row} {column} from {old} to {new}
+Tidy up {row} {column} at {new}
+Move {row} {column} to {new}
+Re-price {row} {column} to {new}
+Set the {column} of {row} from {old} to {new}
+Update {row} {column} to {new}
+Playtest tuning: {row} {column} to {new}
+Use {new} for {row} {column} (was {old})
+Rework {row} {column} values: {old} → {new}
+Record {row} {column} at {new} (was {old})
+Price {row} {column} at {new}
+
+[bump-dep]
+Bump {dep} to {version}
+Update {dep} to {version}
+Upgrade {dep} to {version}
+Bump {dep} to {version} for the new lints
+Update {dep} to {version} in the workspace manifest
+Upgrade to {dep} {version}
+Bump {dep} to {version} to pick up the fixes
+Take {dep} {version}
+Bump the {dep} dependency to {version}
+Move {dep} up to {version}
+Update {dep} to {version}, a drop-in release
+Bump {dep} to {version} for the bug fixes
+Upgrade {dep} to {version} now that it has settled
+Update {dep} to {version} across the workspace
+Bump {dep} to {version} to fix the Linux build
+Bump {dep} to {version} before the next release
+Keep {dep} current at {version}
+Bump {dep} to {version} for its performance fixes
+Update {dep} to {version} after the audit
+Raise the {dep} requirement to {version}
+Bump {dep} to {version}, no API changes
+Update {dep} to {version} ahead of the release
+Move the build to {dep} {version}
+Bump {dep} to {version} to match the toolchain
+Bump {dep} to {version} after reading its changelog
+[review]
+Address review feedback on {what}
+Tweak {what} after review
+Rename the helpers in {what}
+Tidy {what} after review
+Address the comments on {what}
+Split {what} into smaller functions after review
+Add the missing tests for {what}
+Explain {what} in a comment after review
+Simplify {what} as the reviewer asked
+Handle the edge cases in {what}
+Move {what} into its own module after review
+Drop the dead code in {what}
+Make the naming in {what} consistent
+Add a test for {what} that review asked for
+Fix the nits in {what}
+Rework {what} to match the review notes
+Check the error path in {what}
+Reword the docs for {what}
+Pull the constants out of {what}
+Add a guard for {what} after review
+Use a plain loop in {what} as suggested
+Keep {what} in sync with the review notes
+Undo the last change to {what}
+Note the trade-off in {what} after review
+Rename {what} to match the surrounding code
+
+[review-up]
+Raise {what} after review
+Raise {what} to {new} as review suggested
+Tweak {what} up after review
+Raise {what} from {old} to {new} after review
+Give {what} a little more room after review
+Nudge {what} up to {new} per review
+Bump {what} to {new} after trying the review build
+Set {what} to {new} as agreed in review
+Raise {what} a notch after review
+Increase {what} to {new} after review
+Push {what} up from {old} after review
+Take {what} up to {new}, as the reviewer asked
+
+[review-down]
+Lower {what} after review
+Lower {what} to {new} as review suggested
+Tweak {what} down after review
+Lower {what} from {old} to {new} after review
+Ease {what} off a little after review
+Nudge {what} down to {new} per review
+Trim {what} to {new} after trying the review build
+Set {what} to {new} as agreed in review
+Lower {what} a notch after review
+Reduce {what} to {new} after review
+Pull {what} back from {old} after review
+Take {what} down to {new}, as the reviewer asked

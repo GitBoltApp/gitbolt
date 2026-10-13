@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "d41524e669bdf4b2244242047330e32e06b16f67"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "e4dfb358b7fd4240051dc4c4bb73803c9049fc39"
+      },
+      "path": "mixed.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "d41524e669bdf4b2244242047330e32e06b16f67",
+      "size": 2206,
+      "text": "row 001\nrow 002\nrow 003\nrow 004\nrow 005\nrow 006\nrow 007\nrow 008\nrow 009\nrow 010\nrow 011\nrow 012\nrow 013\nrow 014\nrow 015\nrow 016\nrow 017\nrow 018\nrow 019\nlong 020 wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words \nrow 021\nrow 022\nrow 023\nrow 024\nrow 025\nrow 026\nrow 027\nrow 028\nrow 029\nrow 030\nrow 031\nrow 032\nrow 033\nrow 034\nrow 035\nrow 036\nrow 037\nrow 038\nrow 039\nrow 040\nrow 041\nrow 042\nrow 043\nrow 044\nrow 045\nrow 046\nrow 047\nrow 048\nrow 049\nrow 053\nrow 054\nrow 055\nrow 056\nrow 057\nrow 058\nrow 059\nrow 060\nrow 061\nrow 062\nrow 063\nrow 064\nrow 065\nrow 066\nrow 067\nrow 068\nrow 069\nrow 070\nrow 071\nrow 072\nrow 073\nrow 074\nrow 075\nrow 076\nrow 077\nrow 078\nrow 079\nrow 080\nrow 081\nrow 082\nrow 083\nrow 084\nrow 085\nrow 086\nrow 087\nrow 088\nrow 089\nrow 090\nrow 091\nrow 092\nrow 093\nrow 094\nrow 095\nrow 096\nrow 097\nrow 098\nrow 099\nrow 100\nrow 101\nrow 102\nrow 103\nrow 104\nrow 105\nrow 106\nrow 107\nrow 108\nrow 109\nrow 110\nrow 111\nrow 112\nrow 113\nrow 114\nrow 115\nrow 116\nrow 117\nrow 118\nrow 119\n\trow 120\n\trow 121\n\trow 122\n\trow 123\n\trow 124\n\trow 125\n\trow 126\n\trow 127\nrow 128\nrow 129\nrow 130\nrow 131\nrow 132\nrow 133\nrow 134\nrow 135 changed\nrow 136\nrow 137\nrow 138\nrow 139\nrow 140\nrow 141\nrow 142\nrow 143\nrow 144\nrow 145\nrow 146\nrow 147\nrow 148\nrow 149\n\trow 150\n\trow 151\n\trow 152\n\trow 153\nrow 154\nrow 155\nrow 156\nrow 157\nrow 158\nrow 159\nrow 160\nrow 161\nrow 162\nrow 163\nrow 164\nrow 165\nrow 166\nrow 167\nrow 168\nrow 169\nrow 170\nrow 171\nrow 172\nrow 173\nrow 174\nrow 175 changed\nrow 176\nrow 177\nrow 178\nrow 179\nrow 180\nrow 181\nrow 182\nrow 183\nrow 184\nrow 185\nrow 186\nrow 187\nrow 188\nrow 189\nrow 190\nrow 191\nrow 192\nrow 193\nrow 194\nrow 195\nrow 196\nrow 197\nrow 198\nrow 199\nrow 200\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "e4dfb358b7fd4240051dc4c4bb73803c9049fc39",
+      "size": 3454,
+      "text": "row 001\nrow 002\nrow 003\nrow 004\nrow 005\nrow 006\nrow 007\nrow 008\nrow 009\nrow 010\nrow 011\nrow 012\nrow 013\nrow 014\nrow 015\nrow 016\nrow 017\nrow 018\nrow 019\nlong 020 wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words \nrow 021\nrow 022\nrow 023\nrow 024\nrow 025\nrow 026\nrow 027\nrow 028\nrow 029\nrow 030\nrow 031\nrow 032\nrow 033\nrow 034\nrow 035\nrow 036\nrow 037\nrow 038\nrow 039\nrow 040\nrow 041\nrow 042\nrow 043\nrow 044\nrow 045\nrow 046\nrow 047\nrow 048\nrow 049\nlong 050 wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words \nlong 051 wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words wrapping words \nrow 052\nrow 053\nrow 054\nrow 055\nrow 056\nrow 057\nrow 058\nrow 059\nrow 060\nrow 061\nrow 062\nrow 063\nrow 064\nrow 065\nrow 066\nrow 067\nrow 068\nrow 069\nrow 070\nrow 071\nrow 072\nrow 073\nrow 074\nrow 075\nrow 076\nrow 077\nrow 078\nrow 079\nrow 080\nrow 081\nrow 082\nrow 083\nrow 084\nrow 085\nrow 086\nrow 087\nrow 088\nrow 089\nrow 090\nrow 091\nrow 092\nrow 093\nrow 094\nrow 095\nrow 096\nrow 097\nrow 098\nrow 099\nrow 100\nrow 101\nrow 102\nrow 103\nrow 104\nrow 105\nrow 106\nrow 107\nrow 108\nrow 109\nrow 110\nrow 111\nrow 112\nrow 113\nrow 114\nrow 115\nrow 116\nrow 117\nrow 118\nrow 119\n    row 120\n    row 121\n    row 122\n    row 123\n    row 124\n    row 125\n    row 126\n    row 127\nrow 128\nrow 129\nrow 130\nrow 131\nrow 132\nrow 133\nrow 134\nrow 135\nrow 136\nrow 137\nrow 138\nrow 139\nrow 140\nrow 141\nrow 142\nrow 143\nrow 144\nrow 145\nrow 146\nrow 147\nrow 148\nrow 149\n    row 150\n    row 151\n    row 152\n    row 153\nrow 154\nrow 155\nrow 156\nrow 157\nrow 158\nrow 159\nrow 160\nrow 161\nrow 162\nrow 163\nrow 164\nrow 165\nrow 166\nrow 167\nrow 168\nrow 169\nrow 170\nrow 171\nrow 172\nrow 173\nrow 174\nrow 175\nrow 176\nrow 177\nrow 178\nrow 179\nrow 180\nrow 181\nrow 182\nrow 183\nrow 184\nrow 185\nrow 186\nrow 187\nrow 188\nrow 189\nrow 190\nrow 191\nrow 192\nrow 193\nrow 194\nrow 195\nrow 196\nrow 197\nrow 198\nrow 199\nrow 200\n"
+    },
+    "tooLarge": false
+  }
+}

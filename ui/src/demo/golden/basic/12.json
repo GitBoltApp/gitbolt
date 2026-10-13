@@ -1,0 +1,49 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "id": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+        "kind": "commit",
+        "parent": 0
+      }
+    }
+  },
+  "response": {
+    "added": 2,
+    "deleted": 0,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "4d4bc1c77f63bd5429cb0ab4d74cb8729570d293"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "file_2.txt",
+        "status": "A",
+        "submodule": false
+      },
+      {
+        "additions": 1,
+        "deletions": 0,
+        "new": {
+          "kind": "object",
+          "oid": "f1f36270ff97895ac0f75837c262cfcb3c21cc2f"
+        },
+        "old": {
+          "kind": "absent"
+        },
+        "oldPath": null,
+        "path": "file_3.txt",
+        "status": "A",
+        "submodule": false
+      }
+    ]
+  }
+}

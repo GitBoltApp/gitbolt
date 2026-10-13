@@ -1,0 +1,21 @@
+{
+  "request": {
+    "method": "submodules",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "commit": "f985157e05bb337d82b91c177b10d95275a64daa",
+      "path": "libs/netcode",
+      "status": "newCommits"
+    },
+    {
+      "commit": "dae6936ebbbb9e086d5e79d66ee85dc664b9892a",
+      "path": "libs/shaders",
+      "status": "uninitialized"
+    }
+  ]
+}

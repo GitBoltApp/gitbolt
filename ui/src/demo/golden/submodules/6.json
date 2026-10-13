@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "submodule",
+        "oid": "dae6936ebbbb9e086d5e79d66ee85dc664b9892a"
+      },
+      "old": {
+        "kind": "submodule",
+        "oid": "dae6936ebbbb9e086d5e79d66ee85dc664b9892a"
+      },
+      "path": "libs/shaders",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "b5a4b12cd2f3fd34233d1c9d4555d354ce6fdf98",
+      "size": 59,
+      "text": "Subproject commit dae6936ebbbb9e086d5e79d66ee85dc664b9892a\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "b5a4b12cd2f3fd34233d1c9d4555d354ce6fdf98",
+      "size": 59,
+      "text": "Subproject commit dae6936ebbbb9e086d5e79d66ee85dc664b9892a\n"
+    },
+    "tooLarge": false
+  }
+}

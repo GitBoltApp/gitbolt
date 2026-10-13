@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "ff6e6b1a505523bd4c9af36bd9d70d136872b225"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "2e11fe5aa880a2f69b3d1d3d1d1338f7783d6811"
+      },
+      "path": "crlf.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": true,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "ff6e6b1a505523bd4c9af36bd9d70d136872b225",
+      "size": 19,
+      "text": "first\nsecond\nthird\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "crlf",
+      "hash": "2e11fe5aa880a2f69b3d1d3d1d1338f7783d6811",
+      "size": 22,
+      "text": "first\r\nsecond\r\nthird\r\n"
+    },
+    "tooLarge": false
+  }
+}

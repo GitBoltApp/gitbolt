@@ -1,0 +1,42 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "object",
+        "oid": "a2e4e60e71c1799bc2d6f4c46256507a5b713c2a"
+      },
+      "old": {
+        "kind": "object",
+        "oid": "4321c8b5b4c5b97b7c8a4a0f6d2a59af850ddbed"
+      },
+      "path": "fonts/OrbitalHud.ttf",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "media": true,
+    "new": {
+      "base64": "sha256:72dd7d4456b050a61d9af6c12a74870a3140ee57811a63bac46649cab580c58a:35536",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "a2e4e60e71c1799bc2d6f4c46256507a5b713c2a",
+      "size": 26652,
+      "text": null
+    },
+    "old": {
+      "base64": "sha256:f950f607a383693735524d32300ac25620557cea69e2f8d4c52afad823c53205:25080",
+      "binary": true,
+      "encoding": "",
+      "eol": "none",
+      "hash": "4321c8b5b4c5b97b7c8a4a0f6d2a59af850ddbed",
+      "size": 18808,
+      "text": null
+    },
+    "tooLarge": false
+  }
+}

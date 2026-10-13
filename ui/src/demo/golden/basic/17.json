@@ -1,0 +1,35 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": false,
+        "worktree": "$wt:wt-hotfix"
+      }
+    }
+  },
+  "response": {
+    "added": 1,
+    "deleted": 1,
+    "files": [
+      {
+        "additions": 1,
+        "deletions": 1,
+        "new": {
+          "kind": "worktree",
+          "worktree": "/demo/.extra/basic/wt-hotfix"
+        },
+        "old": {
+          "kind": "object",
+          "oid": "cbd03493c413b61eb5ab8a5a4eb17712286e5d8b"
+        },
+        "oldPath": null,
+        "path": "file_0.txt",
+        "status": "M",
+        "submodule": false
+      }
+    ]
+  }
+}

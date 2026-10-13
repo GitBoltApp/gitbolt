@@ -1,0 +1,563 @@
+#file crates/orbital-core/src/body.rs
+#header v1 @core-bodies
+//! Bodies: the planets, moons, ships, asteroids and stations that move through a system.
+
+use glam::Vec2;
+
+#header v2 @asteroids
+//! Bodies: the planets, moons, ships, asteroids and stations that move through a system.
+
+use crate::rng::Rng;
+use glam::Vec2;
+
+#header v3 @asteroid-spread
+//! Bodies: the planets, moons, ships, asteroids and stations that move through a system.
+
+use crate::rng::Rng;
+use glam::Vec2;
+use std::f32::consts::TAU;
+
+#item BodyKind v1 @core-bodies "Add body kinds for planets, moons and ships"
+/// What a body is, which decides how it is drawn and what it can do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyKind {
+    Planet,
+    Moon,
+    Ship,
+}
+
+#item BodyKind v2 @asteroids "Add asteroids as a body kind"
+/// What a body is, which decides how it is drawn and what it can do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyKind {
+    Planet,
+    Moon,
+    Ship,
+    Asteroid,
+}
+
+#item BodyKind v3 @ring-station "Add stations as a body kind"
+/// What a body is, which decides how it is drawn and what it can do.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum BodyKind {
+    Planet,
+    Moon,
+    Ship,
+    Asteroid,
+    Station,
+}
+
+#const ASTEROID_MASS v1 @asteroids "Spawn asteroids on the outer orbits"
+/// Mass of a rock of radius one, in tonnes. A rock's mass scales with its radius.
+pub const ASTEROID_MASS: f32 = 0.5;
+
+#const ASTEROID_MASS v2 @mining-yield "Raise the ore yield per asteroid"
+/// Mass of a rock of radius one, in tonnes. A rock's mass scales with its radius.
+pub const ASTEROID_MASS: f32 = 0.8;
+
+#const MINING_RANGE v1 @asteroids
+/// How far a mining laser reaches, in kilometres.
+pub const MINING_RANGE: f32 = 60.0;
+
+#const MINING_RANGE v2 @mining-laser "Cut the mining laser range to 40 units"
+/// How far a mining laser reaches, in kilometres.
+pub const MINING_RANGE: f32 = 40.0;
+
+#const DOCK_SPEED v1 @dock-speed "Set the docking speed limit at 12 km/s"
+/// Fastest a ship may be going to dock, in kilometres a second.
+pub const DOCK_SPEED: f32 = 12.0;
+
+#const SHIP_HULL v1 @explosions "Give ships a hull that can be worn down"
+/// Hull points of a fresh ship, which hits wear down.
+pub const SHIP_HULL: f32 = 40.0;
+
+#const MINING_RATE v1 @mining-laser "Mine ore out of a rock with the laser"
+/// Ore a laser takes from a rock each second, in tonnes.
+pub const MINING_RATE: f32 = 0.25;
+
+#const MINING_RATE v2 @mining-yield "Raise the ore yield per asteroid"
+/// Ore a laser takes from a rock each second, in tonnes.
+pub const MINING_RATE: f32 = 0.4;
+
+#item Body v1 @core-bodies "Give every body a position, a velocity, a mass and a radius"
+/// One thing with mass in a system. Positions are in kilometres, velocities in kilometres a second.
+#[derive(Clone, Debug)]
+pub struct Body {
+    pub name: String,
+    pub kind: BodyKind,
+    pub position: Vec2,
+    pub velocity: Vec2,
+    pub mass: f32,
+    pub radius: f32,
+}
+
+#item Body v2 @explosions "Give every body a hull for the explosion system"
+/// One thing with mass in a system. Positions are in kilometres, velocities in kilometres a second.
+#[derive(Clone, Debug)]
+pub struct Body {
+    pub name: String,
+    pub kind: BodyKind,
+    pub position: Vec2,
+    pub velocity: Vec2,
+    pub mass: f32,
+    pub radius: f32,
+    pub hull: f32,
+}
+
+#item Body v3 @verlet "Remember each body's last acceleration for Verlet"
+/// One thing with mass in a system. Positions are in kilometres, velocities in kilometres a second.
+#[derive(Clone, Debug)]
+pub struct Body {
+    pub name: String,
+    pub kind: BodyKind,
+    pub position: Vec2,
+    pub velocity: Vec2,
+    pub mass: f32,
+    pub radius: f32,
+    pub hull: f32,
+    pub last_accel: Vec2,
+}
+
+#item planet v1 @core-bodies "Add a planet constructor"
+impl Body {
+    /// A planet at rest at `position`. The radius is in kilometres.
+    pub fn planet(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Planet,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+        }
+    }
+}
+
+#item planet v2 @explosions "Give planets a hull that never wears down"
+impl Body {
+    /// A planet at rest at `position`. The radius is in kilometres.
+    pub fn planet(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Planet,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+            hull: f32::INFINITY,
+        }
+    }
+}
+
+#item planet v3 @verlet "Start planets with no last acceleration"
+impl Body {
+    /// A planet at rest at `position`. The radius is in kilometres.
+    pub fn planet(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Planet,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+            hull: f32::INFINITY,
+            last_accel: Vec2::ZERO,
+        }
+    }
+}
+
+#item moon v1 @core-bodies "Add a moon constructor"
+impl Body {
+    /// A moon at rest at `position`. The radius is in kilometres.
+    pub fn moon(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Moon,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+        }
+    }
+}
+
+#item moon v2 @explosions "Give moons a hull that never wears down"
+impl Body {
+    /// A moon at rest at `position`. The radius is in kilometres.
+    pub fn moon(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Moon,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+            hull: f32::INFINITY,
+        }
+    }
+}
+
+#item moon v3 @verlet "Start moons with no last acceleration"
+impl Body {
+    /// A moon at rest at `position`. The radius is in kilometres.
+    pub fn moon(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Moon,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+            hull: f32::INFINITY,
+            last_accel: Vec2::ZERO,
+        }
+    }
+}
+
+#item ship v1 @core-bodies "Add a ship constructor"
+impl Body {
+    /// A ship with its starting velocity. Ships are small, so their radius is a fraction of a km.
+    pub fn ship(name: &str, position: Vec2, velocity: Vec2, mass: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Ship,
+            position,
+            velocity,
+            mass,
+            radius: 0.2,
+        }
+    }
+}
+
+#item ship v2 @explosions "Give ships a hull that can be worn down"
+impl Body {
+    /// A ship with its starting velocity. Ships are small, so their radius is a fraction of a km.
+    pub fn ship(name: &str, position: Vec2, velocity: Vec2, mass: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Ship,
+            position,
+            velocity,
+            mass,
+            radius: 0.2,
+            hull: SHIP_HULL,
+        }
+    }
+}
+
+#item ship v3 @verlet "Start ships with no last acceleration"
+impl Body {
+    /// A ship with its starting velocity. Ships are small, so their radius is a fraction of a km.
+    pub fn ship(name: &str, position: Vec2, velocity: Vec2, mass: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Ship,
+            position,
+            velocity,
+            mass,
+            radius: 0.2,
+            hull: SHIP_HULL,
+            last_accel: Vec2::ZERO,
+        }
+    }
+}
+
+#item station v1 @ring-station "Add a station constructor"
+impl Body {
+    /// A station at rest at `position`. The radius is in kilometres.
+    pub fn station(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Station,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+        }
+    }
+}
+
+#item station v2 @explosions "Give stations a hull that never wears down"
+impl Body {
+    /// A station at rest at `position`. The radius is in kilometres.
+    pub fn station(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Station,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+            hull: f32::INFINITY,
+        }
+    }
+}
+
+#item station v3 @verlet "Start stations with no last acceleration"
+impl Body {
+    /// A station at rest at `position`. The radius is in kilometres.
+    pub fn station(name: &str, position: Vec2, mass: f32, radius: f32) -> Self {
+        Self {
+            name: name.to_string(),
+            kind: BodyKind::Station,
+            position,
+            velocity: Vec2::ZERO,
+            mass,
+            radius,
+            hull: f32::INFINITY,
+            last_accel: Vec2::ZERO,
+        }
+    }
+}
+
+#item asteroid v1 @asteroids "Spawn asteroids on the outer orbits"
+impl Body {
+    /// A rock on a loose orbit at `orbit_radius`, with its size drawn from `rng`.
+    pub fn asteroid(rng: &mut Rng, orbit_radius: f32) -> Self {
+        let radius = rng.range(0.05, 0.3);
+        Self {
+            name: String::from("rock"),
+            kind: BodyKind::Asteroid,
+            position: Vec2::new(orbit_radius, 0.0),
+            velocity: Vec2::new(0.0, 0.2),
+            mass: ASTEROID_MASS * radius,
+            radius,
+        }
+    }
+}
+
+#item asteroid v2 @explosions "Give asteroids a hull that scales with their size"
+impl Body {
+    /// A rock on a loose orbit at `orbit_radius`, with its size drawn from `rng`.
+    pub fn asteroid(rng: &mut Rng, orbit_radius: f32) -> Self {
+        let radius = rng.range(0.05, 0.3);
+        Self {
+            name: String::from("rock"),
+            kind: BodyKind::Asteroid,
+            position: Vec2::new(orbit_radius, 0.0),
+            velocity: Vec2::new(0.0, 0.2),
+            mass: ASTEROID_MASS * radius,
+            radius,
+            hull: radius * 40.0,
+        }
+    }
+}
+
+#item asteroid v3 @belt-spawn "Start each rock a random way outside its belt's radius\n\nEvery rock started at the same point, so a new belt was one pile of rocks."
+impl Body {
+    /// A rock on a loose orbit at `orbit_radius`, with its size drawn from `rng`.
+    pub fn asteroid(rng: &mut Rng, orbit_radius: f32) -> Self {
+        let radius = rng.range(0.05, 0.3);
+        let offset = rng.range(0.5, 1.5);
+        Self {
+            name: String::from("rock"),
+            kind: BodyKind::Asteroid,
+            position: Vec2::new(orbit_radius + offset, 0.0),
+            velocity: Vec2::new(0.0, 0.2),
+            mass: ASTEROID_MASS * radius,
+            radius,
+            hull: radius * 40.0,
+        }
+    }
+}
+
+#item asteroid v4 @asteroid-spread "Spread asteroids around the belt instead of along one axis\n\nEvery rock started on the x axis, so a belt spawned as a line of rocks."
+impl Body {
+    /// A rock on a loose orbit at `orbit_radius`, with its size drawn from `rng`. It starts at a
+    /// random angle round the middle of the system, moving across the radius, so a belt is a ring of rocks.
+    pub fn asteroid(rng: &mut Rng, orbit_radius: f32) -> Self {
+        let radius = rng.range(0.05, 0.3);
+        let offset = rng.range(0.5, 1.5);
+        let dir = Vec2::from_angle(rng.range(0.0, TAU));
+        let speed = 0.2;
+        Self {
+            name: String::from("rock"),
+            kind: BodyKind::Asteroid,
+            position: dir * (orbit_radius + offset),
+            velocity: dir.perp() * speed,
+            mass: ASTEROID_MASS * radius,
+            radius,
+            hull: radius * 40.0,
+        }
+    }
+}
+
+#item asteroid v5 @verlet "Start asteroids with no last acceleration"
+impl Body {
+    /// A rock on a loose orbit at `orbit_radius`, with its size drawn from `rng`. It starts at a
+    /// random angle round the middle of the system, moving across the radius, so a belt is a ring of rocks.
+    pub fn asteroid(rng: &mut Rng, orbit_radius: f32) -> Self {
+        let radius = rng.range(0.05, 0.3);
+        let offset = rng.range(0.5, 1.5);
+        let dir = Vec2::from_angle(rng.range(0.0, TAU));
+        let speed = 0.2;
+        Self {
+            name: String::from("rock"),
+            kind: BodyKind::Asteroid,
+            position: dir * (orbit_radius + offset),
+            velocity: dir.perp() * speed,
+            mass: ASTEROID_MASS * radius,
+            radius,
+            hull: radius * 40.0,
+            last_accel: Vec2::ZERO,
+        }
+    }
+}
+
+#item overlaps v1 @collisions "Detect collisions between ships and asteroids"
+impl Body {
+    /// Whether this body's disc touches `other`'s.
+    pub fn overlaps(&self, other: &Body) -> bool {
+        (self.position - other.position).length() < self.radius + other.radius
+    }
+}
+
+#item separate v1 @collision-stick "Push overlapping bodies apart along their contact normal"
+impl Body {
+    /// Pushes both bodies apart along the line between their centres, until they just touch.
+    pub fn separate(&mut self, other: &mut Body) {
+        let offset = self.position - other.position;
+        let gap = self.radius + other.radius - offset.length();
+        if gap > 0.0 {
+            let push = offset.normalize_or_zero() * (gap / 2.0);
+            self.position += push;
+            other.position -= push;
+        }
+    }
+}
+
+#item can_dock v1 @docking "Check whether a ship is close and slow enough to dock"
+impl Body {
+    /// Whether this ship may dock with `station`: inside its ring, and slow enough.
+    pub fn can_dock(&self, station: &Body) -> bool {
+        let inside = (self.position - station.position).length() < station.radius * 1.5;
+        inside && self.velocity.length() < 15.0
+    }
+}
+
+#item can_dock v2 @dock-speed "Use the docking speed limit constant"
+impl Body {
+    /// Whether this ship may dock with `station`: inside its ring, and slow enough.
+    pub fn can_dock(&self, station: &Body) -> bool {
+        let inside = (self.position - station.position).length() < station.radius * 1.5;
+        inside && self.velocity.length() < DOCK_SPEED
+    }
+}
+
+#item in_mining_range v1 @mining-laser "Mine rocks within the laser range"
+impl Body {
+    /// Whether `rock` is close enough to mine with this ship's laser.
+    pub fn in_mining_range(&self, rock: &Body) -> bool {
+        (self.position - rock.position).length() < MINING_RANGE
+    }
+}
+
+#item mine v1 @mining-laser "Mine ore out of a rock with the laser"
+impl Body {
+    /// Burns `dt` seconds of laser into `rock`, and returns the ore it gives up. Out of range, none.
+    pub fn mine(&self, rock: &mut Body, dt: f32) -> f32 {
+        if !self.in_mining_range(rock) {
+            return 0.0;
+        }
+        let taken = (MINING_RATE * dt).min(rock.mass);
+        rock.mass -= taken;
+        taken
+    }
+}
+
+#test planet_has_mass_and_radius v1 @core-bodies "Test that a planet keeps its mass and radius"
+#[test]
+fn planet_has_mass_and_radius() {
+    let p = Body::planet("Test", Vec2::ZERO, 100.0, 10.0);
+    assert_eq!(p.mass, 100.0);
+    assert_eq!(p.radius, 10.0);
+    assert_eq!(p.velocity, Vec2::ZERO);
+}
+
+#test planet_has_mass_and_radius v2 @explosions "Test that a planet's hull never runs out"
+#[test]
+fn planet_has_mass_and_radius() {
+    let p = Body::planet("Test", Vec2::ZERO, 100.0, 10.0);
+    assert_eq!(p.mass, 100.0);
+    assert_eq!(p.radius, 10.0);
+    assert_eq!(p.velocity, Vec2::ZERO);
+    assert!(p.hull.is_infinite());
+}
+
+#test asteroids_are_light v1 @asteroids "Test that asteroids are lighter than ASTEROID_MASS"
+#[test]
+fn asteroids_are_light() {
+    let mut rng = Rng::new(7);
+    let rock = Body::asteroid(&mut rng, 20.0);
+    assert!(rock.mass < ASTEROID_MASS);
+    assert_eq!(rock.kind, BodyKind::Asteroid);
+}
+
+#test asteroids_are_light v2 @asteroid-spread "Test that asteroids are light and start apart"
+#[test]
+fn asteroids_are_light() {
+    let mut rng = Rng::new(7);
+    let rock = Body::asteroid(&mut rng, 20.0);
+    let other = Body::asteroid(&mut rng, 20.0);
+    assert!(rock.mass < ASTEROID_MASS);
+    assert_eq!(rock.kind, BodyKind::Asteroid);
+    assert!((rock.position - other.position).length() > 1e-3);
+}
+
+#test overlaps_when_radii_touch v1 @collisions "Test that bodies overlap when their radii touch"
+#[test]
+fn overlaps_when_radii_touch() {
+    let a = Body::planet("A", Vec2::ZERO, 1.0, 5.0);
+    let b = Body::moon("B", Vec2::new(9.0, 0.0), 1.0, 5.0);
+    assert!(a.overlaps(&b));
+    let c = Body::moon("C", Vec2::new(11.0, 0.0), 1.0, 5.0);
+    assert!(!a.overlaps(&c));
+}
+
+#test separate_pushes_bodies_apart v1 @collision-stick "Test that separate pushes bodies apart"
+#[test]
+fn separate_pushes_bodies_apart() {
+    let mut a = Body::moon("A", Vec2::ZERO, 1.0, 2.0);
+    let mut b = Body::moon("B", Vec2::new(1.0, 0.0), 1.0, 2.0);
+    a.separate(&mut b);
+    assert!(!a.overlaps(&b));
+}
+
+#test can_dock_inside_the_ring v1 @docking "Test the docking check"
+#[test]
+fn can_dock_inside_the_ring() {
+    let station = Body::moon("Ring", Vec2::ZERO, 1.0, 10.0);
+    let ship = Body::ship("S", Vec2::new(5.0, 0.0), Vec2::new(1.0, 0.0), 1.0);
+    assert!(ship.can_dock(&station));
+    let fast = Body::ship("F", Vec2::new(5.0, 0.0), Vec2::new(20.0, 0.0), 1.0);
+    assert!(!fast.can_dock(&station));
+}
+
+#test can_dock_inside_the_ring v2 @dock-speed "Test the docking speed limit"
+#[test]
+fn can_dock_inside_the_ring() {
+    let station = Body::moon("Ring", Vec2::ZERO, 1.0, 10.0);
+    let ship = Body::ship("S", Vec2::new(5.0, 0.0), Vec2::new(1.0, 0.0), 1.0);
+    assert!(ship.can_dock(&station));
+    let fast = Body::ship("F", Vec2::new(5.0, 0.0), Vec2::new(13.0, 0.0), 1.0);
+    assert!(!fast.can_dock(&station));
+}
+
+#test mining_range_is_40_units v1 @mining-laser "Test the mining laser range"
+#[test]
+fn mining_range_is_40_units() {
+    let ship = Body::ship("S", Vec2::ZERO, Vec2::ZERO, 1.0);
+    let near = Body::moon("R", Vec2::new(39.0, 0.0), 1.0, 1.0);
+    let far = Body::moon("R", Vec2::new(41.0, 0.0), 1.0, 1.0);
+    assert!(ship.in_mining_range(&near));
+    assert!(!ship.in_mining_range(&far));
+}
+
+#test mine_takes_ore_from_the_rock v1 @mining-laser "Test that mining takes ore from a rock"
+#[test]
+fn mine_takes_ore_from_the_rock() {
+    let ship = Body::ship("S", Vec2::ZERO, Vec2::ZERO, 1.0);
+    let mut rock = Body::moon("R", Vec2::new(1.0, 0.0), 2.0, 1.0);
+    let ore = ship.mine(&mut rock, 1.0);
+    assert!(ore > 0.0 && rock.mass < 2.0);
+}

@@ -1,0 +1,294 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "peekRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "repoInfo",
+  "params": {
+   "repo": "$repo"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": null
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": null,
+   "pin": {
+    "kind": "off"
+   }
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 4,
+   "active": "$wt:wt-hotfix"
+  }
+ },
+ {
+  "method": "sidebar",
+  "params": {
+   "repo": "$repo"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 3
+  }
+ },
+ {
+  "method": "commitDetails",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "main"
+   }
+  }
+ },
+ {
+  "method": "commitMessage",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "main"
+   }
+  }
+ },
+ {
+  "method": "signature",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "main"
+   }
+  }
+ },
+ {
+  "method": "remotes",
+  "params": {
+   "repo": "$repo"
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "main"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "main"
+    },
+    "parent": 1
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "compare",
+    "from": {
+     "$rev": "v1.0^{commit}"
+    },
+    "to": {
+     "$rev": "main"
+    }
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "worktree",
+    "from": {
+     "$rev": "main~1"
+    },
+    "worktree": "$wt"
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": false
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt:wt-hotfix",
+    "staged": false
+   }
+  }
+ },
+ {
+  "method": "worktreeFiles",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt:wt-hotfix"
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt:wt-hotfix",
+   "path": "file_0.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "file_1.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "findText",
+  "params": {
+   "repo": "$repo",
+   "query": "login"
+  }
+ },
+ {
+  "method": "findPaths",
+  "params": {
+   "repo": "$repo",
+   "query": "file_1"
+  }
+ },
+ {
+  "method": "locateCommit",
+  "params": {
+   "repo": "$repo",
+   "sha": {
+    "$rev": "main~2",
+    "short": 7
+   }
+  }
+ },
+ {
+  "method": "searchHistory",
+  "params": {
+   "repo": "$repo",
+   "query": "readme"
+  }
+ },
+ {
+  "method": "integratePreview",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "kind": "merge",
+   "target": "hotfix"
+  }
+ },
+ {
+  "method": "integratePreview",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "kind": "rebase",
+   "target": "feature/login"
+  }
+ },
+ {
+  "method": "mergeBase",
+  "params": {
+   "repo": "$repo",
+   "a": {
+    "$rev": "main"
+   },
+   "b": {
+    "$rev": "hotfix"
+   }
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "file_0.txt",
+   "skip": 0,
+   "limit": 200
+  }
+ },
+ {
+  "method": "blame",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "rev": {
+    "$rev": "main"
+   },
+   "path": "file_1.txt"
+  }
+ },
+ {
+  "method": "lfsStatus",
+  "params": {
+   "repo": "$repo"
+  }
+ },
+ {
+  "method": "submodules",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt"
+  }
+ },
+ {
+  "method": "lastPush",
+  "params": {
+   "repo": "$repo",
+   "remoteRef": "refs/remotes/origin/main"
+  }
+ }
+]

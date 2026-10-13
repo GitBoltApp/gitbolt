@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "fileList",
+    "params": {
+      "repo": "$repo",
+      "spec": {
+        "kind": "wip",
+        "staged": true,
+        "worktree": "$wt"
+      }
+    }
+  },
+  "response": {
+    "added": 0,
+    "deleted": 0,
+    "files": []
+  }
+}

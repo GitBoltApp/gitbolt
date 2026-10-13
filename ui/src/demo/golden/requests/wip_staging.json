@@ -1,0 +1,186 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": true
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": false
+   }
+  }
+ },
+ {
+  "method": "worktreeFiles",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt"
+  }
+ },
+ {
+  "method": "worktreePathKind",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src"
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/app.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "notes.txt",
+   "staged": true
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "notes.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "gone.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "space name.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "new.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "selectionLines",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/app.txt",
+   "staged": false,
+   "selection": {
+    "kind": "hunks",
+    "hunks": [
+     1
+    ]
+   }
+  }
+ },
+ {
+  "method": "selectionLines",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/app.txt",
+   "staged": false,
+   "selection": {
+    "kind": "lines",
+    "old": [
+     {
+      "start": 20,
+      "end": 20
+     }
+    ],
+    "new": [
+     {
+      "start": 20,
+      "end": 20
+     }
+    ]
+   }
+  }
+ },
+ {
+  "method": "selectionLines",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "notes.txt",
+   "staged": true,
+   "selection": {
+    "kind": "hunks",
+    "hunks": [
+     0
+    ]
+   }
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "notes.txt",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": ":notes.txt"
+    }
+   },
+   "new": {
+    "kind": "worktree",
+    "worktree": "$wt"
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "new.txt",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "worktree",
+    "worktree": "$wt"
+   },
+   "force": false
+  }
+ }
+]

@@ -4,7 +4,7 @@ set windows-shell := ["powershell.exe", "-NoLogo", "-NoProfile", "-Command"]
 
 default: test
 
-test: test-rust test-ui test-scripts
+test: test-rust test-ui test-demo test-scripts test-site
 
 test-scripts:
     scripts/test-fix-deb.sh
@@ -15,6 +15,9 @@ test-scripts:
     scripts/test-licenses.sh
     scripts/test-version-order.sh
     scripts/test-release.sh
+    scripts/test-site-shots.sh
+    scripts/test-site-release.sh
+    scripts/test-workflows.sh
 
 # Prepares a release on main: sets the version everywhere, dates CHANGELOG.md's Unreleased
 # section, commits "Release <version>" and tags v<version>. It never pushes; it prints the push
@@ -26,6 +29,17 @@ release version:
 # half the wall time of `cargo test` here); otherwise plain `cargo test`. No doctests to miss.
 test-rust:
     if cargo nextest --version >/dev/null 2>&1; then cargo nextest run --workspace; else cargo test --workspace; fi
+
+# Optional, not part of `just test` or CI: builds Orbital, checks `ref` (main's tip by default, or
+# a tag: `just orbital-test v1.0.0`) out into a temp dir and runs `cargo test --workspace` on
+# Orbital's own crates (needs crates.io for glam, wgpu, ...).
+orbital-test ref="main":
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp="$(mktemp -d)"; trap 'rm -rf "$tmp"' EXIT
+    repo="$(cargo run -q -p gitbolt-harness -- showcase orbital "$tmp/build")"
+    git clone -q "$repo" "$tmp/checkout"
+    cd "$tmp/checkout" && git checkout -q "{{ref}}" && cargo test --workspace
 
 test-ui:
     cd ui && npx vitest run --passWithNoTests
@@ -39,7 +53,96 @@ test-ui-changed since="":
     cd ui && npx vitest run --passWithNoTests --changed "$since"
 
 gen-types:
-    cargo test -p gitbolt-core export_bindings
+    cargo test -p gitbolt-core -p gitbolt-graph export_bindings
+
+# The graph pipeline as WebAssembly for the website demo (crates/gitbolt-graph-wasm) into
+# ui/src/demo/wasm/ (git-ignored): the wasm-bindgen glue, and the .wasm gzipped (GitHub Pages
+# doesn't compress it; the demo unpacks it with DecompressionStream). Also writes the notices of
+# the crates it holds, failing on a license about.toml doesn't accept. Needs the wasm32 target
+# and the pinned wasm-bindgen CLI (docs/dev-setup.md).
+wasm_bindgen_version := "0.2.129"
+
+demo-wasm:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    rustup target list --installed | grep -qx wasm32-unknown-unknown || { echo "missing the wasm32 target; install: rustup target add wasm32-unknown-unknown"; exit 1; }
+    wasm-bindgen --version 2>/dev/null | grep -qxF 'wasm-bindgen {{wasm_bindgen_version}}' || { echo "wrong or missing wasm-bindgen CLI; install: cargo install wasm-bindgen-cli --version {{wasm_bindgen_version}} --locked"; exit 1; }
+    # Remap the build machine's paths (serde's panic locations) out of the binary.
+    RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=${CARGO_HOME:-$HOME/.cargo}=/cargo --remap-path-prefix=$PWD=/gitbolt" \
+      cargo build --release --locked -p gitbolt-graph-wasm --target wasm32-unknown-unknown
+    target_dir="${CARGO_TARGET_DIR:-target}"
+    out=ui/src/demo/wasm
+    rm -rf "$out" && mkdir -p "$out"
+    wasm-bindgen --target web --omit-default-module-path --out-dir "$out" "$target_dir/wasm32-unknown-unknown/release/gitbolt_graph_wasm.wasm"
+    gzip -9 -n "$out/gitbolt_graph_wasm_bg.wasm"
+    cargo about generate --format json --locked --fail -c about.toml --target wasm32-unknown-unknown -m crates/gitbolt-graph-wasm/Cargo.toml -o "$out/about.json"
+    python3 scripts/notices.py rust "$out/about.json" "$out/THIRD-PARTY-NOTICES-wasm.txt"
+    rm "$out/about.json"
+    echo "$out/gitbolt_graph_wasm_bg.wasm.gz: $(du -k "$out/gitbolt_graph_wasm_bg.wasm.gz" | cut -f1) KB"
+
+# The website demo's parity data (ui/src/demo/golden/): each fixture with a request list in
+# requests/ built by the harness, packed (<fixture>.gbdemo) and answered by the real core
+# (<fixture>/<n>.json), plus the core's default settings and a demo manifest. Rerun when the
+# core's answers or the fixtures change, and commit the result.
+demo-golden:
+    cargo build -p gitbolt-harness
+    node ui/scripts/demo-golden.mjs
+
+# The website demo (ui/demo.html, `vite build --mode demo`) into site/dist/demo/, with the data in
+# site/demo-data/ (GITBOLT_DEMO_DATA=<folder> picks another, e.g. ui/src/demo/golden).
+demo-build: demo-wasm
+    cd ui && npx vite build --mode demo
+
+# The website demo's vitest suites, with the WebAssembly graph built first (without it the graph
+# and parity tests skip).
+test-demo: demo-wasm
+    cd ui && npx vitest run src/demo
+
+# The website demo's Playwright smoke test (ui/e2e-demo/, its own config: it serves a demo build
+# over the parity suite's fixtures, not the harness). Arguments go to Playwright.
+e2e-demo *args: demo-wasm
+    cd ui && npx playwright test -c playwright.demo.config.ts {{args}}
+
+# The site's screenshots (site/shots/*.webp; spec §2 decision 6): headless Chromium on the demo
+# build, on demand only (never in CI), each saved at 2x and 1x as WebP (Pillow). A scene whose demo
+# methods are still pending (ui/src/demo/coverage.ts) is skipped. Commit the result. Arguments go
+# to Playwright (`just site-shots -g image` retakes one).
+site-shots *args: demo-build
+    #!/usr/bin/env bash
+    set -euo pipefail
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    (cd site && GITBOLT_SITE_SHOTS_RAW="$tmp" npx playwright test -c playwright.shots.config.ts --workers=1 {{args}})
+    python3 scripts/site-shots.py "$tmp" site/shots
+
+# The website's Playwright checks (site/e2e/, its own config): the built site and demo, served as
+# static files: no request to another origin, no console error, the downloads from release.json,
+# the live demo booting and resetting, a phone getting the still. Arguments go to Playwright.
+e2e-site *args: site-build demo-build
+    cd site && npx playwright test --workers=1 {{args}}
+
+# The website's landing page (site/: Vite, plain TypeScript and CSS) into site/dist/. The demo is
+# built separately into site/dist/demo/ (either order). Then the page's own checks (nothing left
+# unfilled, the first screen's weight); the whole Pages artefact is `just site-pages`.
+site-build:
+    [ -d site/node_modules ] || (cd site && npm ci)
+    cd site && npx vite build
+    node site/scripts/check-page.ts site/dist
+
+# The page's dev server (http://localhost:1430), with the last `just demo-build` at /demo/.
+site-dev:
+    cd site && npx vite
+
+# The website's unit tests (site/: its page code, build code and scripts).
+test-site:
+    [ -d site/node_modules ] || (cd site && npm ci)
+    cd site && npx vitest run
+
+# The website as GitHub Pages serves it, into site/dist/: the landing page, the demo (its
+# WebAssembly built first) and the 404 page, then its checks (ui/scripts/check-site.mjs: links,
+# no third-party requests, image sizes, size budgets). The local dry run of a deploy; see
+# docs/website.md.
+site-pages:
+    scripts/site-pages.sh
 
 # The Playwright suites (Chromium, its @budget latency tests, then WebKit; one worker) against a
 # production build of the UI, rebuilt only when ui/src changes. Arguments go to Playwright:
@@ -53,13 +156,21 @@ e2e *args:
     cd ui && npx playwright test {{args}}
 
 # Throwaway repos to try the app in, all direct children of one folder (so "Add a folder" lists
-# them): basic, sync, conflicts, stack, wip_staging. Their local bare remotes live in .remotes/
-# and linked worktrees in .worktrees/. Re-running resets them; it only ever deletes a folder that
+# them): orbital, basic, sync, conflicts, stack, wip_staging, rebase-lab, previews, submodules,
+# lfs (`gitbolt-harness showcase`). Their local bare remotes live in .remotes/ and linked
+# worktrees in .worktrees/. Re-running resets them; it only ever deletes a folder that
 # carries the .gitbolt-playground marker (see scripts/playground.sh).
 playground dir="~/gitbolt-playground":
     @echo "building the fixture harness (first run takes a few minutes)…"
     @cargo build -p gitbolt-harness
     @scripts/playground.sh "${CARGO_TARGET_DIR:-target}/debug/gitbolt-harness" "{{dir}}"
+
+# The demo's repositories (site/demo-data/*.gbdemo and manifest.json): each showcase repo built
+# with the harness and packed with ui/scripts/pack-demo.mjs; one whose content didn't change keeps
+# its committed bundle. Fails over the 15 MB budget. See docs/playground.md.
+demo-data:
+    cargo build -p gitbolt-harness
+    node ui/build/demoBundles.ts "${CARGO_TARGET_DIR:-target}/debug/gitbolt-harness" site/demo-data
 
 # The theme and zoom pixel baselines (Chromium, recorded on the dev machine): opt-in, since fonts
 # and antialiasing differ between machines. Add `-- --update-snapshots` to re-record them.
@@ -246,6 +357,7 @@ uninstall-desktop:
 lint:
     cargo clippy --workspace --all-targets -- -D warnings
     cd ui && npx tsc --noEmit
+    cd site && npx tsc --noEmit
 
 # A smoke check of the two §17.3 rows that need a live app (idle CPU, memory). Non-gating: it
 # prints numbers next to the budgets and never fails on them. Point GITBOLT_PID at the browser

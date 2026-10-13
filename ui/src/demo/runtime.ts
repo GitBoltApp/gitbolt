@@ -1,0 +1,45 @@
+// The demo backend's state: its repositories, settings and event bus, over its data.
+import type { DemoContext } from './context';
+import { gbError, notInDemo } from './engine/errors';
+import { createEventBus } from './engine/events';
+import type { GraphFactory } from './engine/layout';
+import { MemFs } from './engine/memfs';
+import { type DemoData, DemoRepos, type Manifest } from './engine/repos';
+import { initialState } from './engine/state';
+import type { DemoRuntime } from './transport';
+
+export interface RuntimeOptions {
+  manifest: Manifest;
+  data: DemoData;
+  graph: GraphFactory;
+  /** The frame's width at load (the panels' first widths); wide when absent. */
+  width?: number;
+}
+
+export function createRuntime(o: RuntimeOptions): DemoRuntime {
+  const bus = createEventBus();
+  const ctx: DemoContext = {
+    repos: new DemoRepos(o.manifest, o.data, new MemFs(), o.graph),
+    state: initialState(o.manifest, o.width ?? Number.POSITIVE_INFINITY),
+    emit: (ev) => bus.emit(ev),
+    notInDemo,
+  };
+  return { ctx, bus };
+}
+
+/** The manifest and bundles under `base` (the page's `demo-data/`): its own origin only. The
+ * build's `rev` goes on the manifest's URL and each bundle's on the bundle's (`?v=`), so a page
+ * never gets a copy cached from an older deploy (docs/website.md). */
+export function httpData(base: URL, rev = ''): DemoData {
+  const get = async (file: string, v?: string): Promise<Uint8Array> => {
+    const url = new URL(file, base);
+    if (v) url.searchParams.set('v', v);
+    const res = await fetch(url);
+    if (!res.ok) throw gbError('NotFound', `The demo's data is missing: ${file} (${res.status})`);
+    return new Uint8Array(await res.arrayBuffer());
+  };
+  return {
+    manifest: async () => JSON.parse(new TextDecoder().decode(await get('manifest.json', rev))) as Manifest,
+    bundle: (file, v) => get(file, v),
+  };
+}

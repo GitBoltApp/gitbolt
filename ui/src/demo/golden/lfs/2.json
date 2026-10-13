@@ -1,0 +1,18 @@
+{
+  "request": {
+    "method": "lfsTracked",
+    "params": {
+      "paths": [
+        "art/title.png",
+        "README.md",
+        "art/ships.psd"
+      ],
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    "art/title.png",
+    "art/ships.psd"
+  ]
+}

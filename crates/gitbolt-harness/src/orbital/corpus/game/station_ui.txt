@@ -1,0 +1,140 @@
+#file crates/orbital-game/src/station_ui.rs
+#header v1 @station-ui "Rework the station screen"
+//! The station screen: the station's name, its ports, and the keys a docked ship can press.
+
+use glam::Vec2;
+use orbital_render::text::{Font, Glyph};
+
+use crate::app::Step;
+use crate::input::Action;
+
+#const PORT_ROW_HEIGHT v1 @station-ui "Rework the station screen"
+/// The space each port's row takes, in pixels.
+pub const PORT_ROW_HEIGHT: f32 = 20.0;
+#item StationUi v1 @station-ui "Rework the station screen"
+/// The station screen's state: the station, its ports, and the port the cursor is on.
+#[derive(Debug)]
+pub struct StationUi {
+    station: String,
+    ports: usize,
+    selected: usize,
+}
+#item new v1 @station-ui "Rework the station screen"
+impl StationUi {
+    /// The screen for `station`, with `ports` free ports and the first one selected.
+    pub fn new(station: &str, ports: usize) -> Self {
+        Self {
+            station: station.to_uppercase(),
+            ports,
+            selected: 0,
+        }
+    }
+}
+#item new v2 @station-ui "Keep at least one port on the screen"
+impl StationUi {
+    /// The screen for `station`, with `ports` free ports (at least one) and the first selected.
+    pub fn new(station: &str, ports: usize) -> Self {
+        Self {
+            station: station.to_uppercase(),
+            ports: ports.max(1),
+            selected: 0,
+        }
+    }
+}
+#item handle v1 @station-ui "Rework the station screen"
+impl StationUi {
+    /// Moves the cursor between ports, and leaves the screen on back.
+    pub fn handle(&mut self, action: Action) -> Step {
+        match action {
+            Action::Up => self.selected = self.selected.saturating_sub(1),
+            Action::Down => self.selected += 1,
+            Action::Back => return Step::Pop,
+            _ => {}
+        }
+        Step::Stay
+    }
+}
+#item handle v2 @station-ui "Keep the selection on the ports"
+impl StationUi {
+    /// Moves the cursor between ports, and leaves the screen on back.
+    pub fn handle(&mut self, action: Action) -> Step {
+        match action {
+            Action::Up => self.selected = self.selected.saturating_sub(1),
+            Action::Down => self.selected = (self.selected + 1).min(self.ports - 1),
+            Action::Back => return Step::Pop,
+            _ => {}
+        }
+        Step::Stay
+    }
+}
+#item selected_port v1 @station-ui "Mark the selected port"
+impl StationUi {
+    /// The index of the port the cursor is on.
+    pub fn selected_port(&self) -> usize {
+        self.selected
+    }
+}
+#item draw v1 @station-ui "Show the ports on the station screen"
+impl StationUi {
+    /// Draws the station's name, then one row per port.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        font.draw(glyphs, &self.station, Vec2::new(120.0, 200.0), [1.0; 4]);
+        for port in 0..self.ports {
+            let at = Vec2::new(120.0, 232.0 + port as f32 * PORT_ROW_HEIGHT);
+            font.draw(glyphs, &format!("PORT {}", port + 1), at, [1.0; 4]);
+        }
+    }
+}
+#item draw v2 @station-ui "Mark the selected port"
+impl StationUi {
+    /// Draws the station's name, then one row per port, with a marker on the selected one.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        font.draw(glyphs, &self.station, Vec2::new(120.0, 200.0), [1.0; 4]);
+        for port in 0..self.ports {
+            let marker = if port == self.selected { ">" } else { " " };
+            let at = Vec2::new(120.0, 232.0 + port as f32 * PORT_ROW_HEIGHT);
+            font.draw(glyphs, &format!("{marker} PORT {}", port + 1), at, [1.0; 4]);
+        }
+    }
+}
+#item draw v3 @station-ui "Show the station's name in the screen title"
+impl StationUi {
+    /// Draws the station's name, a count of its ports, then one row per port, with a marker on the
+    /// selected one.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        font.draw(glyphs, &self.station, Vec2::new(120.0, 200.0), [1.0; 4]);
+        font.draw(
+            glyphs,
+            &format!("{} PORTS", self.ports),
+            Vec2::new(120.0, 216.0),
+            [0.6, 0.6, 0.6, 1.0],
+        );
+        for port in 0..self.ports {
+            let marker = if port == self.selected { ">" } else { " " };
+            let at = Vec2::new(120.0, 232.0 + port as f32 * PORT_ROW_HEIGHT);
+            font.draw(glyphs, &format!("{marker} PORT {}", port + 1), at, [1.0; 4]);
+        }
+    }
+}
+#test back_pops_the_screen v1 @station-ui "Test that back leaves the station screen"
+#[test]
+fn back_pops_the_screen() {
+    let mut screen = StationUi::new("Ring Station", 2);
+    assert!(matches!(screen.handle(Action::Back), Step::Pop));
+}
+#test the_cursor_stops_at_the_last_port v1 @station-ui "Test that the cursor stops at the last port"
+#[test]
+fn the_cursor_stops_at_the_last_port() {
+    let mut screen = StationUi::new("Ring Station", 2);
+    for _ in 0..5 {
+        screen.handle(Action::Down);
+    }
+    assert_eq!(screen.selected_port(), 1);
+}
+#test the_cursor_stops_at_the_first_port v1 @station-ui "Test that the cursor stops at the first port"
+#[test]
+fn the_cursor_stops_at_the_first_port() {
+    let mut screen = StationUi::new("Ring Station", 2);
+    screen.handle(Action::Up);
+    assert_eq!(screen.selected_port(), 0);
+}

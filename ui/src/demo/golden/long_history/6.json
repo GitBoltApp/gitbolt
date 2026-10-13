@@ -1,0 +1,12 @@
+{
+  "request": {
+    "method": "findText",
+    "params": {
+      "query": "28c4d2",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    "28c4d207c38de7ceec280b79ceb016d47df09cfe"
+  ]
+}

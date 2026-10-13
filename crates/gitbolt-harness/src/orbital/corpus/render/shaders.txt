@@ -1,0 +1,747 @@
+#file crates/orbital-render/shaders/sprite.wgsl
+#whole v1 @verdant-art "Show the verdant planet in the orbit view"
+// Sprites: each sprite is a quad drawn as a four-corner strip, sampled from the texture atlas and
+// multiplied by its tint.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct Sprite {
+    centre: vec2<f32>,
+    size: vec2<f32>,
+    uv_min: vec2<f32>,
+    uv_max: vec2<f32>,
+    tint: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> sprites: array<Sprite>;
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var atlas_sampler: sampler;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) tint: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let sprite = sprites[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let world = sprite.centre + (corner - vec2<f32>(0.5)) * sprite.size;
+    let offset = (world - camera.centre) * camera.zoom;
+    let pixel = vec2<f32>(offset.x, -offset.y) + camera.screen * 0.5;
+    let ndc = pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
+
+    var out: VertexOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = mix(sprite.uv_min, sprite.uv_max, corner);
+    out.tint = sprite.tint;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+}
+#whole v2 @planet-shading "Rework the planet shading"
+// Sprites: each sprite is a quad drawn as a four-corner strip, sampled from the texture atlas and
+// multiplied by its tint. Planets are lit as spheres from the light direction in the camera.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+    light: vec2<f32>,
+};
+
+struct Sprite {
+    centre: vec2<f32>,
+    size: vec2<f32>,
+    uv_min: vec2<f32>,
+    uv_max: vec2<f32>,
+    tint: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> sprites: array<Sprite>;
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var atlas_sampler: sampler;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) tint: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let sprite = sprites[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let world = sprite.centre + (corner - vec2<f32>(0.5)) * sprite.size;
+    let offset = (world - camera.centre) * camera.zoom;
+    let pixel = vec2<f32>(offset.x, -offset.y) + camera.screen * 0.5;
+    let ndc = pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
+
+    var out: VertexOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = mix(sprite.uv_min, sprite.uv_max, corner);
+    out.tint = sprite.tint;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+}
+
+// Planets are shaded as spheres: the sprite's disc is the front of a sphere whose normal is lit
+// from the light direction, with a little ambient light so the night side isn't black.
+@fragment
+fn fs_planet(in: VertexOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+    let d = in.uv * 2.0 - vec2<f32>(1.0);
+    let normal = vec3<f32>(d, sqrt(max(1.0 - dot(d, d), 0.0)));
+    let light = normalize(vec3<f32>(camera.light, 0.6));
+    let diffuse = max(dot(normal, light), 0.0);
+    let ambient = 0.08;
+    return vec4<f32>(texel.rgb * (ambient + 0.92 * diffuse), texel.a);
+}
+#whole v3 @shading-banding "Fix planet banding on the dark side\n\nA dithering pass hides the bands on the night side."
+// Sprites: each sprite is a quad drawn as a four-corner strip, sampled from the texture atlas and
+// multiplied by its tint. Planets are lit as spheres from the light direction in the camera, and
+// dithered so the night side's gradients don't band.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+    light: vec2<f32>,
+};
+
+struct Sprite {
+    centre: vec2<f32>,
+    size: vec2<f32>,
+    uv_min: vec2<f32>,
+    uv_max: vec2<f32>,
+    tint: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> sprites: array<Sprite>;
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var atlas_sampler: sampler;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) tint: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let sprite = sprites[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let world = sprite.centre + (corner - vec2<f32>(0.5)) * sprite.size;
+    let offset = (world - camera.centre) * camera.zoom;
+    let pixel = vec2<f32>(offset.x, -offset.y) + camera.screen * 0.5;
+    let ndc = pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
+
+    var out: VertexOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = mix(sprite.uv_min, sprite.uv_max, corner);
+    out.tint = sprite.tint;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+}
+
+// A hash of the pixel position, from -0.5 to 0.5, added at the scale of one 8-bit step.
+fn dither(p: vec2<f32>) -> f32 {
+    let h = fract(sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+    return (h - 0.5) / 255.0;
+}
+
+@fragment
+fn fs_planet(in: VertexOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+    let d = in.uv * 2.0 - vec2<f32>(1.0);
+    let normal = vec3<f32>(d, sqrt(max(1.0 - dot(d, d), 0.0)));
+    let light = normalize(vec3<f32>(camera.light, 0.6));
+    let diffuse = max(dot(normal, light), 0.0);
+    let ambient = 0.08;
+    let lit = texel.rgb * (ambient + 0.92 * diffuse);
+    return vec4<f32>(lit + vec3<f32>(dither(in.position.xy)), texel.a);
+}
+#whole v4 @shader-notes "Note the light model in the shader comments"
+// Sprites: each sprite is a quad drawn as a four-corner strip, sampled from the texture atlas and
+// multiplied by its tint. Planets are lit as spheres from the light direction in the camera, and
+// dithered so the night side's gradients don't band.
+//
+// The light model: a planet's diffuse term is the dot product of its normal and the light
+// direction, clamped at zero, so the night side goes to black before the dither is added. The
+// direction is the camera uniform's light, lifted to a fixed height of 0.6 above the plane.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+    light: vec2<f32>,
+};
+
+struct Sprite {
+    centre: vec2<f32>,
+    size: vec2<f32>,
+    uv_min: vec2<f32>,
+    uv_max: vec2<f32>,
+    tint: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> sprites: array<Sprite>;
+@group(0) @binding(2) var atlas: texture_2d<f32>;
+@group(0) @binding(3) var atlas_sampler: sampler;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) tint: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let sprite = sprites[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let world = sprite.centre + (corner - vec2<f32>(0.5)) * sprite.size;
+    let offset = (world - camera.centre) * camera.zoom;
+    let pixel = vec2<f32>(offset.x, -offset.y) + camera.screen * 0.5;
+    let ndc = pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0);
+
+    var out: VertexOut;
+    out.position = vec4<f32>(ndc, 0.0, 1.0);
+    out.uv = mix(sprite.uv_min, sprite.uv_max, corner);
+    out.tint = sprite.tint;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+}
+
+// A hash of the pixel position, from -0.5 to 0.5, added at the scale of one 8-bit step.
+fn dither(p: vec2<f32>) -> f32 {
+    let h = fract(sin(dot(p, vec2<f32>(12.9898, 78.233))) * 43758.5453);
+    return (h - 0.5) / 255.0;
+}
+
+@fragment
+fn fs_planet(in: VertexOut) -> @location(0) vec4<f32> {
+    let texel = textureSample(atlas, atlas_sampler, in.uv) * in.tint;
+    let d = in.uv * 2.0 - vec2<f32>(1.0);
+    let normal = vec3<f32>(d, sqrt(max(1.0 - dot(d, d), 0.0)));
+    let light = normalize(vec3<f32>(camera.light, 0.6));
+    let diffuse = max(dot(normal, light), 0.0);
+    let ambient = 0.08;
+    let lit = texel.rgb * (ambient + 0.92 * diffuse);
+    return vec4<f32>(lit + vec3<f32>(dither(in.position.xy)), texel.a);
+}
+
+#file crates/orbital-render/shaders/starfield.wgsl
+#whole v1 @camera-follow "Add a parallax starfield behind the orbit view"
+// Stars: each star is a two-pixel quad at its screen position, lit at its brightness.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct Star {
+    point: vec2<f32>,
+    brightness: f32,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> stars: array<Star>;
+
+const STAR_PX: f32 = 2.0;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) brightness: f32,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let star = stars[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u)) - vec2<f32>(0.5);
+    let pixel = star.point + corner * STAR_PX;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.brightness = star.brightness;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(vec3<f32>(in.brightness), 1.0);
+}
+#whole v2 @starfield "Halve the starfield density at low zoom"
+// Stars: each star is a quad at its screen position, lit at its brightness. Zoomed right out the
+// stars shrink, so the thinner field still reads as stars rather than dust.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct Star {
+    point: vec2<f32>,
+    brightness: f32,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> stars: array<Star>;
+
+const STAR_PX: f32 = 2.0;
+const MIN_SCALE: f32 = 0.5;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) brightness: f32,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let star = stars[instance];
+    let scale = clamp(camera.zoom * 2.0, MIN_SCALE, 1.0);
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u)) - vec2<f32>(0.5);
+    let pixel = star.point + corner * STAR_PX * scale;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.brightness = star.brightness;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(vec3<f32>(in.brightness), 1.0);
+}
+#whole v3 @high-contrast "Add a high-contrast theme"
+// Stars: each star is a quad at its screen position, lit at its brightness. Zoomed right out the
+// stars shrink, so the thinner field still reads as stars rather than dust. Under the high-contrast
+// theme each star gets a dark rim, so it reads over the bright panels.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct Star {
+    point: vec2<f32>,
+    brightness: f32,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> stars: array<Star>;
+
+const STAR_PX: f32 = 2.0;
+const MIN_SCALE: f32 = 0.5;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) brightness: f32,
+    @location(1) corner: vec2<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let star = stars[instance];
+    let scale = clamp(camera.zoom * 2.0, MIN_SCALE, 1.0);
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u)) - vec2<f32>(0.5);
+    let pixel = star.point + corner * STAR_PX * scale;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.brightness = star.brightness;
+    out.corner = corner;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let rim = max(abs(in.corner.x), abs(in.corner.y)) > 0.25;
+    let level = select(in.brightness, 0.0, rim);
+    return vec4<f32>(vec3<f32>(level), 1.0);
+}
+#file crates/orbital-render/shaders/bloom.wgsl
+#whole v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+// Bloom: a fullscreen pass that composites the scene onto the window, adding its blurred bright parts.
+
+@group(0) @binding(0) var scene: texture_2d<f32>;
+@group(0) @binding(1) var scene_sampler: sampler;
+
+const THRESHOLD: f32 = 0.8;
+const RADIUS: f32 = 2.0;
+
+// One oversized triangle that covers the whole screen.
+@vertex
+fn vs_main(@builtin(vertex_index) vertex: u32) -> @builtin(position) vec4<f32> {
+    let x = f32((vertex << 1u) & 2u);
+    let y = f32(vertex & 2u);
+    return vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let size = vec2<f32>(textureDimensions(scene));
+    let uv = pos.xy / size;
+    var glow = vec3<f32>(0.0);
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let offset = vec2<f32>(f32(dx), f32(dy)) * RADIUS / size;
+            let c = textureSample(scene, scene_sampler, uv + offset).rgb;
+            glow += max(c - vec3<f32>(THRESHOLD), vec3<f32>(0.0));
+        }
+    }
+    let base = textureSample(scene, scene_sampler, uv).rgb;
+    return vec4<f32>(base + glow / 25.0, 1.0);
+}
+#whole v2 @bloom-pass "Dim the bloom on the thruster glow"
+// Bloom: a fullscreen pass that composites the scene onto the window, adding its blurred bright parts.
+// Only the brightest parts glow, so the thruster flames stand out without washing out the planets.
+
+@group(0) @binding(0) var scene: texture_2d<f32>;
+@group(0) @binding(1) var scene_sampler: sampler;
+
+const THRESHOLD: f32 = 0.9;
+const RADIUS: f32 = 2.0;
+
+// One oversized triangle that covers the whole screen.
+@vertex
+fn vs_main(@builtin(vertex_index) vertex: u32) -> @builtin(position) vec4<f32> {
+    let x = f32((vertex << 1u) & 2u);
+    let y = f32(vertex & 2u);
+    return vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let size = vec2<f32>(textureDimensions(scene));
+    let uv = pos.xy / size;
+    var glow = vec3<f32>(0.0);
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let offset = vec2<f32>(f32(dx), f32(dy)) * RADIUS / size;
+            let c = textureSample(scene, scene_sampler, uv + offset).rgb;
+            glow += max(c - vec3<f32>(THRESHOLD), vec3<f32>(0.0));
+        }
+    }
+    let base = textureSample(scene, scene_sampler, uv).rgb;
+    return vec4<f32>(base + glow / 25.0, 1.0);
+}
+#whole v3 @shader-reload "Read the bloom threshold from a uniform"
+// Bloom: a fullscreen pass that composites the scene onto the window, adding its blurred bright parts.
+// The threshold comes from a uniform, so a reloaded shader can be tuned without a rebuild.
+
+struct Params {
+    threshold: f32,
+    pad: vec3<f32>,
+};
+
+@group(0) @binding(0) var scene: texture_2d<f32>;
+@group(0) @binding(1) var scene_sampler: sampler;
+@group(0) @binding(2) var<uniform> params: Params;
+
+const RADIUS: f32 = 2.0;
+
+// One oversized triangle that covers the whole screen.
+@vertex
+fn vs_main(@builtin(vertex_index) vertex: u32) -> @builtin(position) vec4<f32> {
+    let x = f32((vertex << 1u) & 2u);
+    let y = f32(vertex & 2u);
+    return vec4<f32>(x * 2.0 - 1.0, 1.0 - y * 2.0, 0.0, 1.0);
+}
+
+@fragment
+fn fs_main(@builtin(position) pos: vec4<f32>) -> @location(0) vec4<f32> {
+    let size = vec2<f32>(textureDimensions(scene));
+    let uv = pos.xy / size;
+    var glow = vec3<f32>(0.0);
+    for (var dy = -2; dy <= 2; dy++) {
+        for (var dx = -2; dx <= 2; dx++) {
+            let offset = vec2<f32>(f32(dx), f32(dy)) * RADIUS / size;
+            let c = textureSample(scene, scene_sampler, uv + offset).rgb;
+            glow += max(c - vec3<f32>(params.threshold), vec3<f32>(0.0));
+        }
+    }
+    let base = textureSample(scene, scene_sampler, uv).rgb;
+    return vec4<f32>(base + glow / 25.0, 1.0);
+}
+#file crates/orbital-render/shaders/trail.wgsl
+#whole v1 @orbit-trails "Draw a fading trail behind each orbit"
+// Orbit trails: each trail point is a two-pixel quad at its screen position, faded by its alpha
+// from the oldest end of the trail to the newest.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct TrailPoint {
+    point: vec2<f32>,
+    alpha: f32,
+    pad: f32,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> points: array<TrailPoint>;
+
+const TRAIL_RGB: vec3<f32> = vec3<f32>(0.6, 0.75, 0.9);
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) alpha: f32,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let trail = points[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u)) - vec2<f32>(0.5);
+    let pixel = trail.point + corner * 2.0;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.alpha = trail.alpha;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(TRAIL_RGB, in.alpha);
+}
+#whole v2 @trail-fade "Stop the trail fade going NaN when its edges match\n\nAn empty trail divided by a zero-length fade, so its alpha came out NaN."
+// Orbit trails: each trail point is a two-pixel quad at its screen position, faded by its alpha
+// from the oldest end of the trail to the newest.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct TrailPoint {
+    point: vec2<f32>,
+    alpha: f32,
+    pad: f32,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var<storage, read> points: array<TrailPoint>;
+
+const TRAIL_RGB: vec3<f32> = vec3<f32>(0.6, 0.75, 0.9);
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) alpha: f32,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let trail = points[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u)) - vec2<f32>(0.5);
+    let pixel = trail.point + corner * 2.0;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.alpha = trail.alpha;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    // A NaN alpha isn't equal to itself, so it is treated as fully clear rather than leaking through.
+    let alpha = select(0.0, clamp(in.alpha, 0.0, 1.0), in.alpha == in.alpha);
+    return vec4<f32>(TRAIL_RGB, alpha);
+}
+#file crates/orbital-render/shaders/text.wgsl
+#whole v1 @hud-font "Add the HUD font"
+// HUD text: glyph quads sampled from the HUD font atlas and tinted by the text colour.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct Glyph {
+    centre: vec2<f32>,
+    size: vec2<f32>,
+    uv_min: vec2<f32>,
+    uv_max: vec2<f32>,
+    colour: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var font: texture_2d<f32>;
+@group(0) @binding(2) var font_sampler: sampler;
+@group(0) @binding(3) var<storage, read> glyphs: array<Glyph>;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) colour: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let g = glyphs[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let pixel = g.centre + (corner - vec2<f32>(0.5)) * g.size;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.uv = mix(g.uv_min, g.uv_max, corner);
+    out.colour = g.colour;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let coverage = textureSample(font, font_sampler, in.uv).a;
+    return vec4<f32>(in.colour.rgb, in.colour.a * coverage);
+}
+#whole v2 @text-render "Fix text blurring at fractional zoom\n\nGlyph origins now land on whole pixels, so the atlas is never sampled between texels."
+// HUD text: glyph quads sampled from the HUD font atlas and tinted by the text colour. Glyphs are
+// placed on whole pixels, and the sampler is nearest, so text stays sharp at fractional zoom.
+
+struct Camera {
+    centre: vec2<f32>,
+    zoom: f32,
+    shake: f32,
+    screen: vec2<f32>,
+};
+
+struct Glyph {
+    centre: vec2<f32>,
+    size: vec2<f32>,
+    uv_min: vec2<f32>,
+    uv_max: vec2<f32>,
+    colour: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> camera: Camera;
+@group(0) @binding(1) var font: texture_2d<f32>;
+@group(0) @binding(2) var font_sampler: sampler;
+@group(0) @binding(3) var<storage, read> glyphs: array<Glyph>;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) uv: vec2<f32>,
+    @location(1) colour: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let g = glyphs[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let pixel = round(g.centre) + (corner - vec2<f32>(0.5)) * g.size;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / camera.screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.uv = mix(g.uv_min, g.uv_max, corner);
+    out.colour = g.colour;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    let coverage = textureSample(font, font_sampler, in.uv).a;
+    return vec4<f32>(in.colour.rgb, in.colour.a * coverage);
+}
+#file crates/orbital-render/shaders/panel.wgsl
+#whole v1 @hud-cargo "Add the panel shader for the HUD's quads"
+// HUD panels: solid quads in window pixels, one per painter fill and four per stroke, blended over
+// the scene in the order the HUD recorded them.
+
+struct Quad {
+    origin: vec2<f32>,
+    size: vec2<f32>,
+    colour: vec4<f32>,
+};
+
+@group(0) @binding(0) var<uniform> screen: vec2<f32>;
+@group(0) @binding(1) var<storage, read> quads: array<Quad>;
+
+struct VertexOut {
+    @builtin(position) position: vec4<f32>,
+    @location(0) colour: vec4<f32>,
+};
+
+@vertex
+fn vs_main(
+    @builtin(vertex_index) vertex: u32,
+    @builtin(instance_index) instance: u32,
+) -> VertexOut {
+    let quad = quads[instance];
+    let corner = vec2<f32>(f32(vertex & 1u), f32(vertex >> 1u));
+    let pixel = quad.origin + corner * quad.size;
+    var out: VertexOut;
+    out.position = vec4<f32>(pixel / screen * vec2<f32>(2.0, -2.0) + vec2<f32>(-1.0, 1.0), 0.0, 1.0);
+    out.colour = quad.colour;
+    return out;
+}
+
+@fragment
+fn fs_main(in: VertexOut) -> @location(0) vec4<f32> {
+    return in.colour;
+}

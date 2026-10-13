@@ -4,6 +4,8 @@ use crate::error::GbError;
 use crate::git::{GitCli, GitInvocation};
 use std::path::Path;
 
+pub use gitbolt_graph::WipCounts;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EntryKind {
     Ordinary,
@@ -39,23 +41,6 @@ pub struct SubmoduleFlags {
 fn submodule_flags(field: &str) -> Option<SubmoduleFlags> {
     let b = field.as_bytes();
     (b.len() == 4 && b[0] == b'S').then(|| SubmoduleFlags { commit: b[1] == b'C', modified: b[2] == b'M', untracked: b[3] == b'U' })
-}
-
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct WipCounts {
-    pub modified: u32,
-    pub added: u32,
-    pub deleted: u32,
-    /// Renamed in the index (`R`); one per path, so a staged and unstaged edit of the same path
-    /// is one file, as in the WIP panel's "N file changes".
-    pub renamed: u32,
-    pub conflicted: u32,
-}
-
-impl WipCounts {
-    pub fn is_empty(&self) -> bool {
-        *self == Self::default()
-    }
 }
 
 fn xy(field: &str) -> (char, char) {

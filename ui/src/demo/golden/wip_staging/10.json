@@ -1,0 +1,34 @@
+{
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "new.txt",
+      "repo": "$repo",
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": null,
+      "index": null,
+      "worktree": "cef4f6ce1129121f5a50e2e8862f68e2099e92bb"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          1,
+          2,
+          3
+        ],
+        "del": [],
+        "newLines": 3,
+        "newStart": 1,
+        "oldLines": 0,
+        "oldStart": 0
+      }
+    ],
+    "refused": null
+  }
+}

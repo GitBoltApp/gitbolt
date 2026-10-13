@@ -1,0 +1,220 @@
+#file crates/orbital-core/src/physics.rs
+#header v1 @gravity
+//! Gravity and the integrator: how bodies and ships move from one tick to the next.
+
+use crate::body::Body;
+use glam::Vec2;
+#header v2 @prediction-jump
+//! Gravity and the integrator: how bodies and ships move from one tick to the next.
+
+use crate::body::Body;
+use crate::math::EPSILON;
+use glam::Vec2;
+#header v3 @verlet
+//! Gravity and the integrator: how bodies and ships move from one tick to the next.
+
+use crate::body::Body;
+use crate::math::EPSILON;
+use crate::time::TICK_SECONDS;
+use glam::Vec2;
+#header v4 @verlet-drift
+//! Gravity and the integrator: how bodies and ships move from one tick to the next.
+
+use crate::body::Body;
+use crate::math::EPSILON;
+use glam::Vec2;
+#const G v1 @gravity "Add gravity from every body"
+/// The gravitational constant, in the core's units: kilometres, seconds and tonnes.
+pub const G: f32 = 6.5;
+#const SOFTENING v1 @softened-gravity "Soften gravity near a body's centre"
+/// Squared distance added under the square root, so a pass through a body can't fling a ship.
+pub const SOFTENING: f32 = 25.0;
+#const BURN_RATE v1 @thrust-fuel "Burn fuel to thrust the ship"
+/// Fuel burned per second for each unit of thrust.
+pub const BURN_RATE: f32 = 0.8;
+#const BURN_RATE v2 @thrust-fuel "Move the fuel burn constant onto the ship" !removed
+#const FAR_DISTANCE v1 @gravity-coarse "Halve the gravity cost with a coarse pass"
+/// Beyond this distance, in kilometres, a body's pull is summed on the coarse pass.
+pub const FAR_DISTANCE: f32 = 400.0;
+#item gravity v1 @gravity "Pull ships towards every body"
+/// The acceleration at `at` from every body in `bodies`.
+pub fn gravity(at: Vec2, bodies: &[Body]) -> Vec2 {
+    bodies
+        .iter()
+        .map(|b| {
+            let d = b.position - at;
+            d.normalize_or_zero() * G * b.mass / d.length_squared()
+        })
+        .sum()
+}
+#item gravity v2 @softened-gravity "Soften gravity near a body's centre\n\nShips that clipped a planet came out at absurd speeds."
+/// The acceleration at `at` from every body in `bodies`, softened near each centre.
+pub fn gravity(at: Vec2, bodies: &[Body]) -> Vec2 {
+    bodies
+        .iter()
+        .map(|b| {
+            let d = b.position - at;
+            let r2 = d.length_squared() + SOFTENING;
+            d * G * b.mass / (r2 * r2.sqrt())
+        })
+        .sum()
+}
+#item gravity v3 @gravity-coarse "Halve the gravity cost with a coarse pass\n\nFar bodies are summed on every other body, each counted double."
+/// The acceleration at `at`. Bodies past `FAR_DISTANCE` are sampled every other one.
+pub fn gravity(at: Vec2, bodies: &[Body]) -> Vec2 {
+    let far_sq = FAR_DISTANCE * FAR_DISTANCE;
+    let mut total = Vec2::ZERO;
+    let mut far = 0;
+    for b in bodies {
+        if (b.position - at).length_squared() < far_sq {
+            total += pull(at, b, 1.0);
+        } else {
+            if far % 2 == 0 {
+                total += pull(at, b, 2.0);
+            }
+            far += 1;
+        }
+    }
+    total
+}
+#item pull v1 @gravity-coarse "Share one pull function between the passes"
+/// The pull of `b` at `at`, scaled by `weight` for the far bodies a coarse pass stands in for.
+fn pull(at: Vec2, b: &Body, weight: f32) -> Vec2 {
+    let d = b.position - at;
+    let r2 = d.length_squared() + SOFTENING;
+    d * G * b.mass * weight / (r2 * r2.sqrt())
+}
+#item step v1 @integrator "Step ships with a fixed-timestep integrator"
+/// Moves a body one tick under `accel`: its position first, from the old velocity.
+pub fn step(body: &mut Body, accel: Vec2, dt: f32) {
+    body.position += body.velocity * dt;
+    body.velocity += accel * dt;
+}
+#item step v2 @physics-drift "Fix the integrator drifting on long runs\n\nThe velocity now updates before the position, so orbits stop spiralling outwards."
+/// Moves a body one tick under `accel`: the velocity first, then the position from it.
+pub fn step(body: &mut Body, accel: Vec2, dt: f32) {
+    body.velocity += accel * dt;
+    body.position += body.velocity * dt;
+}
+#item step v3 @verlet "Step ships with velocity Verlet\n\nThe step takes an accel_at closure and keeps each body's last acceleration, so a tick needs one new evaluation."
+/// Moves a body one tick with velocity Verlet. `accel_at` gives the pull at a position.
+pub fn step(body: &mut Body, dt: f32, accel_at: impl Fn(Vec2) -> Vec2) {
+    body.position += body.velocity * dt + 0.5 * body.last_accel * dt * dt;
+    let next = accel_at(body.position);
+    body.velocity += 0.5 * (body.last_accel + next) * TICK_SECONDS;
+    body.last_accel = next;
+}
+#item step v4 @verlet-drift "Fix the Verlet step ignoring the timestep\n\nThe velocity update used the fixed tick, so a slow frame drifted the orbit."
+/// Moves a body one tick with velocity Verlet. `accel_at` gives the pull at a position.
+pub fn step(body: &mut Body, dt: f32, accel_at: impl Fn(Vec2) -> Vec2) {
+    body.position += body.velocity * dt + 0.5 * body.last_accel * dt * dt;
+    let next = accel_at(body.position);
+    body.velocity += 0.5 * (body.last_accel + next) * dt;
+    body.last_accel = next;
+}
+#item burn v1 @thrust-fuel "Burn fuel to thrust the ship"
+/// Burns fuel to push at `thrust` for `dt` seconds. Returns the thrust actually applied,
+/// which is less when the tank runs dry partway through.
+pub fn burn(fuel: &mut f32, thrust: f32, dt: f32) -> f32 {
+    let wanted = BURN_RATE * thrust * dt;
+    if wanted <= *fuel {
+        *fuel -= wanted;
+        thrust
+    } else {
+        let applied = *fuel / (BURN_RATE * dt);
+        *fuel = 0.0;
+        applied
+    }
+}
+#item burn v2 @thrust-fuel "Move the fuel burn onto the ship" !removed
+#item sphere_of_influence v1 @orbit-prediction "Add a sphere of influence for each body"
+/// The radius within which a ship follows `body` rather than its parent, from the mass ratio.
+pub fn sphere_of_influence(body: &Body, parent: &Body) -> f32 {
+    let distance = (body.position - parent.position).length();
+    distance * (body.mass / parent.mass).powf(0.4)
+}
+#item sphere_of_influence v2 @prediction-jump "Keep the sphere of influence finite for coincident bodies"
+/// The radius within which a ship follows `body` rather than its parent, from the mass ratio.
+pub fn sphere_of_influence(body: &Body, parent: &Body) -> f32 {
+    let distance = (body.position - parent.position).length().max(EPSILON);
+    distance * (body.mass / parent.mass).powf(0.4)
+}
+#test gravity_points_at_the_body v1 @gravity "Test that gravity points at the body"
+#[test]
+fn gravity_points_at_the_body() {
+    let body = Body::planet("Test", Vec2::ZERO, 100.0, 10.0);
+    let a = gravity(Vec2::new(50.0, 0.0), &[body]);
+    assert!(a.x < 0.0 && a.y.abs() < 1e-6);
+}
+#test softened_gravity_is_finite_at_the_centre v1 @softened-gravity "Test that softened gravity is finite"
+#[test]
+fn softened_gravity_is_finite_at_the_centre() {
+    let body = Body::planet("Test", Vec2::ZERO, 100.0, 10.0);
+    let a = gravity(Vec2::ZERO, &[body]);
+    assert!(a.is_finite());
+}
+#test step_moves_by_velocity v1 @integrator "Test that a step moves a body by its velocity"
+#[test]
+fn step_moves_by_velocity() {
+    let mut body = Body::ship("S", Vec2::ZERO, Vec2::new(2.0, 0.0), 1.0);
+    step(&mut body, Vec2::ZERO, 0.5);
+    assert!((body.position.x - 1.0).abs() < 1e-6);
+}
+#test step_moves_by_velocity v2 @verlet "Test the step with its closure argument"
+#[test]
+fn step_moves_by_velocity() {
+    let mut body = Body::ship("S", Vec2::ZERO, Vec2::new(2.0, 0.0), 1.0);
+    step(&mut body, 0.5, |_| Vec2::ZERO);
+    assert!((body.position.x - 1.0).abs() < 1e-6);
+}
+#test burn_uses_fuel_at_the_burn_rate v1 @thrust-fuel "Test that burning uses fuel at the burn rate"
+#[test]
+fn burn_uses_fuel_at_the_burn_rate() {
+    let mut fuel = 10.0;
+    let applied = burn(&mut fuel, 2.0, 1.0);
+    assert_eq!(applied, 2.0);
+    assert!((fuel - 8.4).abs() < 1e-5);
+}
+#test burn_uses_fuel_at_the_burn_rate v2 @thrust-fuel "Move the burn tests to the ship" !removed
+#test burn_stops_when_the_tank_runs_dry v1 @thrust-fuel "Test that thrust stops when the tank is empty"
+#[test]
+fn burn_stops_when_the_tank_runs_dry() {
+    let mut fuel = 0.8;
+    let applied = burn(&mut fuel, 2.0, 1.0);
+    assert!((applied - 1.0).abs() < 1e-5);
+    assert_eq!(fuel, 0.0);
+}
+#test burn_stops_when_the_tank_runs_dry v2 @thrust-fuel "Move the burn tests to the ship" !removed
+#test sphere_of_influence_grows_with_mass v1 @orbit-prediction "Test that heavier bodies have wider spheres"
+#[test]
+fn sphere_of_influence_grows_with_mass() {
+    let parent = Body::planet("P", Vec2::ZERO, 100.0, 10.0);
+    let light = Body::moon("L", Vec2::new(50.0, 0.0), 1.0, 1.0);
+    let heavy = Body::moon("H", Vec2::new(50.0, 0.0), 50.0, 1.0);
+    let small = sphere_of_influence(&light, &parent);
+    let large = sphere_of_influence(&heavy, &parent);
+    assert!(large > small);
+}
+#test far_bodies_are_sampled_coarsely v1 @gravity-coarse "Test the coarse pass on far bodies"
+#[test]
+fn far_bodies_are_sampled_coarsely() {
+    let bodies: Vec<Body> = (0..4)
+        .map(|i| Body::moon("M", Vec2::new(1000.0 + i as f32, 0.0), 1.0, 1.0))
+        .collect();
+    let a = gravity(Vec2::ZERO, &bodies);
+    assert!(a.x > 0.0 && a.is_finite());
+}
+#test verlet_keeps_energy_over_a_long_orbit v1 @verlet-tests "Test that a Verlet orbit keeps its energy"
+#[test]
+fn verlet_keeps_energy_over_a_long_orbit() {
+    let planet = Body::planet("P", Vec2::ZERO, 100.0, 10.0);
+    let mut ship = Body::ship("S", Vec2::new(50.0, 0.0), Vec2::new(0.0, 4.0), 1.0);
+    let energy = |b: &Body| 0.5 * b.velocity.length_squared() - G * 100.0 / b.position.length();
+    let before = energy(&ship);
+    for _ in 0..2000 {
+        step(&mut ship, crate::time::TICK_SECONDS, |at| {
+            gravity(at, std::slice::from_ref(&planet))
+        });
+    }
+    assert!((energy(&ship) - before).abs() < 0.05 * before.abs());
+}

@@ -1,0 +1,14 @@
+{
+  "request": {
+    "method": "openRepo",
+    "params": {
+      "path": "$wt"
+    }
+  },
+  "response": {
+    "id": 1,
+    "name": "wip_staging",
+    "path": "/demo/wip_staging",
+    "worktree": "/demo/wip_staging"
+  }
+}

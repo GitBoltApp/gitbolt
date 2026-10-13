@@ -22,7 +22,7 @@ Chromium (CEF) runtime. Read these before changing anything substantial:
   - then `just test`, `cargo clippy --workspace --all-targets -- -D warnings`, and
     `cd ui && npx tsc --noEmit`.
 - **Changed a Rust type the UI uses?** Run `just gen-types` and commit the regenerated
-  `ui/src/api/gen/` files.
+  `ui/src/api/gen/` and `ui/src/demo/gen/` files.
 - **Leave `CARGO_INCREMENTAL` unset.** Setting it to `1` breaks sccache, and `0` makes rebuilds
   slow. The harness's integration tests are one binary, `crates/gitbolt-harness/tests/it/`.
 - **Running e2e from parallel worktrees?** Give each one its own `GITBOLT_E2E_PORT_BASE`.

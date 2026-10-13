@@ -1,0 +1,11 @@
+/* The page's three families, served by the site itself (no font service): Latin only, and only the
+   weights the page uses. OFL-1.1; their licenses ship as licenses/fonts.txt (build/fonts.ts). */
+@import '@fontsource/sora/latin-600.css';
+@import '@fontsource/sora/latin-700.css';
+@import '@fontsource/sora/latin-800.css';
+@import '@fontsource/inter/latin-400.css';
+@import '@fontsource/inter/latin-500.css';
+@import '@fontsource/inter/latin-600.css';
+@import '@fontsource/jetbrains-mono/latin-400.css';
+@import '@fontsource/jetbrains-mono/latin-500.css';
+@import '@fontsource/jetbrains-mono/latin-600.css';

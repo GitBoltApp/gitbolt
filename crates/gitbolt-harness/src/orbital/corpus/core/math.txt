@@ -1,0 +1,186 @@
+#file crates/orbital-core/src/math.rs
+#header v1 @core-math
+//! Small maths helpers over glam: angles, interpolation and rectangles.
+
+use glam::Vec2;
+#header v2 @units-doc
+//! Small maths helpers over glam: angles, interpolation and rectangles.
+//!
+//! Angles are in radians. Every helper here is unit-free, so it works on metres and ratios alike.
+
+use glam::Vec2;
+#const EPSILON v1 @core-math "Add the maths helpers for the orbit code"
+/// Below this, two floats count as equal in the orbit maths.
+pub const EPSILON: f32 = 0.000_001;
+#item wrap_angle v1 @core-math "Wrap angles into one turn of the circle"
+/// Wraps an angle in radians into `0.0..TAU`.
+pub fn wrap_angle(a: f32) -> f32 {
+    let turn = std::f32::consts::TAU;
+    let r = a % turn;
+    if r < 0.0 { r + turn } else { r }
+}
+#item wrap_angle v2 @core-lints "Use rem_euclid in wrap_angle, as clippy suggests"
+/// Wraps an angle in radians into `0.0..TAU`.
+pub fn wrap_angle(a: f32) -> f32 {
+    a.rem_euclid(std::f32::consts::TAU)
+}
+#item wrap_angle v3 @angle-seam "Keep wrapped angles below one full turn"
+/// Wraps an angle in radians into `0.0..TAU`.
+pub fn wrap_angle(a: f32) -> f32 {
+    let turn = std::f32::consts::TAU;
+    let r = a.rem_euclid(turn);
+    if r >= turn { 0.0 } else { r }
+}
+#item lerp v1 @core-math "Add linear interpolation between two floats"
+/// Linear interpolation from `a` to `b` at `t`: 0 gives `a`, 1 gives `b`.
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    a + (b - a) * t
+}
+#item lerp v2 @core-lints "Use mul_add in lerp, for one rounding step fewer"
+/// Linear interpolation from `a` to `b` at `t`: 0 gives `a`, 1 gives `b`.
+pub fn lerp(a: f32, b: f32, t: f32) -> f32 {
+    (b - a).mul_add(t, a)
+}
+#item smoothstep v1 @core-math "Add smoothstep for easing between two values"
+/// Eases `x` from 0 to 1 between `edge0` and `edge1`, flat at both ends.
+pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+#item smoothstep v2 @trail-fade "Stop the trail fade going NaN when its edges match"
+/// Eases `x` from 0 to 1 between `edge0` and `edge1`, flat at both ends.
+pub fn smoothstep(edge0: f32, edge1: f32, x: f32) -> f32 {
+    if edge1 <= edge0 {
+        return if x < edge0 { 0.0 } else { 1.0 };
+    }
+    let t = ((x - edge0) / (edge1 - edge0)).clamp(0.0, 1.0);
+    t * t * (3.0 - 2.0 * t)
+}
+#item Rect v1 @core-math "Add an axis-aligned rectangle for the map and HUD"
+/// An axis-aligned rectangle, from its `min` corner to its `max` corner.
+#[derive(Clone, Copy, Debug)]
+pub struct Rect {
+    pub min: Vec2,
+    pub max: Vec2,
+}
+#item Rect v2 @core-lints "Derive PartialEq and Default for Rect"
+/// An axis-aligned rectangle, from its `min` corner to its `max` corner.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Rect {
+    pub min: Vec2,
+    pub max: Vec2,
+}
+#item rect_methods v1 @core-math "Give Rect its contains and size"
+impl Rect {
+    /// Whether `p` lies inside: the near edges count, the far edges don't.
+    pub fn contains(&self, p: Vec2) -> bool {
+        p.x >= self.min.x && p.x < self.max.x && p.y >= self.min.y && p.y < self.max.y
+    }
+
+    /// The width and height.
+    pub fn size(&self) -> Vec2 {
+        self.max - self.min
+    }
+}
+#item rect_methods v2 @map-edge "Count the orbit map's far edge as inside"
+impl Rect {
+    /// Whether `p` lies inside, the edges included.
+    pub fn contains(&self, p: Vec2) -> bool {
+        p.x >= self.min.x && p.x <= self.max.x && p.y >= self.min.y && p.y <= self.max.y
+    }
+
+    /// The width and height.
+    pub fn size(&self) -> Vec2 {
+        self.max - self.min
+    }
+}
+#item clamp_length v1 @core-math "Clamp a vector's length, keeping its direction"
+/// Shortens `v` to at most `max` long, keeping its direction.
+pub fn clamp_length(v: Vec2, max: f32) -> Vec2 {
+    let len = v.length();
+    if len > max { v * (max / len) } else { v }
+}
+#item clamp_length v2 @speed-clamp "Skip the square root in the speed clamp"
+/// Shortens `v` to at most `max` long, keeping its direction.
+pub fn clamp_length(v: Vec2, max: f32) -> Vec2 {
+    let len_sq = v.length_squared();
+    if len_sq <= max * max {
+        v
+    } else {
+        v * (max / len_sq.sqrt())
+    }
+}
+#test wrap_angle_stays_in_one_turn v1 @core-math "Test that wrap_angle stays in one turn"
+#[test]
+fn wrap_angle_stays_in_one_turn() {
+    let a = wrap_angle(7.0);
+    assert!((a - (7.0 - std::f32::consts::TAU)).abs() < 1e-4);
+}
+#test wrap_angle_stays_in_one_turn v2 @core-lints "Test wrap_angle on negative angles too"
+#[test]
+fn wrap_angle_stays_in_one_turn() {
+    let a = wrap_angle(7.0);
+    assert!((a - (7.0 - std::f32::consts::TAU)).abs() < 1e-4);
+    let b = wrap_angle(-0.5);
+    assert!((b - (std::f32::consts::TAU - 0.5)).abs() < 1e-4);
+}
+#test wrap_angle_stays_in_one_turn v3 @angle-seam "Test that a tiny negative angle stays below a turn"
+#[test]
+fn wrap_angle_stays_in_one_turn() {
+    let a = wrap_angle(7.0);
+    assert!((a - (7.0 - std::f32::consts::TAU)).abs() < 1e-4);
+    let b = wrap_angle(-0.5);
+    assert!((b - (std::f32::consts::TAU - 0.5)).abs() < 1e-4);
+    let c = wrap_angle(-1e-7);
+    assert!((0.0..std::f32::consts::TAU).contains(&c));
+}
+#test lerp_hits_both_ends v1 @core-math "Test that lerp hits both ends"
+#[test]
+fn lerp_hits_both_ends() {
+    assert!((lerp(2.0, 6.0, 0.0) - 2.0).abs() < 1e-6);
+    assert!((lerp(2.0, 6.0, 1.0) - 6.0).abs() < 1e-6);
+    assert!((lerp(2.0, 6.0, 0.5) - 4.0).abs() < 1e-6);
+}
+#test smoothstep_is_flat_at_the_ends v1 @core-math "Test that smoothstep is flat at the ends"
+#[test]
+fn smoothstep_is_flat_at_the_ends() {
+    assert_eq!(smoothstep(0.0, 1.0, -1.0), 0.0);
+    assert_eq!(smoothstep(0.0, 1.0, 2.0), 1.0);
+    assert!((smoothstep(0.0, 1.0, 0.5) - 0.5).abs() < 1e-6);
+}
+#test rect_contains_its_near_edges v1 @core-math "Test the rectangle's edges"
+#[test]
+fn rect_contains_its_near_edges() {
+    let r = Rect {
+        min: Vec2::ZERO,
+        max: Vec2::new(4.0, 2.0),
+    };
+    assert!(r.contains(Vec2::ZERO));
+    assert!(!r.contains(Vec2::new(4.0, 1.0)));
+    assert_eq!(r.size(), Vec2::new(4.0, 2.0));
+}
+#test rect_contains_its_near_edges v2 @map-edge "Test that the orbit map's far edge is inside"
+#[test]
+fn rect_contains_its_near_edges() {
+    let r = Rect {
+        min: Vec2::ZERO,
+        max: Vec2::new(4.0, 2.0),
+    };
+    assert!(r.contains(Vec2::ZERO));
+    assert!(r.contains(Vec2::new(4.0, 2.0)));
+    assert!(!r.contains(Vec2::new(4.1, 1.0)));
+    assert_eq!(r.size(), Vec2::new(4.0, 2.0));
+}
+#test clamp_length_keeps_the_direction v1 @core-math "Test that clamp_length keeps the direction"
+#[test]
+fn clamp_length_keeps_the_direction() {
+    let v = clamp_length(Vec2::new(3.0, 4.0), 2.5);
+    assert!((v.length() - 2.5).abs() < 1e-4);
+    assert!((v.x * 4.0 - v.y * 3.0).abs() < 1e-4);
+}
+#test clamp_length_leaves_short_vectors v1 @core-math "Test that short vectors are left alone"
+#[test]
+fn clamp_length_leaves_short_vectors() {
+    let v = Vec2::new(0.5, 0.25);
+    assert_eq!(clamp_length(v, 10.0), v);
+}

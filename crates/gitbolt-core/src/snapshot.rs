@@ -2,15 +2,16 @@
 
 use crate::error::GbError;
 use crate::git::GitCli;
-use crate::graph::{layout, LayoutNode, NodeKind, Parent};
-use crate::payload::{FileListPayload, ForkDetection, ForkPayload, GraphPayload, GraphWorktree, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
-use crate::refs::{read_refs, RefKind, RepoRefs};
-use crate::remotes::HostKind;
+use crate::graph::{to_gix, to_oid};
+use crate::in_progress::InProgress;
+use crate::payload::{FileListPayload, GraphPayload};
+use crate::refs::{read_refs, RepoRefs};
 use crate::status::{parse_porcelain_v2, status_raw, summarize, WipCounts};
 use crate::walk::{walk, WalkOptions, WalkResult};
 use crate::worktree::{list_worktrees, Worktree};
+use gitbolt_graph::{GraphInput, HeadIn, Oid, RefIn, RefsIn, StashIn, WorktreeIn};
 use gix::ObjectId;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -38,16 +39,7 @@ pub struct BuildOptions {
     pub forks: ForkFacts,
 }
 
-/// The forge's cached data on the remotes' projects (`ForgeHub::cached_forks`).
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct ForkFacts {
-    /// Remote → the remote whose project it's a fork of.
-    pub parents: HashMap<String, String>,
-    /// Remotes whose project is known and isn't a fork.
-    pub roots: HashSet<String>,
-    /// Remotes on a host a forge account covers: whether they're forks is the forge's to say.
-    pub covered: HashSet<String>,
-}
+pub use gitbolt_graph::ForkFacts;
 
 impl Default for BuildOptions {
     fn default() -> Self {
@@ -58,7 +50,7 @@ impl Default for BuildOptions {
 /// The last walk a handle made, reused while the tips, the window and the stash set are the same
 /// (spec #2 §11.2, Deviation 1): a switch of the active worktree re-lays out without walking.
 pub struct WalkCache {
-    key: (Vec<ObjectId>, usize, Vec<ObjectId>),
+    key: (Vec<Oid>, usize, Vec<Oid>),
     walked: Arc<WalkResult>,
     /// How many walks went through this slot (the tests count them per handle: a global
     /// counter would see the walks of tests running in parallel).
@@ -308,28 +300,44 @@ pub async fn build_graph_with_text(repo: gix::ThreadSafeRepository, workdir: Pat
         }
     }
     let wip = collect_wip(&cli, &worktrees, opts.wip_cache.as_deref(), opts.rescan).await;
-    tokio::task::spawn_blocking(move || assemble(&repo.to_thread_local(), &worktrees, &wip, &workdir, &opts))
+    tokio::task::spawn_blocking(move || assemble(&repo.to_thread_local(), &worktrees, wip, &workdir, &opts))
         .await
         .map_err(|e| GbError::other(format!("graph task failed: {e}")))?
 }
 
-/// The commits the graph walks from, deduplicated, in order: HEAD, every ref, every worktree's
-/// HEAD, then the stashes and the MR heads Compare fetched. Find's `locateCommit` walks from the same tips, so the window it
-/// computes is the one the graph then loads.
-pub(crate) fn graph_tips(refs: &RepoRefs, worktrees: &[Worktree]) -> Vec<ObjectId> {
-    let mut tips = Vec::new();
-    let mut seen = HashSet::new();
-    let candidates = refs.head.target.into_iter()
-        .chain(refs.refs.iter().map(|r| r.target))
-        .chain(worktrees.iter().filter_map(|w| w.head))
-        .chain(refs.stashes.iter().map(|s| s.id))
-        .chain(refs.compare_heads.iter().copied());
-    for id in candidates {
-        if seen.insert(id) {
-            tips.push(id);
-        }
+/// The commits the graph walks from (`gitbolt_graph::graph_tips`).
+pub(crate) fn graph_tips(refs: RepoRefs, worktrees: &[Worktree]) -> Vec<Oid> {
+    gitbolt_graph::graph_tips(&refs_input(refs), &worktrees_input(worktrees))
+}
+
+fn refs_input(r: RepoRefs) -> RefsIn {
+    RefsIn {
+        head: HeadIn { branch: r.head.branch, target: r.head.target.map(to_oid), detached: r.head.detached, unborn: r.head.unborn },
+        refs: r
+            .refs
+            .into_iter()
+            .map(|x| RefIn { full_name: x.full_name, short_name: x.short_name, kind: x.kind, target: to_oid(x.target), upstream: x.upstream, upstream_mismatch: x.upstream_mismatch, annotation: x.annotation })
+            .collect(),
+        remote_heads: r.remote_heads,
+        remote_hosts: r.remote_hosts,
+        remote_host_names: r.remote_host_names,
+        stashes: r.stashes.into_iter().map(|s| StashIn { index: s.index, id: to_oid(s.id), message: s.message, time: s.time }).collect(),
+        push_remotes: r.push_remotes,
+        remote_ids: r.remote_ids,
+        compare_heads: r.compare_heads.into_iter().map(to_oid).collect(),
     }
-    tips
+}
+
+fn worktrees_input(worktrees: &[Worktree]) -> Vec<WorktreeIn> {
+    worktrees
+        .iter()
+        .map(|w| WorktreeIn { path: w.path.display().to_string(), canonical: canonical(&w.path).display().to_string(), head: w.head.map(to_oid), branch: w.branch.clone(), is_main: w.is_main, bare: w.bare, prunable: w.prunable, locked: w.locked })
+        .collect()
+}
+
+/// Each usable worktree's operation in progress, keyed by its path as its WIP row spells it.
+fn in_progress_of(worktrees: &[Worktree]) -> BTreeMap<String, InProgress> {
+    worktrees.iter().filter(|w| !w.bare && !w.prunable).filter_map(|w| Some((w.path.display().to_string(), crate::in_progress::read(&w.path).ok()??))).collect()
 }
 
 /// (index into `worktrees`, counts) for every dirty, usable worktree. A worktree whose cached counts
@@ -362,438 +370,37 @@ async fn collect_wip(cli: &GitCli, worktrees: &[Worktree], cache: Option<&WipCac
     futures_util::future::join_all(jobs).await.into_iter().flatten().filter(|(i, c)| !c.is_empty() || crate::in_progress::mid_operation(&worktrees[*i].path)).collect()
 }
 
-/// The default pin (the pin setting `auto`), the ref leading lane 0 first.
-///
-/// In a fork (`fork_of`) whose original project's trunk `T` is fetched (`upstream/main`): `T`
-/// then its local counterpart (see 2. below), so a local `main` tracking your fork's `main`
-/// still pins with `upstream/main`. `T` first: diverged, it leads lane 0 and main's own commits
-/// take lane 1. Your fork's own trunk is never pinned by default: changes for the original
-/// project start from its trunk, not from your fork's.
-///
-/// Otherwise the local counterpart of the main remote's default branch, with its pair (`pin_pair`):
-/// 1. The remote trunk `T`: per remote, its HEAD's target, else its main, master, dev or develop.
-///    Remotes in order: roots first (a remote whose project forks another remote's, by the
-///    forge's cached data, comes after it), then by convention `upstream` (GitHub's fork
-///    workflow: `origin` is your fork, `upstream` the original), `origin`, the others by name.
-/// 2. Its local counterpart: a local branch whose upstream is `T` (the one named like `T`'s
-///    branch first, then by name); else the local branch named like `T`'s branch, whatever its
-///    upstream; else `T` itself.
-/// 3. No remote trunk at all (a local-only repo): the local main, master, dev or develop.
-fn default_pair(refs: &RepoRefs, fork: Option<&Fork>, fork_parents: &HashMap<String, String>) -> Vec<String> {
-    if let Some(f) = fork
-        && let Some((t, branch)) = trunk_of(refs, &f.original)
-    {
-        let local = local_counterpart(refs, &t, &branch);
-        return std::iter::once(t).chain(local).collect();
-    }
-    let chosen = match remote_trunk(refs, fork_parents) {
-        Some((t, branch)) => Some(local_counterpart(refs, &t, &branch).unwrap_or(t)),
-        None => ["main", "master", "dev", "develop"].into_iter().map(|b| format!("refs/heads/{b}")).find(|n| refs.refs.iter().any(|r| &r.full_name == n)),
-    };
-    chosen.map(|c| pin_pair(refs, &c)).unwrap_or_default()
-}
-
-/// A fork's remotes (`fork_of`).
-struct Fork {
-    fork: String,
-    original: String,
-    by: ForkDetection,
-}
-
-/// Whether the repository is a fork, and of what: by the forge's cached data, a remote whose
-/// project is a fork of another remote's, and which is yours: `origin`, or a remote the
-/// original's local trunk branch tracks or pushes to (`origin` first, then by name). A
-/// maintainer with a contributor's fork as a remote isn't in a fork. Else by convention, a
-/// remote named `upstream` next to `origin`, unless the forge can tell (an account covers
-/// origin's host), knows origin's project isn't a fork, or both remotes are the same project.
-fn fork_of(refs: &RepoRefs, facts: &ForkFacts) -> Option<Fork> {
-    let known = |r: &str| refs.remote_hosts.contains_key(r);
-    let yours = |r: &str, original: &str| r == "origin" || trunk_branch_remotes(refs, original).iter().any(|x| x == r);
-    let mut forks: Vec<(&String, &String)> = facts.parents.iter().filter(|(r, p)| r != p && known(r) && known(p) && yours(r, p)).collect();
-    forks.sort_by_key(|(r, _)| (r.as_str() != "origin", r.as_str()));
-    if let Some((fork, original)) = forks.first() {
-        return Some(Fork { fork: fork.to_string(), original: original.to_string(), by: ForkDetection::Forge });
-    }
-    let same_project = refs.remote_ids.get("origin").is_some_and(|o| refs.remote_ids.get("upstream") == Some(o));
-    let convention = known("origin") && known("upstream") && !facts.covered.contains("origin") && !facts.roots.contains("origin") && !same_project;
-    convention.then(|| Fork { fork: "origin".into(), original: "upstream".into(), by: ForkDetection::UpstreamRemote })
-}
-
-/// The remotes the local trunk branch for `original` (its trunk's local counterpart) tracks or
-/// pushes to.
-fn trunk_branch_remotes(refs: &RepoRefs, original: &str) -> Vec<String> {
-    let Some(local) = trunk_of(refs, original).and_then(|(t, branch)| local_counterpart(refs, &t, &branch)) else { return vec![] };
-    let Some(r) = refs.refs.iter().find(|r| r.full_name == local) else { return vec![] };
-    let tracked = r.upstream.as_ref().and_then(|u| match &refs.refs.iter().find(|x| &x.full_name == u)?.kind {
-        RefKind::Remote { remote } => Some(remote.clone()),
-        _ => None,
-    });
-    tracked.into_iter().chain(refs.push_remotes.get(&local).cloned()).collect()
-}
-
-/// The payload's account of a fork: its trunks, and the local branches standing for them.
-fn fork_payload(refs: &RepoRefs, f: &Fork) -> ForkPayload {
-    let trunk = trunk_of(refs, &f.original);
-    let fork_trunk = trunk_of(refs, &f.fork).map(|(t, _)| t);
-    let mut trunk_branches: Vec<String> = trunk.as_ref().and_then(|(t, branch)| local_counterpart(refs, t, branch)).into_iter().collect();
-    if let Some(ft) = &fork_trunk {
-        trunk_branches.extend(refs.refs.iter().filter(|r| r.kind == RefKind::Local && r.upstream.as_ref() == Some(ft)).map(|r| r.full_name.clone()));
-    }
-    trunk_branches.sort();
-    trunk_branches.dedup();
-    ForkPayload {
-        fork: f.fork.clone(),
-        original: f.original.clone(),
-        host: refs.remote_host_names.get(&f.original).cloned(),
-        host_kind: refs.remote_hosts.get(&f.original).copied().unwrap_or(HostKind::Generic),
-        detected_by: f.by,
-        trunk: trunk.map(|(t, _)| t),
-        fork_trunk,
-        trunk_branches,
-    }
-}
-
-/// The refs a chosen pin (the default trunk or an explicit one) pins, local first: a local
-/// branch with its upstream (when that ref exists); a remote branch with the local branch
-/// tracking it (the one named like its branch first, then by name); else the ref alone.
-fn pin_pair(refs: &RepoRefs, chosen: &str) -> Vec<String> {
-    let alone = || vec![chosen.to_string()];
-    let Some(r) = refs.refs.iter().find(|r| r.full_name == chosen) else { return alone() };
-    match &r.kind {
-        RefKind::Local => {
-            let upstream = r.upstream.clone().filter(|u| refs.refs.iter().any(|x| &x.full_name == u));
-            std::iter::once(chosen.to_string()).chain(upstream).collect()
-        }
-        RefKind::Remote { remote } => match tracking_local(refs, chosen, &r.short_name[remote.len() + 1..]) {
-            Some(local) => vec![local, chosen.to_string()],
-            None => alone(),
-        },
-        RefKind::Tag => alone(),
-    }
-}
-
-/// The local branch tracking the remote branch `t` (`branch`: its branch part): the one named
-/// like it first, then the first by name.
-fn tracking_local(refs: &RepoRefs, t: &str, branch: &str) -> Option<String> {
-    let mut tracking: Vec<_> = refs.refs.iter().filter(|r| r.kind == RefKind::Local && r.upstream.as_deref() == Some(t)).collect();
-    tracking.sort_by_key(|r| (r.short_name != branch, r.short_name.as_str()));
-    tracking.first().map(|r| r.full_name.clone())
-}
-
-/// `T` and its branch part (`main` for `refs/remotes/origin/main`).
-fn remote_trunk(refs: &RepoRefs, fork_parents: &HashMap<String, String>) -> Option<(String, String)> {
-    // A parent that isn't a configured remote says nothing about the order.
-    let is_fork = |r: &str| fork_parents.get(r).is_some_and(|p| p != r && refs.remote_hosts.contains_key(p));
-    let convention = |r: &str| match r {
-        "upstream" => 0,
-        "origin" => 1,
-        _ => 2,
-    };
-    let mut remotes: Vec<&String> = refs.remote_hosts.keys().collect();
-    remotes.sort_by_key(|r| (is_fork(r), convention(r), r.as_str()));
-    remotes.into_iter().find_map(|r| trunk_of(refs, r))
-}
-
-/// One remote's trunk and its branch part: its HEAD's target, else its main, master, dev or
-/// develop.
-fn trunk_of(refs: &RepoRefs, remote: &str) -> Option<(String, String)> {
-    let exists = |n: &str| refs.refs.iter().any(|r| r.full_name == n);
-    let prefix = format!("refs/remotes/{remote}/");
-    if let Some(t) = refs.remote_heads.get(remote)
-        && exists(t)
-        && let Some(branch) = t.strip_prefix(&prefix)
-    {
-        return Some((t.clone(), branch.to_string()));
-    }
-    ["main", "master", "dev", "develop"].into_iter().map(|b| (format!("{prefix}{b}"), b.to_string())).find(|(n, _)| exists(n))
-}
-
-/// The local branch standing for the remote trunk `t` (see `default_pair`).
-fn local_counterpart(refs: &RepoRefs, t: &str, branch: &str) -> Option<String> {
-    tracking_local(refs, t, branch).or_else(|| refs.refs.iter().find(|r| r.kind == RefKind::Local && r.short_name == branch).map(|r| r.full_name.clone()))
-}
-
-enum Entry {
-    Commit(usize),
-    Wip(usize),
-}
-
-fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCounts)], workdir: &Path, opts: &BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
-    let mut refs = read_refs(repo)?;
-    let stash_ids: HashSet<ObjectId> = refs.stashes.iter().map(|s| s.id).collect();
-
+fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: Vec<(usize, WipCounts)>, workdir: &Path, opts: &BuildOptions) -> Result<(GraphPayload, Vec<(ObjectId, String)>), GbError> {
+    let refs = refs_input(read_refs(repo)?);
+    let worktrees_in = worktrees_input(worktrees);
     // The tips come from the handle's own HEAD, whichever worktree is active: the active one's
     // HEAD is among the worktrees' anyway, and the same tips keep the walk cache valid across
     // a switch.
-    let tips = graph_tips(&refs, worktrees);
+    let tips = gitbolt_graph::graph_tips(&refs, &worktrees_in);
+    let stash_ids: HashSet<Oid> = refs.stashes.iter().map(|s| s.id).collect();
     let walked = cached_walk(repo, tips, &stash_ids, opts)?;
-    let commits = &walked.commits;
-
-    // The active worktree's HEAD replaces the handle's (`read_refs` reads the handle's own).
-    let active = opts.active.as_deref().map(canonical);
-    if let Some(active) = &active
-        && let Some(w) = worktrees.iter().find(|w| &canonical(&w.path) == active)
-    {
-        refs.head = crate::refs::HeadInfo { branch: w.branch.clone(), target: w.head, detached: w.branch.is_none() && w.head.is_some(), unborn: w.head.is_none() };
-    }
-    let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
-
-    let fork = fork_of(&refs, &opts.forks);
-    let names = match (&opts.pinned_ref, opts.no_pin) {
-        (_, true) => vec![],
-        (Some(name), false) => pin_pair(&refs, name),
-        (None, false) => default_pair(&refs, fork.as_ref(), &opts.forks.parents),
+    let input = GraphInput {
+        refs,
+        worktrees: worktrees_in,
+        wip,
+        in_progress: in_progress_of(worktrees),
+        workdir: canonical(workdir).display().to_string(),
+        active: opts.active.as_deref().map(|a| canonical(a).display().to_string()),
+        pinned_ref: opts.pinned_ref.clone(),
+        no_pin: opts.no_pin,
+        forks: opts.forks.clone(),
     };
-    let pair: Vec<(String, ObjectId)> = names
-        .into_iter()
-        .filter_map(|n| {
-            let target = refs.refs.iter().find(|r| r.full_name == n)?.target;
-            Some((n, target))
-        })
-        .collect();
-    // Lane 0 is the trunk's whenever a pinned ref resolves, even if this window was cut above its
-    // tip: the window then lays out exactly as the prefix of a longer one (spec §8.2).
-    let reserve_trunk = !pair.is_empty();
-    // Don't report a pinned name whose target isn't actually in the walked window (an invalid
-    // override, or a ref whose commit got truncated out): that would show a name with nothing
-    // pinned to it.
-    let pair: Vec<(String, usize)> = pair.into_iter().filter_map(|(n, id)| Some((n, *index.get(&id)?))).collect();
-    let pinned_refs: Vec<String> = pair.iter().map(|(n, _)| n.clone()).collect();
-    let (pinned, pinned_tips) = pinned_chains(commits, &index, &pair.iter().map(|&(_, i)| i).collect::<Vec<_>>());
-
-    // WIP placement (spec §8.6): the open worktree's WIP is "now", row 0, whatever the dates of
-    // the commits below it; every other worktree's WIP docks directly above its HEAD commit,
-    // several on one commit stacked by worktree name.
-    let here = active.unwrap_or_else(|| canonical(workdir));
-    let mut current_wip = None;
-    let mut wip_by_head: HashMap<usize, Vec<usize>> = HashMap::new();
-    // An unborn worktree (no HEAD yet) has changes but no commit to dock above: its WIP row has
-    // no parent and sits at the top, so the first commit is reachable.
-    let mut unborn_wip: Vec<usize> = vec![];
-    for (k, (wt, _)) in wip.iter().enumerate() {
-        let w = &worktrees[*wt];
-        if w.head.is_none() {
-            if current_wip.is_none() && canonical(&w.path) == here {
-                current_wip = Some(k);
-            } else {
-                unborn_wip.push(k);
-            }
-            continue;
-        }
-        let Some(&ci) = w.head.and_then(|h| index.get(&h)) else { continue };
-        if current_wip.is_none() && canonical(&w.path) == here {
-            current_wip = Some(k);
-        } else {
-            wip_by_head.entry(ci).or_default().push(k);
-        }
-    }
-    for stack in wip_by_head.values_mut() {
-        stack.sort_by_cached_key(|&k| {
-            let p = &worktrees[wip[k].0].path;
-            (p.file_name().map(|f| f.to_os_string()), p.clone())
-        });
-    }
-    let mut entries = Vec::with_capacity(commits.len() + wip.len());
-    entries.extend(current_wip.map(Entry::Wip));
-    entries.extend(unborn_wip.into_iter().map(Entry::Wip));
-    let mut row_of_commit = vec![0u32; commits.len()];
-    for (ci, slot) in row_of_commit.iter_mut().enumerate() {
-        for &k in wip_by_head.get(&ci).map(Vec::as_slice).unwrap_or(&[]) {
-            entries.push(Entry::Wip(k));
-        }
-        *slot = entries.len() as u32;
-        entries.push(Entry::Commit(ci));
-    }
-
-    // The topmost WIP on a pinned lane's tip rides that lane: nothing else is pinned above the
-    // tip, so its dashed line runs down the lane into the tip (any other WIP on that commit
-    // takes its own lane).
-    let head_of = |k: usize| worktrees[wip[k].0].head.map(|h| index[&h]);
-    let pinned_wip: HashMap<usize, u16> = pinned_tips
-        .iter()
-        .enumerate()
-        .filter_map(|(lane, &tip)| {
-            let k = entries.iter().find_map(|e| match *e {
-                Entry::Wip(k) if head_of(k) == Some(tip) => Some(k),
-                _ => None,
-            })?;
-            Some((k, lane as u16))
-        })
-        .collect();
-    // Lane 0 for the whole window; a diverged pair's lane 1 through its chain's last row.
-    let reserved: Vec<u32> = reserve_trunk
-        .then_some(u32::MAX)
-        .into_iter()
-        .chain(pinned.iter().filter(|&(_, &lane)| lane == 1).map(|(&ci, _)| row_of_commit[ci]).max())
-        .collect();
-    let nodes: Vec<LayoutNode> = entries
-        .iter()
-        .map(|e| match e {
-            Entry::Commit(ci) => {
-                let c = &commits[*ci];
-                LayoutNode {
-                    parents: c.parents.iter().map(|p| index.get(p).map(|&pi| Parent::Row(row_of_commit[pi])).unwrap_or(Parent::Outside(*p))).collect(),
-                    kind: if stash_ids.contains(&c.id) { NodeKind::Stash } else if c.parents.len() > 1 { NodeKind::Merge } else { NodeKind::Commit },
-                    pinned: pinned.get(ci).copied(),
-                    time: c.committer_time,
-                }
-            }
-            Entry::Wip(k) => LayoutNode { parents: head_of(*k).map(|h| Parent::Row(row_of_commit[h])).into_iter().collect(), kind: NodeKind::Wip, pinned: pinned_wip.get(k).copied(), time: i64::MAX },
-        })
-        .collect();
-    let lay = layout(&nodes, &reserved);
-    // Unit tests and the harness (and so the e2e suite, including the opt-in real-repo spec)
-    // verify every graph they build; a violation surfaces as an ordinary error, not a panic.
-    #[cfg(any(test, feature = "testing"))]
-    crate::graph::check_continuity(&lay, &nodes).map_err(|e| GbError::other(format!("graph continuity violated: {e}")))?;
-
-    let main_path = worktrees.iter().find(|w| w.is_main).map(|w| w.path.clone());
-    let rows = entries
-        .iter()
-        .zip(&lay.rows)
-        .zip(&nodes)
-        .map(|((e, g), n)| {
-            let segments = g.segments.iter().map(|s| s.pack()).collect();
-            match e {
-                Entry::Commit(ci) => {
-                    let c = &commits[*ci];
-                    RowPayload {
-                        id: c.id.to_string(),
-                        kind: n.kind,
-                        lane: g.lane,
-                        color: g.color,
-                        segments,
-                        summary: c.summary.clone(),
-                        body_first_line: c.body.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_string(),
-                        author_name: c.author_name.clone(),
-                        author_email: c.author_email.clone(),
-                        author_time: c.author_time,
-                        committer_time: c.committer_time,
-                        parents: c.parents.iter().map(ObjectId::to_string).collect(),
-                        // Parsed by the walk from the full message: no second object lookup.
-                        mr_refs: c.mr_refs.clone(),
-                        wip: None,
-                    }
-                }
-                Entry::Wip(k) => {
-                    let (wt_idx, counts) = wip[*k];
-                    let wt = &worktrees[wt_idx];
-                    let is_main = main_path.as_ref() == Some(&wt.path);
-                    RowPayload {
-                        id: format!("wip:{}", wt.path.display()),
-                        kind: NodeKind::Wip,
-                        lane: g.lane,
-                        color: g.color,
-                        segments,
-                        summary: "// WIP".into(),
-                        body_first_line: String::new(),
-                        author_name: String::new(),
-                        author_email: String::new(),
-                        author_time: 0,
-                        committer_time: 0,
-                        parents: wt.head.map(|h| h.to_string()).into_iter().collect(),
-                        mr_refs: vec![],
-                        wip: Some(WipPayload {
-                            worktree_path: wt.path.display().to_string(),
-                            worktree_name: (!is_main).then(|| wt.path.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default()),
-                            modified: counts.modified,
-                            added: counts.added,
-                            deleted: counts.deleted,
-                            renamed: counts.renamed,
-                            conflicted: counts.conflicted,
-                        }),
-                    }
-                }
-            }
-        })
-        .collect();
-
-    let texts = commits.iter().map(|c| (c.id, format!("{}\n{}", c.summary, c.body).to_lowercase())).collect();
-    // 2D-T6 begin
-    let in_progress: std::collections::BTreeMap<String, crate::in_progress::InProgress> = worktrees
-        .iter()
-        .filter(|w| !w.bare && !w.prunable)
-        .filter_map(|w| Some((w.path.display().to_string(), crate::in_progress::read(&w.path).ok()??)))
-        .collect();
-    // 2D-T6 end
-    let payload = GraphPayload {
-        fork: fork.as_ref().map(|f| fork_payload(&refs, f)),
-        rows,
-        labels: build_labels(&refs, worktrees, &here, &index, &row_of_commit),
-        max_lanes: lay.max_lanes,
-        pinned_refs,
-        head: HeadPayload {
-            branch: refs.head.branch.clone(),
-            target: refs.head.target.map(|t| t.to_string()),
-            detached: refs.head.detached,
-            unborn: refs.head.unborn,
-        },
-        truncated: walked.truncated,
-        open_worktree: worktrees.iter().find(|w| !w.bare && !w.prunable && canonical(&w.path) == here).map(|w| w.path.display().to_string()),
-        // 2C T2: each worktree's in-progress kind, from 2D's map (one open per worktree).
-        worktrees: worktrees
-            .iter()
-            .filter(|w| !w.bare && !w.prunable)
-            .map(|w| {
-                let path = w.path.display().to_string();
-                let in_progress = in_progress.get(&path).map(|s| match s {
-                    crate::in_progress::InProgress::Merge { .. } => "merge".to_string(),
-                    crate::in_progress::InProgress::Rebase { .. } => "rebase".to_string(),
-                    crate::in_progress::InProgress::CherryPick { .. } => "cherry-pick".to_string(),
-                    crate::in_progress::InProgress::Revert { .. } => "revert".to_string(),
-                    crate::in_progress::InProgress::Other { what } => what.clone(),
-                });
-                GraphWorktree { path, branch: w.branch.clone(), head: w.head.map(|h| h.to_string()), is_main: w.is_main, locked: w.locked, in_progress }
-            })
-            .collect(),
-        in_progress,
-    };
+    // Unit tests and the harness (and so the e2e suite) verify every graph they build (the
+    // `testing` feature); a violation surfaces as an ordinary error, not a panic.
+    let payload = gitbolt_graph::assemble(&input, &walked).map_err(|e| GbError::other(format!("graph continuity violated: {e}")))?;
+    let texts = walked.commits.iter().map(|c| (to_gix(c.id), format!("{}\n{}", c.summary, c.body).to_lowercase())).collect();
     Ok((payload, texts))
-}
-
-/// The pinned commits (commit index → pinned lane) of the pinned pair whose tips are `tips`
-/// (commit indexes, the one leading lane 0 first: the local branch, or in a fork the original's
-/// trunk), and each pinned lane's tip:
-/// - one tip, or two on one first-parent chain (one behind or ahead of the other, or equal):
-///   one chain from the newer tip, through the older one, in lane 0;
-/// - two diverged tips: the first's chain in lane 0, the second's own commits in lane 1, down to
-///   where its first-parent chain meets lane 0's (their shared history stays in lane 0).
-fn pinned_chains(commits: &[crate::walk::CommitMeta], index: &HashMap<ObjectId, usize>, tips: &[usize]) -> (HashMap<usize, u16>, Vec<usize>) {
-    let mut pinned = HashMap::new();
-    let mut lane_tips = Vec::new();
-    let chain = |tip: usize, pinned: &mut HashMap<usize, u16>, lane: u16| {
-        let mut cur = Some(tip);
-        while let Some(i) = cur {
-            if pinned.contains_key(&i) {
-                break;
-            }
-            pinned.insert(i, lane);
-            cur = commits[i].parents.first().and_then(|p| index.get(p)).copied();
-        }
-    };
-    let Some(&first) = tips.first() else { return (pinned, lane_tips) };
-    chain(first, &mut pinned, 0);
-    lane_tips.push(first);
-    // A second tip on the first's chain (or the same commit) is pinned already.
-    if let Some(&second) = tips.get(1).filter(|t| !pinned.contains_key(t)) {
-        let mut theirs = HashMap::new();
-        chain(second, &mut theirs, 0);
-        if theirs.contains_key(&first) {
-            // The first is on the second's chain: the second, newer, leads lane 0.
-            pinned = theirs;
-            lane_tips[0] = second;
-        } else {
-            chain(second, &mut pinned, 1);
-            lane_tips.push(second);
-        }
-    }
-    (pinned, lane_tips)
 }
 
 /// The walk from `tips`, served from the handle's walk cache when the tips, the window and the
 /// stash set are the ones it last walked (commits are immutable, so nothing else can differ).
-fn cached_walk(repo: &gix::Repository, tips: Vec<ObjectId>, stash_ids: &HashSet<ObjectId>, opts: &BuildOptions) -> Result<Arc<WalkResult>, GbError> {
-    let mut first_parent: Vec<ObjectId> = stash_ids.iter().copied().collect();
+fn cached_walk(repo: &gix::Repository, tips: Vec<Oid>, stash_ids: &HashSet<Oid>, opts: &BuildOptions) -> Result<Arc<WalkResult>, GbError> {
+    let mut first_parent: Vec<Oid> = stash_ids.iter().copied().collect();
     first_parent.sort();
     let key = (tips, opts.limit, first_parent);
     let cached = opts.walk_cache.as_ref().and_then(|c| c.lock().ok()?.as_ref().filter(|w| w.key == key).map(|w| w.walked.clone()));
@@ -814,95 +421,13 @@ fn canonical(p: &Path) -> PathBuf {
     crate::platform::fs::canonicalize(p).unwrap_or_else(|_| p.to_path_buf())
 }
 
-/// `here`: the canonical open (active) worktree.
-fn build_labels(refs: &RepoRefs, worktrees: &[Worktree], here: &Path, index: &HashMap<ObjectId, usize>, row_of_commit: &[u32]) -> Vec<RefLabel> {
-    let checked_out_elsewhere: HashMap<&str, String> = worktrees
-        .iter()
-        .filter(|w| canonical(&w.path) != here)
-        .filter_map(|w| w.branch.as_deref().map(|b| (b, w.path.display().to_string())))
-        .collect();
-    let checked_out: HashMap<&str, String> = worktrees.iter().filter_map(|w| w.branch.as_deref().map(|b| (b, w.path.display().to_string()))).collect();
-    let row_of = |id: &ObjectId| index.get(id).map(|&i| row_of_commit[i]);
-    let host_name = |remote: &str| refs.remote_host_names.get(remote).cloned();
-    let host = |remote: &str| refs.remote_hosts.get(remote).copied().unwrap_or(HostKind::Generic);
-
-    let mut labels = Vec::new();
-    let mut merged: HashSet<&str> = HashSet::new();
-    for local in refs.refs.iter().filter(|r| r.kind == RefKind::Local) {
-        let Some(row) = row_of(&local.target) else { continue };
-        let mut remotes = Vec::new();
-        for rr in &refs.refs {
-            let RefKind::Remote { remote } = &rr.kind else { continue };
-            let branch_part = &rr.short_name[remote.len() + 1..];
-            let is_counterpart = branch_part == local.short_name || local.upstream.as_deref() == Some(rr.full_name.as_str());
-            if rr.target == local.target && is_counterpart {
-                remotes.push(RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host: host_name(remote), host_kind: host(remote) });
-                merged.insert(rr.full_name.as_str());
-            }
-        }
-        labels.push(RefLabel {
-            row,
-            name: local.short_name.clone(),
-            local: Some(local.full_name.clone()),
-            remotes,
-            tag: false,
-            is_head: refs.head.branch.as_deref() == Some(local.full_name.as_str()),
-            worktree: checked_out_elsewhere.get(local.full_name.as_str()).cloned(),
-            checked_out: checked_out.get(local.full_name.as_str()).cloned(),
-            upstream_mismatch: local.upstream_mismatch.clone(),
-            annotation: None,
-        });
-    }
-    // Remote-only refs: one label per (commit, branch name), so the same branch on several
-    // remotes at the same commit is ONE chip with one icon per remote (§8.5).
-    let mut remote_only: HashMap<(ObjectId, &str), usize> = HashMap::new();
-    for rr in &refs.refs {
-        let RefKind::Remote { remote } = &rr.kind else { continue };
-        if merged.contains(rr.full_name.as_str()) {
-            continue;
-        }
-        let Some(row) = row_of(&rr.target) else { continue };
-        // Only the branch part (`p/janderson/foo`, not `origin/p/janderson/foo`): the remote
-        // icons already mark it as remote, and `remotes[].full_name` keeps each full name for
-        // the tooltip.
-        let branch = &rr.short_name[remote.len() + 1..];
-        let remote_label = RemoteRefLabel { full_name: rr.full_name.clone(), remote: remote.clone(), host: host_name(remote), host_kind: host(remote) };
-        match remote_only.get(&(rr.target, branch)) {
-            Some(&i) => labels[i].remotes.push(remote_label),
-            None => {
-                remote_only.insert((rr.target, branch), labels.len());
-                labels.push(RefLabel { row, name: branch.to_string(), local: None, remotes: vec![remote_label], tag: false, is_head: false, worktree: None, checked_out: None, upstream_mismatch: None, annotation: None });
-            }
-        }
-    }
-    for t in refs.refs.iter().filter(|r| r.kind == RefKind::Tag) {
-        if let Some(row) = row_of(&t.target) {
-            labels.push(RefLabel { row, name: t.short_name.clone(), local: None, remotes: vec![], tag: true, is_head: false, worktree: None, checked_out: None, upstream_mismatch: None, annotation: t.annotation.clone() });
-        }
-    }
-    if refs.head.detached
-        && let Some(row) = refs.head.target.as_ref().and_then(row_of)
-    {
-        labels.push(RefLabel { row, name: "HEAD".into(), local: None, remotes: vec![], tag: false, is_head: true, worktree: None, checked_out: None, upstream_mismatch: None, annotation: None });
-    }
-    // HEAD's branch, then locals: a published one (its remote at the same commit, `main` with
-    // `origin/main`) before a local-only one, and one checked out in another worktree (a scratch
-    // branch) last; then remote-only branches, then tags. Ties keep the refs' order.
-    let priority = |l: &RefLabel| match () {
-        _ if l.is_head => (0, 0),
-        _ if l.local.is_some() => (1, if l.worktree.is_some() { 2 } else if l.remotes.is_empty() { 1 } else { 0 }),
-        _ if !l.tag => (2, 0),
-        _ => (3, 0),
-    };
-    labels.sort_by_key(|l| (l.row, priority(l)));
-    labels
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::graph::NodeKind;
     use crate::log::CommandLog;
+    use crate::payload::{ForkDetection, ForkPayload, RefLabel, RowPayload};
+    use crate::remotes::HostKind;
     use crate::testing::{fixtures, isolated_git_env, TestRepo};
     use std::sync::Arc;
 

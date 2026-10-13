@@ -1,0 +1,212 @@
+#file crates/orbital-game/src/menu.rs
+#header v1 @title-screen
+//! The title screen's menu: the choices, and the focus that moves through them.
+
+use glam::Vec2;
+use orbital_render::text::{Font, Glyph};
+
+use crate::input::Action;
+
+#header v2 @strings-table
+//! The title screen's menu: the choices, and the focus that moves through them.
+
+use glam::Vec2;
+use orbital_render::text::{Font, Glyph};
+
+use crate::input::Action;
+use crate::strings::tr;
+
+#const ROW_X v1 @title-screen
+/// Where the first menu row starts, from the left edge, in pixels.
+pub const ROW_X: f32 = 120.0;
+
+#const ROW_Y v1 @title-screen
+/// Where the first menu row starts, from the top edge, in pixels.
+pub const ROW_Y: f32 = 200.0;
+
+#const ROW_HEIGHT v1 @title-screen
+/// How far apart the menu rows sit, in pixels.
+pub const ROW_HEIGHT: f32 = 32.0;
+
+#item Choice v1 @title-screen "Show a title screen on launch"
+/// What the player can pick on the title screen.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Choice {
+    NewGame,
+    Continue,
+    Settings,
+    Quit,
+}
+
+#item Menu v1 @title-screen "Show a title screen on launch"
+/// The title screen's choices, and the one that has focus.
+#[derive(Debug)]
+pub struct Menu {
+    items: Vec<Choice>,
+    focus: usize,
+}
+
+#item title v1 @title-screen "Show a title screen on launch"
+impl Menu {
+    /// The title screen's menu: new game, continue, settings and quit, with the first one focused.
+    pub fn title() -> Self {
+        Self {
+            items: vec![
+                Choice::NewGame,
+                Choice::Continue,
+                Choice::Settings,
+                Choice::Quit,
+            ],
+            focus: 0,
+        }
+    }
+}
+
+#item handle v1 @title-screen "Show a title screen on launch"
+impl Menu {
+    /// Moves the focus with the arrow keys, and picks the focused entry on select.
+    pub fn handle(&mut self, action: Action) -> Option<Choice> {
+        match action {
+            Action::Up => self.focus = self.focus.saturating_sub(1),
+            Action::Down => {
+                if self.focus + 1 < self.items.len() {
+                    self.focus += 1;
+                }
+            }
+            Action::Select => return self.items.get(self.focus).copied(),
+            _ => {}
+        }
+        None
+    }
+}
+
+#item handle v2 @menu-wrap "Fix menu focus wrapping at the last item"
+impl Menu {
+    /// Moves the focus with the arrow keys, wrapping at either end, and picks the focused entry on
+    /// select.
+    pub fn handle(&mut self, action: Action) -> Option<Choice> {
+        let count = self.items.len();
+        match action {
+            Action::Up => self.focus = (self.focus + count - 1) % count,
+            Action::Down => self.focus = (self.focus + 1) % count,
+            Action::Select => return self.items.get(self.focus).copied(),
+            _ => {}
+        }
+        None
+    }
+}
+
+#item resync v1 @menus "Keep the title menu's focus when the window is resized\n\nThe resize handler built a new title menu, so the focus went back to the first entry."
+impl Menu {
+    /// Keeps the focus on an entry the menu has, after the window changes under it. A focus past
+    /// the last entry goes back to the first.
+    pub fn resync(&mut self) {
+        if self.focus >= self.items.len() {
+            self.focus = 0;
+        }
+    }
+}
+
+#item label v1 @title-screen "Show a title screen on launch"
+impl Choice {
+    /// The text the menu shows for the entry. The HUD font has capitals only.
+    fn label(self) -> &'static str {
+        match self {
+            Choice::NewGame => "NEW GAME",
+            Choice::Continue => "CONTINUE",
+            Choice::Settings => "SETTINGS",
+            Choice::Quit => "QUIT",
+        }
+    }
+}
+
+#item label v2 @strings-table "Read the menu labels from the strings table"
+impl Choice {
+    /// The text the menu shows for the entry, from the strings table.
+    fn label(self) -> &'static str {
+        match self {
+            Choice::NewGame => tr("menu.new_game"),
+            Choice::Continue => tr("menu.continue"),
+            Choice::Settings => tr("menu.settings"),
+            Choice::Quit => tr("menu.quit"),
+        }
+    }
+}
+
+#item draw v1 @title-screen "Show a title screen on launch"
+impl Menu {
+    /// Draws each entry's label down the screen, the focused one in full white.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        for (row, choice) in self.items.iter().enumerate() {
+            let at = Vec2::new(ROW_X, ROW_Y + row as f32 * ROW_HEIGHT);
+            let colour = if row == self.focus {
+                [1.0; 4]
+            } else {
+                [0.6, 0.6, 0.6, 1.0]
+            };
+            font.draw(glyphs, choice.label(), at, colour);
+        }
+    }
+}
+
+#item draw v2 @focus-ring "Make the focus ring visible on every button"
+impl Menu {
+    /// Draws each entry's label down the screen. The focused one is amber, so it stands out from
+    /// the rest.
+    pub fn draw(&self, font: &Font, glyphs: &mut Vec<Glyph>) {
+        for (row, choice) in self.items.iter().enumerate() {
+            let at = Vec2::new(ROW_X, ROW_Y + row as f32 * ROW_HEIGHT);
+            let colour = if row == self.focus {
+                [1.0, 0.7, 0.2, 1.0]
+            } else {
+                [0.6, 0.6, 0.6, 1.0]
+            };
+            font.draw(glyphs, choice.label(), at, colour);
+        }
+    }
+}
+
+#test focus_stops_at_the_ends v1 @title-screen "Test that the menu focus stops at the first and last entries"
+#[test]
+fn focus_stops_at_the_ends() {
+    let mut menu = Menu::title();
+    menu.handle(Action::Up);
+    assert_eq!(menu.focus, 0);
+    for _ in 0..10 {
+        menu.handle(Action::Down);
+    }
+    assert_eq!(menu.focus, 3);
+}
+
+#test focus_stops_at_the_ends v2 @menu-wrap "Drop the stop-at-the-ends test now that the focus wraps" !removed
+
+#test select_picks_the_focused_entry v1 @title-screen "Test that select picks the focused entry"
+#[test]
+fn select_picks_the_focused_entry() {
+    let mut menu = Menu::title();
+    menu.handle(Action::Down);
+    assert_eq!(menu.handle(Action::Select), Some(Choice::Continue));
+}
+
+#test focus_survives_a_resize v1 @menus "Test that the menu keeps its focus through a resize"
+#[test]
+fn focus_survives_a_resize() {
+    let mut menu = Menu::title();
+    menu.handle(Action::Down);
+    menu.handle(Action::Down);
+    menu.resync();
+    assert_eq!(menu.focus, 2);
+    menu.focus = 9;
+    menu.resync();
+    assert_eq!(menu.focus, 0);
+}
+
+#test focus_wraps_round_at_the_ends v1 @menu-wrap "Test that the menu focus wraps at the ends"
+#[test]
+fn focus_wraps_round_at_the_ends() {
+    let mut menu = Menu::title();
+    menu.handle(Action::Up);
+    assert_eq!(menu.focus, 3);
+    menu.handle(Action::Down);
+    assert_eq!(menu.focus, 0);
+}

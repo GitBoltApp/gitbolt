@@ -10,12 +10,7 @@ use gix::ObjectId;
 use std::collections::HashMap;
 use std::sync::{Mutex, OnceLock};
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RefKind {
-    Local,
-    Remote { remote: String },
-    Tag,
-}
+pub use gitbolt_graph::RefKind;
 
 #[derive(Debug, Clone)]
 pub struct RefInfo {

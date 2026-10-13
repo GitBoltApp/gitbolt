@@ -1,0 +1,41 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "submodule",
+        "oid": "e8caaef9c52b38e66ba229ce4089957669feb150"
+      },
+      "old": {
+        "kind": "submodule",
+        "oid": "1495ed48df073ba61273bcf10efb5854310c79e8"
+      },
+      "path": "libs/netcode",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "82a4605f0eb5ac34212903ce6438bb0016735fb1",
+      "size": 83,
+      "text": "Subproject commit e8caaef9c52b38e66ba229ce4089957669feb150\nSend snapshots at 20 Hz\n"
+    },
+    "old": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "787e459c694f249f6c0f15d2bab086b4b404aba3",
+      "size": 79,
+      "text": "Subproject commit 1495ed48df073ba61273bcf10efb5854310c79e8\nSerialize snapshots\n"
+    },
+    "tooLarge": false
+  }
+}

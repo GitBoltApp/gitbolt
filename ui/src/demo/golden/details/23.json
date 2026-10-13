@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "commit": "82c1d9f5a5a7b27d4b3ea1f56e0e095d428e8908",
+        "kind": "atCommit"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "latin1.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "ISO-8859-1",
+      "eol": "lf",
+      "hash": "2b1bbf61d6206ee868316106e9efc6f5c60395c9",
+      "size": 18,
+      "text": "café crème brûlée\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

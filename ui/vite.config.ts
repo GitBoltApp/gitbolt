@@ -1,12 +1,14 @@
 /// <reference types="vitest/config" />
-import { defineConfig } from 'vite';
+import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { demoData } from './build/demoData.ts';
 import { licenseNotices } from './build/licenses.ts';
 import { replacedGrammars } from './build/replacedGrammars.ts';
 import { bundledLanguagesInfo } from './src/diff/shikiLanguages.ts';
-import { e2eCsp } from './src/security/csp.ts';
+import { demoCsp, e2eCsp } from './src/security/csp.ts';
 
 // Parallel `just e2e` runs (one per git worktree) each need their own dev-server port. Unset,
 // this stays 1420 exactly as before -- `just dev` and the packaged app both depend on that
@@ -44,66 +46,89 @@ const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.m
 const previewHeaders = (mode: string): Record<string, string> =>
   mode === 'e2e' ? { 'Content-Security-Policy': e2eCsp(JSON.parse(read('../crates/gitbolt-app/tauri.conf.json')), read('./index.html'), process.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws') } : {};
 
-export default defineConfig(({ mode }) => ({
-  plugins: [react(), grammars(), notices.main],
-  worker: { plugins: () => [grammars(), notices.worker()] },
-  clearScreen: false,
-  server: { port, strictPort: true },
-  preview: { headers: previewHeaders(mode) },
-  build: { target: 'es2023' },
-  resolve: {
-    alias: [
-      // micromark's entity decoder: its `browser` build decodes through `document`, which the
-      // Markdown parse worker (markdown/parse.worker.ts) doesn't have, so the worker died on
-      // load and every large body was parsed on the main thread. The plain build (a lookup table)
-      // works in both.
-      { find: /^decode-named-character-reference$/, replacement: fileURLToPath(new URL('./node_modules/decode-named-character-reference/index.js', import.meta.url)) },
-    ],
+// The website demo (`vite build --mode demo`; website demo spec §4.1): demo.html alone, into
+// site/dist/demo/ with relative URLs (the site serves it under its own path), its data from
+// GITBOLT_DEMO_DATA (relative to the repo root; default site/demo-data/), and the app's Content Security Policy as a <meta>
+// (GitHub Pages sends no headers). Every other mode builds as before; the version define is only
+// read by the demo's About.
+const uiVersion = (JSON.parse(read('./package.json')) as { version: string }).version;
+const demoPolicy = (): Plugin => ({
+  name: 'gitbolt-demo-csp',
+  apply: 'build',
+  transformIndexHtml: {
+    order: 'post',
+    handler: (html) => html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${demoCsp(JSON.parse(read('../crates/gitbolt-app/tauri.conf.json')), html)}" />`),
   },
-  // Monaco and Shiki are only reached through a dynamic import (diff/monaco/load.ts). Pre-bundle
-  // them at dev-server start, so the first diff doesn't trigger a re-optimize and page reload in
-  // the middle of a Playwright test.
-  optimizeDeps: {
-    include: [
-      'monaco-editor/editor/editor.api',
-      'monaco-editor/features/register.all',
-      'shiki/core',
-      'shiki/engine/oniguruma',
-      // Each grammar by name, from GitBolt's registry rather than Shiki's (docs/licensing.md).
-      ...bundledLanguagesInfo.filter((l) => !replaced.includes(l.id)).map((l) => `shiki/langs/${l.id}.mjs`),
-      'shiki/themes/*.mjs', // the dev server's cache only: the build bundles just the themes editorThemes.ts names
-      'shiki/wasm',
-      '@shikijs/monaco',
-      // Markdown (5A): reached through the lazy renderer chunk
-      'unified',
-      'remark-parse',
-      'remark-gfm',
-      'remark-rehype',
-      'rehype-raw',
-      'rehype-sanitize',
-      'hast-util-to-jsx-runtime',
-      'github-slugger',
-      'mermaid',
-    ],
-  },
-  test: {
-    setupFiles: ['src/test-setup.ts'],
-    // Components in happy-dom; logic in plain Node, which starts in a fraction of the time (a
-    // jsdom environment per file was most of the suite's run, and happy-dom runs the components in
-    // about half jsdom's time). A test that needs another says so on its first line: a .ts one
-    // that needs a DOM `// @vitest-environment happy-dom`, one that needs what only jsdom does
-    // `// @vitest-environment jsdom`.
-    projects: [
-      { extends: true, test: { name: 'dom', environment: 'happy-dom', include: ['src/**/*.test.tsx'] } },
-      { extends: true, test: { name: 'logic', environment: 'node', include: ['src/**/*.test.ts', 'build/**/*.test.ts'] } },
-    ],
-    // The dev machine is power-capped and often runs several builds at once: a loaded run took
-    // 5-9 s for tests that finish in under 1 s idle. 15 s keeps real hangs failing.
-    testTimeout: 15_000,
-    // Child processes, one per worker (vitest's default, written out). `threads` was no faster
-    // here, and under the lanes' `ulimit -v` cap its workers, which share one address space, ran
-    // out of virtual memory (V8 code ranges, Shiki's Wasm). The default worker count (cores - 1)
-    // was as fast as 8 workers; 4 took about half as long again.
-    pool: 'forks',
-  },
-}));
+});
+
+export default defineConfig(({ mode }) => {
+  const demo = mode === 'demo';
+  return {
+    base: demo ? './' : '/',
+    plugins: [react(), grammars(), notices.main, ...(demo ? [demoPolicy(), demoData(process.env.GITBOLT_DEMO_DATA ? resolve(here('..'), process.env.GITBOLT_DEMO_DATA) : here('../site/demo-data'), here('src/demo/wasm/THIRD-PARTY-NOTICES-wasm.txt'))] : [])],
+    define: { 'import.meta.env.VITE_GITBOLT_VERSION': JSON.stringify(uiVersion) },
+    worker: { plugins: () => [grammars(), notices.worker()] },
+    clearScreen: false,
+    server: { port, strictPort: true },
+    preview: { headers: previewHeaders(mode) },
+    build: demo ? { target: 'es2023', outDir: here('../site/dist/demo'), emptyOutDir: true, rolldownOptions: { input: here('demo.html') } } : { target: 'es2023' },
+    resolve: {
+      alias: [
+        // micromark's entity decoder: its `browser` build decodes through `document`, which the
+        // Markdown parse worker (markdown/parse.worker.ts) doesn't have, so the worker died on
+        // load and every large body was parsed on the main thread. The plain build (a lookup table)
+        // works in both.
+        { find: /^decode-named-character-reference$/, replacement: fileURLToPath(new URL('./node_modules/decode-named-character-reference/index.js', import.meta.url)) },
+        // The website demo's WebAssembly graph: the glue `just demo-wasm` writes (git-ignored),
+        // typed by src/demo/gitbolt-graph-wasm.d.ts. Only the demo imports it.
+        { find: /^gitbolt-graph-wasm$/, replacement: fileURLToPath(new URL('./src/demo/wasm/gitbolt_graph_wasm.js', import.meta.url)) },
+      ],
+    },
+    // Monaco and Shiki are only reached through a dynamic import (diff/monaco/load.ts). Pre-bundle
+    // them at dev-server start, so the first diff doesn't trigger a re-optimize and page reload in
+    // the middle of a Playwright test.
+    optimizeDeps: {
+      include: [
+        'monaco-editor/editor/editor.api',
+        'monaco-editor/features/register.all',
+        'shiki/core',
+        'shiki/engine/oniguruma',
+        // Each grammar by name, from GitBolt's registry rather than Shiki's (docs/licensing.md).
+        ...bundledLanguagesInfo.filter((l) => !replaced.includes(l.id)).map((l) => `shiki/langs/${l.id}.mjs`),
+        'shiki/themes/*.mjs', // the dev server's cache only: the build bundles just the themes editorThemes.ts names
+        'shiki/wasm',
+        '@shikijs/monaco',
+        // Markdown (5A): reached through the lazy renderer chunk
+        'unified',
+        'remark-parse',
+        'remark-gfm',
+        'remark-rehype',
+        'rehype-raw',
+        'rehype-sanitize',
+        'hast-util-to-jsx-runtime',
+        'github-slugger',
+        'mermaid',
+      ],
+    },
+    test: {
+      setupFiles: ['src/test-setup.ts'],
+      // Components in happy-dom; logic in plain Node, which starts in a fraction of the time (a
+      // jsdom environment per file was most of the suite's run, and happy-dom runs the components in
+      // about half jsdom's time). A test that needs another says so on its first line: a .ts one
+      // that needs a DOM `// @vitest-environment happy-dom`, one that needs what only jsdom does
+      // `// @vitest-environment jsdom`.
+      projects: [
+        { extends: true, test: { name: 'dom', environment: 'happy-dom', include: ['src/**/*.test.tsx'] } },
+        { extends: true, test: { name: 'logic', environment: 'node', include: ['src/**/*.test.ts', 'build/**/*.test.ts'] } },
+      ],
+      // The dev machine is power-capped and often runs several builds at once: a loaded run took
+      // 5-9 s for tests that finish in under 1 s idle. 15 s keeps real hangs failing.
+      testTimeout: 15_000,
+      // Child processes, one per worker (vitest's default, written out). `threads` was no faster
+      // here, and under the lanes' `ulimit -v` cap its workers, which share one address space, ran
+      // out of virtual memory (V8 code ranges, Shiki's Wasm). The default worker count (cores - 1)
+      // was as fast as 8 workers; 4 took about half as long again.
+      pool: 'forks',
+    },
+  };
+});

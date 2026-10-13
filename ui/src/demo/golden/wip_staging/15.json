@@ -1,0 +1,32 @@
+{
+  "request": {
+    "method": "diffContents",
+    "params": {
+      "force": false,
+      "new": {
+        "kind": "worktree",
+        "worktree": "$wt"
+      },
+      "old": {
+        "kind": "absent"
+      },
+      "path": "new.txt",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "eolOnly": false,
+    "image": false,
+    "new": {
+      "base64": null,
+      "binary": false,
+      "encoding": "UTF-8",
+      "eol": "lf",
+      "hash": "cef4f6ce1129121f5a50e2e8862f68e2099e92bb",
+      "size": 24,
+      "text": "fresh 1\nfresh 2\nfresh 3\n"
+    },
+    "old": null,
+    "tooLarge": false
+  }
+}

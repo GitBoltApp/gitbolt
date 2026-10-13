@@ -1,0 +1,532 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "graph",
+  "params": {
+   "repo": "$repo",
+   "limit": 200
+  }
+ },
+ {
+  "method": "commitDetails",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "HEAD^1"
+   }
+  }
+ },
+ {
+  "method": "commitDetails",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "HEAD"
+   }
+  }
+ },
+ {
+  "method": "commitMessage",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "HEAD^1"
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD^1"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD"
+    },
+    "parent": 1
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD^1^1"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "compare",
+    "from": {
+     "$rev": "HEAD^1"
+    },
+    "to": {
+     "$rev": "HEAD^1^1"
+    }
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "worktree",
+    "from": {
+     "$rev": "HEAD^1^1"
+    },
+    "worktree": "$wt"
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": true
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": false
+   }
+  }
+ },
+ {
+  "method": "treeFiles",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "HEAD^1"
+   }
+  }
+ },
+ {
+  "method": "worktreeFiles",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt"
+  }
+ },
+ {
+  "method": "worktreePathKind",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "docs"
+  }
+ },
+ {
+  "method": "worktreePathKind",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "docs/manual.txt"
+  }
+ },
+ {
+  "method": "worktreePathKind",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "nope/x.txt"
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "docs/manual.txt",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1^1:docs/guide.txt"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:docs/manual.txt"
+    }
+   },
+   "force": false,
+   "oldPath": "docs/guide.txt"
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "crlf.txt",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1^1:crlf.txt"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:crlf.txt"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "logo.png",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1^1:logo.png"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:logo.png"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "data.bin",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1^1:data.bin"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:data.bin"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "big.txt",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:big.txt"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "latin1.txt",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "atCommit",
+    "commit": {
+     "$rev": "HEAD"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "utf16.txt",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "atCommit",
+    "commit": {
+     "$rev": "HEAD"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "icon.svg",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1^1:icon.svg"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:icon.svg"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "docs/manual.txt",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": ":docs/manual.txt"
+    }
+   },
+   "new": {
+    "kind": "worktree",
+    "worktree": "$wt"
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "notes.txt",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "worktree",
+    "worktree": "$wt"
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "dir with space/ünï.txt",
+   "old": {
+    "kind": "absent"
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:dir with space/ünï.txt"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "src/app.php",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD:src/app.php"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": ":src/app.php"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "hexDump",
+  "params": {
+   "repo": "$repo",
+   "path": "data.bin",
+   "old": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1^1:data.bin"
+    }
+   },
+   "new": {
+    "kind": "object",
+    "oid": {
+     "$rev": "HEAD^1:data.bin"
+    }
+   }
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/app.php",
+   "staged": true
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "src/app.php",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "docs/manual.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "wipHunks",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "notes.txt",
+   "staged": false
+  }
+ },
+ {
+  "method": "selectionLines",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "docs/manual.txt",
+   "staged": false,
+   "selection": {
+    "kind": "hunks",
+    "hunks": [
+     0
+    ]
+   }
+  }
+ },
+ {
+  "method": "fileHistory",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "path": "docs/manual.txt",
+   "skip": 0,
+   "limit": 200
+  }
+ },
+ {
+  "method": "blame",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "rev": {
+    "$rev": "HEAD"
+   },
+   "path": "src/app.php"
+  }
+ },
+ {
+  "method": "integratePreview",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt",
+   "kind": "merge",
+   "target": "feature/x"
+  }
+ },
+ {
+  "method": "mergeBase",
+  "params": {
+   "repo": "$repo",
+   "a": {
+    "$rev": "HEAD^1"
+   },
+   "b": {
+    "$rev": "feature/x"
+   }
+  }
+ },
+ {
+  "method": "findText",
+  "params": {
+   "repo": "$repo",
+   "query": "co-authored-by"
+  }
+ },
+ {
+  "method": "findPaths",
+  "params": {
+   "repo": "$repo",
+   "query": "manual"
+  }
+ }
+]

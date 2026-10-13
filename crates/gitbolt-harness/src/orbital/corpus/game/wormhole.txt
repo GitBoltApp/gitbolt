@@ -1,0 +1,88 @@
+#file crates/orbital-game/src/wormhole.rs
+#header v1 @wormholes "Prototype wormholes between sectors"
+//! Wormholes: gates that jump a ship from one sector to another.
+
+use glam::Vec2;
+use orbital_core::body::Body;
+
+#item Wormhole v1 @wormholes "Prototype wormholes between sectors"
+/// A gate between two points: a body that comes within `radius` of `entry` comes out at `exit`.
+#[derive(Debug)]
+pub struct Wormhole {
+    pub entry: Vec2,
+    pub exit: Vec2,
+    pub radius: f32,
+}
+#item contains v1 @wormholes "Check whether a body has reached the gate"
+impl Wormhole {
+    /// Whether the body is within the gate's radius of its entry point.
+    pub fn contains(&self, body: &Body) -> bool {
+        body.position.distance(self.entry) < self.radius
+    }
+}
+#item contains v2 @wormholes "Measure the gate from the body's edge"
+impl Wormhole {
+    /// Whether the body's edge is within the gate's radius of its entry point.
+    pub fn contains(&self, body: &Body) -> bool {
+        body.position.distance(self.entry) < self.radius + body.radius
+    }
+}
+#item jump v1 @wormholes "Prototype wormholes between sectors"
+impl Wormhole {
+    /// Moves a body that has reached the gate to the exit. Returns whether it jumped.
+    pub fn jump(&self, body: &mut Body) -> bool {
+        if body.position.distance(self.entry) >= self.radius {
+            return false;
+        }
+        body.position = self.exit;
+        true
+    }
+}
+#item jump v2 @wormholes "Keep a ship's offset from the gate through a jump"
+impl Wormhole {
+    /// Moves a body that has reached the gate to the exit, keeping its offset from the gate. Returns
+    /// whether it jumped.
+    pub fn jump(&self, body: &mut Body) -> bool {
+        if body.position.distance(self.entry) >= self.radius {
+            return false;
+        }
+        body.position = self.exit + (body.position - self.entry);
+        true
+    }
+}
+#item jump v3 @wormholes "Use the gate's own check for a jump"
+impl Wormhole {
+    /// Moves a body that has reached the gate to the exit, keeping its offset from the gate. Returns
+    /// whether it jumped.
+    pub fn jump(&self, body: &mut Body) -> bool {
+        if !self.contains(body) {
+            return false;
+        }
+        body.position = self.exit + (body.position - self.entry);
+        true
+    }
+}
+#test jump_keeps_the_offset_from_the_gate v1 @wormholes "Test that a jump keeps the ship's offset from the gate"
+#[test]
+fn jump_keeps_the_offset_from_the_gate() {
+    let gate = Wormhole {
+        entry: Vec2::ZERO,
+        exit: Vec2::new(100.0, 0.0),
+        radius: 5.0,
+    };
+    let mut ship = Body::ship("probe", Vec2::new(1.0, 0.0), Vec2::ZERO, 1.0);
+    assert!(gate.jump(&mut ship));
+    assert!((ship.position - Vec2::new(101.0, 0.0)).length() < 1e-4);
+}
+#test a_body_outside_the_gate_stays_put v1 @wormholes "Test that a body outside the gate stays put"
+#[test]
+fn a_body_outside_the_gate_stays_put() {
+    let gate = Wormhole {
+        entry: Vec2::ZERO,
+        exit: Vec2::new(100.0, 0.0),
+        radius: 5.0,
+    };
+    let mut ship = Body::ship("probe", Vec2::new(50.0, 0.0), Vec2::ZERO, 1.0);
+    assert!(!gate.jump(&mut ship));
+    assert_eq!(ship.position, Vec2::new(50.0, 0.0));
+}

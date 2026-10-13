@@ -1,0 +1,48 @@
+{
+  "request": {
+    "method": "blame",
+    "params": {
+      "path": "story.txt",
+      "repo": "$repo",
+      "rev": "4d1b598ac56effafb61997357633a9c69495ffc3",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "commits": [
+      {
+        "author": "Ada Lovelace",
+        "boundary": true,
+        "email": "ada@example.com",
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "summary": "Start the story",
+        "time": 1767225720
+      },
+      {
+        "author": "Grace Hopper",
+        "boundary": false,
+        "email": "grace@example.com",
+        "sha": "4d1b598ac56effafb61997357633a9c69495ffc3",
+        "summary": "Add the middle",
+        "time": 1767226080
+      }
+    ],
+    "hunks": [
+      {
+        "lines": 2,
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "start": 1
+      },
+      {
+        "lines": 2,
+        "sha": "4d1b598ac56effafb61997357633a9c69495ffc3",
+        "start": 3
+      },
+      {
+        "lines": 4,
+        "sha": "46973691d3af07d2370988ffebb5261568a4a69d",
+        "start": 5
+      }
+    ]
+  }
+}

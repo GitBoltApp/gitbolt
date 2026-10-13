@@ -1,0 +1,106 @@
+[
+ {
+  "method": "openRepo",
+  "params": {
+   "path": "$wt"
+  }
+ },
+ {
+  "method": "submodules",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt"
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": false
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "wip",
+    "worktree": "$wt",
+    "staged": true
+   }
+  }
+ },
+ {
+  "method": "fileList",
+  "params": {
+   "repo": "$repo",
+   "spec": {
+    "kind": "commit",
+    "id": {
+     "$rev": "HEAD"
+    },
+    "parent": 0
+   }
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "libs/netcode",
+   "old": {
+    "kind": "submodule",
+    "oid": {
+     "$rev": "HEAD^:libs/netcode"
+    }
+   },
+   "new": {
+    "kind": "submodule",
+    "oid": {
+     "$rev": "HEAD:libs/netcode"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "diffContents",
+  "params": {
+   "repo": "$repo",
+   "path": "libs/shaders",
+   "old": {
+    "kind": "submodule",
+    "oid": {
+     "$rev": "HEAD^:libs/shaders"
+    }
+   },
+   "new": {
+    "kind": "submodule",
+    "oid": {
+     "$rev": "HEAD:libs/shaders"
+    }
+   },
+   "force": false
+  }
+ },
+ {
+  "method": "treeFiles",
+  "params": {
+   "repo": "$repo",
+   "id": {
+    "$rev": "HEAD"
+   }
+  }
+ },
+ {
+  "method": "worktreeFiles",
+  "params": {
+   "repo": "$repo",
+   "worktree": "$wt"
+  }
+ }
+]

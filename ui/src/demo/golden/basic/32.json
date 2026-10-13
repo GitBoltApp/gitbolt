@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "lastPush",
+    "params": {
+      "remoteRef": "refs/remotes/origin/main",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "kind": "push",
+    "time": 1767227160
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "request": {
+    "method": "submodules",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": []
+}

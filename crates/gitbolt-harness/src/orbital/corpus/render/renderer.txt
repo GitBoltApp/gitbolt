@@ -1,0 +1,1680 @@
+#file crates/orbital-render/src/renderer.rs
+#header v1 @first-window "Open a window and clear it every frame"
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use winit::window::Window;
+#header v2 @camera-follow "Add a parallax starfield behind the orbit view"
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use glam::Vec2;
+use winit::window::Window;
+
+use crate::camera::Camera;
+use crate::starfield::{StarPass, Starfield};
+#header v3 @verdant-art "Show the verdant planet in the orbit view"
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use glam::Vec2;
+use winit::window::Window;
+
+use crate::atlas::ATLAS_SIZE;
+use crate::camera::Camera;
+use crate::sprite_batch::{GpuSprite, SpriteBatch};
+use crate::starfield::{StarPass, Starfield};
+#header v4 @hud-font "Add the HUD font"
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use glam::Vec2;
+use winit::window::Window;
+
+use crate::atlas::ATLAS_SIZE;
+use crate::camera::Camera;
+use crate::sprite_batch::{GpuSprite, SpriteBatch};
+use crate::starfield::{StarPass, Starfield};
+use crate::text::{Glyph, TextPass};
+#header v5 @bloom-pass "Add a bloom pass that glows over bright pixels"
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use glam::Vec2;
+use winit::window::Window;
+
+use crate::atlas::ATLAS_SIZE;
+use crate::bloom::Bloom;
+use crate::camera::Camera;
+use crate::sprite_batch::{GpuSprite, SpriteBatch};
+use crate::starfield::{StarPass, Starfield};
+use crate::text::{Glyph, TextPass};
+#header v6 @orbit-trails "Draw a fading trail behind each orbit"
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use glam::Vec2;
+use winit::window::Window;
+
+use crate::atlas::ATLAS_SIZE;
+use crate::bloom::Bloom;
+use crate::camera::Camera;
+use crate::sprite_batch::{GpuSprite, SpriteBatch};
+use crate::starfield::{StarPass, Starfield};
+use crate::text::{Glyph, TextPass};
+use crate::trails::{Trail, TrailPass};
+#header v7 @hud-cargo
+//! The GPU side: the window's surface, the device, and one frame at a time.
+
+use std::sync::Arc;
+
+use glam::Vec2;
+use winit::window::Window;
+
+use crate::atlas::ATLAS_SIZE;
+use crate::bloom::Bloom;
+use crate::camera::Camera;
+use crate::painter::Command;
+use crate::panels::PanelPass;
+use crate::sprite_batch::{GpuSprite, SpriteBatch};
+use crate::starfield::{StarPass, Starfield};
+use crate::text::{Glyph, TextPass};
+use crate::trails::{Trail, TrailPass};
+#const CLEAR_LEVEL v1 @first-window "Open a window and clear it every frame"
+/// How bright the background is, from 0 to 1, before the blue is lifted.
+pub const CLEAR_LEVEL: f64 = 0.03;
+#const CLEAR_LEVEL v2 @high-contrast "Add a high-contrast theme"
+/// How bright the background is, from 0 to 1, before the blue is lifted.
+pub const CLEAR_LEVEL: f64 = 0.0;
+#const SPRITE_CAPACITY v1 @verdant-art "Show the verdant planet in the orbit view"
+/// The most sprites one frame may draw; any beyond this are dropped with a warning.
+pub const SPRITE_CAPACITY: usize = 4096;
+#item open v1 @first-window "Open a window and clear it every frame"
+/// Opens the GPU for `window`: the surface, the device and its queue, and the surface's configuration.
+fn open(
+    window: Arc<Window>,
+) -> (
+    wgpu::Surface<'static>,
+    wgpu::Device,
+    wgpu::Queue,
+    wgpu::SurfaceConfiguration,
+) {
+    let instance = wgpu::Instance::default();
+    let size = window.inner_size();
+    let surface = instance
+        .create_surface(window)
+        .expect("the window has a surface");
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        compatible_surface: Some(&surface),
+        ..Default::default()
+    }))
+    .expect("a GPU adapter for the window");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+            .expect("a GPU device");
+    let caps = surface.get_capabilities(&adapter);
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: caps.formats[0],
+        width: size.width.max(1),
+        height: size.height.max(1),
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: caps.alpha_modes[0],
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+    };
+    surface.configure(&device, &config);
+    (surface, device, queue, config)
+}
+#item open v2 @shading-banding "Fix planet banding on the dark side\n\nA dithering pass hides the bands on the night side."
+/// Opens the GPU for `window`: the surface, the device and its queue, and the surface's configuration,
+/// in the sRGB format when the surface offers one.
+fn open(
+    window: Arc<Window>,
+) -> (
+    wgpu::Surface<'static>,
+    wgpu::Device,
+    wgpu::Queue,
+    wgpu::SurfaceConfiguration,
+) {
+    let instance = wgpu::Instance::default();
+    let size = window.inner_size();
+    let surface = instance
+        .create_surface(window)
+        .expect("the window has a surface");
+    let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+        compatible_surface: Some(&surface),
+        ..Default::default()
+    }))
+    .expect("a GPU adapter for the window");
+    let (device, queue) =
+        pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default(), None))
+            .expect("a GPU device");
+    let caps = surface.get_capabilities(&adapter);
+    let config = wgpu::SurfaceConfiguration {
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+        format: pick_format(&caps),
+        width: size.width.max(1),
+        height: size.height.max(1),
+        present_mode: wgpu::PresentMode::Fifo,
+        alpha_mode: caps.alpha_modes[0],
+        view_formats: vec![],
+        desired_maximum_frame_latency: 2,
+    };
+    surface.configure(&device, &config);
+    (surface, device, queue, config)
+}
+#item Renderer v1 @first-window "Open a window and clear it every frame"
+/// The device, the surface it draws to, and the configuration the surface was made with.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+}
+#item Renderer v2 @camera-follow "Add a parallax starfield behind the orbit view"
+/// The device, the surface it draws to, the configuration the surface was made with, the camera
+/// uniform, and the starfield pass.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+}
+#item Renderer v3 @verdant-art "Show the verdant planet in the orbit view"
+/// The device, the surface it draws to, the configuration the surface was made with, the camera
+/// uniform, the starfield pass, and the sprite pipeline with its instances and atlas.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+    sprites: wgpu::RenderPipeline,
+    sprite_buffer: wgpu::Buffer,
+    sprite_group: wgpu::BindGroup,
+    atlas: wgpu::Texture,
+    atlas_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+}
+#item Renderer v4 @hud-font "Add the HUD font"
+/// The device, the surface it draws to, the configuration the surface was made with, the camera
+/// uniform, the starfield, sprite and text passes, and the atlas the sprites and glyphs share.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+    sprites: wgpu::RenderPipeline,
+    sprite_buffer: wgpu::Buffer,
+    sprite_group: wgpu::BindGroup,
+    atlas: wgpu::Texture,
+    atlas_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+    text: TextPass,
+}
+#item Renderer v5 @bloom-pass "Add a bloom pass that glows over bright pixels"
+/// The device, the surface it draws to, the configuration the surface was made with, the passes
+/// the frame draws with, the offscreen scene the bloom pass reads, and the bloom pass itself.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+    sprites: wgpu::RenderPipeline,
+    sprite_buffer: wgpu::Buffer,
+    sprite_group: wgpu::BindGroup,
+    atlas: wgpu::Texture,
+    atlas_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+    text: TextPass,
+    scene_view: wgpu::TextureView,
+    bloom: Bloom,
+}
+#item Renderer v6 @orbit-trails "Draw a fading trail behind each orbit"
+/// The device, the surface it draws to, the configuration the surface was made with, the passes
+/// the frame draws with, the offscreen scene the bloom pass reads, and the bloom pass itself.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+    trails: TrailPass,
+    sprites: wgpu::RenderPipeline,
+    sprite_buffer: wgpu::Buffer,
+    sprite_group: wgpu::BindGroup,
+    atlas: wgpu::Texture,
+    atlas_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+    text: TextPass,
+    scene_view: wgpu::TextureView,
+    bloom: Bloom,
+}
+#item Renderer v7 @hud-cargo "Draw the HUD's panels in their own pass"
+/// The device, the surface it draws to, the configuration the surface was made with, the passes
+/// the frame draws with (the HUD's panels among them), the offscreen scene the bloom pass reads,
+/// and the bloom pass itself.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+    trails: TrailPass,
+    sprites: wgpu::RenderPipeline,
+    sprite_buffer: wgpu::Buffer,
+    sprite_group: wgpu::BindGroup,
+    atlas: wgpu::Texture,
+    atlas_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+    text: TextPass,
+    panels: PanelPass,
+    scene_view: wgpu::TextureView,
+    bloom: Bloom,
+}
+#item Renderer v8 @planet-shading "Rework the planet shading"
+/// The device, the surface it draws to, the configuration the surface was made with, the passes
+/// the frame draws with (the HUD's panels among them), the offscreen scene the bloom pass reads,
+/// and the light the planets are lit from.
+pub struct Renderer {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
+    camera_buffer: wgpu::Buffer,
+    stars: StarPass,
+    trails: TrailPass,
+    sprites: wgpu::RenderPipeline,
+    sprite_buffer: wgpu::Buffer,
+    sprite_group: wgpu::BindGroup,
+    atlas: wgpu::Texture,
+    atlas_view: wgpu::TextureView,
+    atlas_sampler: wgpu::Sampler,
+    text: TextPass,
+    panels: PanelPass,
+    scene_view: wgpu::TextureView,
+    bloom: Bloom,
+    light: [f32; 2],
+}
+#item Scene v1 @camera-follow "Add a parallax starfield behind the orbit view"
+/// What one frame draws: the starfield behind everything else.
+pub struct Scene<'a> {
+    pub stars: &'a Starfield,
+}
+#item Scene v2 @verdant-art "Show the verdant planet in the orbit view"
+/// What one frame draws: the starfield behind everything else, then the sprites.
+pub struct Scene<'a> {
+    pub stars: &'a Starfield,
+    pub sprites: &'a SpriteBatch,
+}
+#item Scene v3 @hud-font "Add the HUD font"
+/// What one frame draws: the starfield behind everything else, then the sprites, then the text.
+pub struct Scene<'a> {
+    pub stars: &'a Starfield,
+    pub sprites: &'a SpriteBatch,
+    pub text: &'a [Glyph],
+}
+#item Scene v4 @orbit-trails "Draw a fading trail behind each orbit"
+/// What one frame draws: the starfield behind everything else, then the trails, the sprites and
+/// the text.
+pub struct Scene<'a> {
+    pub stars: &'a Starfield,
+    pub trails: &'a [Trail],
+    pub sprites: &'a SpriteBatch,
+    pub text: &'a [Glyph],
+}
+#item Scene v5 @hud-cargo "Draw the HUD's panels in their own pass"
+/// What one frame draws: the starfield behind everything else, then the trails, the sprites, the
+/// HUD's panels and the text.
+pub struct Scene<'a> {
+    pub stars: &'a Starfield,
+    pub trails: &'a [Trail],
+    pub sprites: &'a SpriteBatch,
+    pub panels: &'a [Command],
+    pub text: &'a [Glyph],
+}
+#item clear_colour v1 @first-window "Open a window and clear it every frame"
+/// The background colour: a dark sky blue, from [`CLEAR_LEVEL`].
+fn clear_colour() -> wgpu::Color {
+    wgpu::Color {
+        r: CLEAR_LEVEL,
+        g: CLEAR_LEVEL * 1.5,
+        b: CLEAR_LEVEL * 2.0,
+        a: 1.0,
+    }
+}
+#item pick_format v1 @shading-banding "Fix planet banding on the dark side\n\nA dithering pass hides the bands on the night side."
+/// The surface format to draw in: the sRGB one when the surface offers it, so the night side's
+/// gradients are blended in linear light and don't band.
+#[must_use]
+fn pick_format(caps: &wgpu::SurfaceCapabilities) -> wgpu::TextureFormat {
+    caps.formats
+        .iter()
+        .copied()
+        .find(wgpu::TextureFormat::is_srgb)
+        .unwrap_or(caps.formats[0])
+}
+#item new v1 @first-window "Open a window and clear it every frame"
+impl Renderer {
+    /// Opens the GPU for `window` and configures its surface to the window's size.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+        }
+    }
+}
+#item new v2 @camera-follow "Add a parallax starfield behind the orbit view"
+impl Renderer {
+    /// Opens the GPU for `window`, with the camera uniform and the starfield behind the sprites.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+        }
+    }
+}
+#item new v3 @verdant-art "Show the verdant planet in the orbit view"
+impl Renderer {
+    /// Opens the GPU for `window`, with the sprite pipeline and the atlas its sprites are sampled from.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sprite"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/sprite.wgsl").into()),
+        });
+        let sprites = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sprites"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(config.format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+        }
+    }
+}
+#item new v4 @hud-font "Add the HUD font"
+impl Renderer {
+    /// Opens the GPU for `window`, with the starfield, the sprites and the text pass sharing one atlas.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sprite"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/sprite.wgsl").into()),
+        });
+        let sprites = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sprites"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(config.format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        let text = TextPass::new(&device, config.format, &camera_buffer, &atlas_view);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+            text,
+        }
+    }
+}
+#item new v5 @bloom-pass "Add a bloom pass that glows over bright pixels"
+impl Renderer {
+    /// Opens the GPU for `window`, with the scene the sprites are drawn into and the bloom pass
+    /// that composites it onto the window.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("sprite"),
+            source: wgpu::ShaderSource::Wgsl(include_str!("../shaders/sprite.wgsl").into()),
+        });
+        let sprites = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("sprites"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[],
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                compilation_options: Default::default(),
+                targets: &[Some(config.format.into())],
+            }),
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleStrip,
+                ..Default::default()
+            },
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        let text = TextPass::new(&device, config.format, &camera_buffer, &atlas_view);
+        let scene_view = scene_target(&device, &config);
+        let bloom = Bloom::new(&device, config.format, &scene_view);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+            text,
+            scene_view,
+            bloom,
+        }
+    }
+}
+#item new v6 @shader-reload "Reload shaders without restarting the game"
+impl Renderer {
+    /// Opens the GPU for `window`, with the scene the sprites are drawn into and the bloom pass
+    /// that composites it onto the window.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let sprites = sprite_pipeline(
+            &device,
+            config.format,
+            include_str!("../shaders/sprite.wgsl"),
+        );
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        let text = TextPass::new(&device, config.format, &camera_buffer, &atlas_view);
+        let scene_view = scene_target(&device, &config);
+        let bloom = Bloom::new(&device, config.format, &scene_view);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+            text,
+            scene_view,
+            bloom,
+        }
+    }
+}
+#item new v7 @orbit-trails "Draw a fading trail behind each orbit"
+impl Renderer {
+    /// Opens the GPU for `window`, with the scene the sprites are drawn into, the trails and the bloom
+    /// pass that composites it onto the window.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let trails = TrailPass::new(&device, config.format, &camera_buffer);
+        let sprites = sprite_pipeline(
+            &device,
+            config.format,
+            include_str!("../shaders/sprite.wgsl"),
+        );
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        let text = TextPass::new(&device, config.format, &camera_buffer, &atlas_view);
+        let scene_view = scene_target(&device, &config);
+        let bloom = Bloom::new(&device, config.format, &scene_view);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            trails,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+            text,
+            scene_view,
+            bloom,
+        }
+    }
+}
+#item new v8 @hud-cargo "Draw the HUD's panels in their own pass"
+impl Renderer {
+    /// Opens the GPU for `window`, with the scene the sprites are drawn into, the trails and the bloom
+    /// pass that composites it onto the window.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 32,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let trails = TrailPass::new(&device, config.format, &camera_buffer);
+        let sprites = sprite_pipeline(
+            &device,
+            config.format,
+            include_str!("../shaders/sprite.wgsl"),
+        );
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        let text = TextPass::new(&device, config.format, &camera_buffer, &atlas_view);
+        let panels = PanelPass::new(&device, config.format);
+        let scene_view = scene_target(&device, &config);
+        let bloom = Bloom::new(&device, config.format, &scene_view);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            trails,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+            text,
+            panels,
+            scene_view,
+            bloom,
+        }
+    }
+}
+#item new v9 @planet-shading "Rework the planet shading"
+impl Renderer {
+    /// Opens the GPU for `window`, lit from the upper left until a setting says otherwise.
+    pub fn new(window: Arc<Window>) -> Self {
+        let (surface, device, queue, config) = open(window);
+        let camera_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("camera"),
+            size: 48,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let stars = StarPass::new(&device, config.format, &camera_buffer);
+        let trails = TrailPass::new(&device, config.format, &camera_buffer);
+        let sprites = sprite_pipeline(
+            &device,
+            config.format,
+            include_str!("../shaders/sprite.wgsl"),
+        );
+        let sprite_buffer = device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("sprite instances"),
+            size: (SPRITE_CAPACITY * std::mem::size_of::<GpuSprite>()) as u64,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let atlas = device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("atlas"),
+            size: wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: wgpu::TextureFormat::Rgba8UnormSrgb,
+            usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+            view_formats: &[],
+        });
+        let atlas_view = atlas.create_view(&wgpu::TextureViewDescriptor::default());
+        let atlas_sampler = device.create_sampler(&wgpu::SamplerDescriptor::default());
+        let sprite_group = build_sprite_group(
+            &device,
+            &sprites,
+            &camera_buffer,
+            &sprite_buffer,
+            &atlas_view,
+            &atlas_sampler,
+        );
+        let text = TextPass::new(&device, config.format, &camera_buffer, &atlas_view);
+        let panels = PanelPass::new(&device, config.format);
+        let scene_view = scene_target(&device, &config);
+        let bloom = Bloom::new(&device, config.format, &scene_view);
+        Self {
+            surface,
+            device,
+            queue,
+            config,
+            camera_buffer,
+            stars,
+            trails,
+            sprites,
+            sprite_buffer,
+            sprite_group,
+            atlas,
+            atlas_view,
+            atlas_sampler,
+            text,
+            panels,
+            scene_view,
+            bloom,
+            light: [-0.6, 0.6],
+        }
+    }
+}
+#item build_sprite_group v1 @verdant-art "Show the verdant planet in the orbit view"
+/// The sprite pipeline's bind group: the camera, the sprite instances, the atlas and its sampler.
+fn build_sprite_group(
+    device: &wgpu::Device,
+    pipeline: &wgpu::RenderPipeline,
+    camera: &wgpu::Buffer,
+    sprites: &wgpu::Buffer,
+    atlas: &wgpu::TextureView,
+    sampler: &wgpu::Sampler,
+) -> wgpu::BindGroup {
+    device.create_bind_group(&wgpu::BindGroupDescriptor {
+        label: Some("sprites"),
+        layout: &pipeline.get_bind_group_layout(0),
+        entries: &[
+            wgpu::BindGroupEntry {
+                binding: 0,
+                resource: camera.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 1,
+                resource: sprites.as_entire_binding(),
+            },
+            wgpu::BindGroupEntry {
+                binding: 2,
+                resource: wgpu::BindingResource::TextureView(atlas),
+            },
+            wgpu::BindGroupEntry {
+                binding: 3,
+                resource: wgpu::BindingResource::Sampler(sampler),
+            },
+        ],
+    })
+}
+#item scene_target v1 @bloom-pass "Add a bloom pass that glows over bright pixels"
+/// An offscreen target the size and format of the surface, which the scene is drawn into before the
+/// bloom pass composites it onto the window.
+fn scene_target(device: &wgpu::Device, config: &wgpu::SurfaceConfiguration) -> wgpu::TextureView {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("scene"),
+        size: wgpu::Extent3d {
+            width: config.width,
+            height: config.height,
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: config.format,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    texture.create_view(&wgpu::TextureViewDescriptor::default())
+}
+#item sprite_pipeline v1 @shader-reload "Reload shaders without restarting the game"
+/// The sprite pipeline for the shader `source`, drawing to a surface of `format`.
+fn sprite_pipeline(
+    device: &wgpu::Device,
+    format: wgpu::TextureFormat,
+    source: &str,
+) -> wgpu::RenderPipeline {
+    let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+        label: Some("sprite"),
+        source: wgpu::ShaderSource::Wgsl(source.into()),
+    });
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("sprites"),
+        layout: None,
+        vertex: wgpu::VertexState {
+            module: &shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        fragment: Some(wgpu::FragmentState {
+            module: &shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(format.into())],
+        }),
+        primitive: wgpu::PrimitiveState {
+            topology: wgpu::PrimitiveTopology::TriangleStrip,
+            ..Default::default()
+        },
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        multiview: None,
+        cache: None,
+    })
+}
+#item resize v1 @first-window "Open a window and clear it every frame"
+impl Renderer {
+    /// Follows the window to a new size. A minimised window has no size, so it is left alone.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+    }
+}
+#item resize v2 @bloom-pass "Add a bloom pass that glows over bright pixels"
+impl Renderer {
+    /// Follows the window to a new size, resizing the offscreen scene and the bloom pass that reads it.
+    /// A minimised window has no size, so it is left alone.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        if width == 0 || height == 0 {
+            return;
+        }
+        self.config.width = width;
+        self.config.height = height;
+        self.surface.configure(&self.device, &self.config);
+        self.scene_view = scene_target(&self.device, &self.config);
+        self.bloom = Bloom::new(&self.device, self.config.format, &self.scene_view);
+    }
+}
+#item write_camera v1 @camera-follow "Add a parallax starfield behind the orbit view"
+impl Renderer {
+    /// Writes the view and the window's size into the camera uniform.
+    fn write_camera(&self, camera: &Camera) {
+        let uniform = [
+            camera.centre.x,
+            camera.centre.y,
+            camera.zoom,
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+        ];
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&uniform));
+    }
+}
+#item write_camera v2 @planet-shading "Rework the planet shading"
+impl Renderer {
+    /// Writes the view, the window's size and the planets' light into the camera uniform.
+    fn write_camera(&self, camera: &Camera) {
+        let uniform = [
+            camera.centre.x,
+            camera.centre.y,
+            camera.zoom,
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            self.light[0],
+            self.light[1],
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&uniform));
+    }
+}
+#item write_camera v3 @explosion-shake "Draw the shake by nudging the camera's centre"
+impl Renderer {
+    /// Writes the view, shaken by the camera's nudge, the window's size and the planets' light.
+    fn write_camera(&self, camera: &Camera) {
+        let nudge = camera.shake_offset(camera.phase);
+        let uniform = [
+            camera.centre.x + nudge.x,
+            camera.centre.y + nudge.y,
+            camera.zoom,
+            0.0,
+            self.config.width as f32,
+            self.config.height as f32,
+            self.light[0],
+            self.light[1],
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+        ];
+        self.queue
+            .write_buffer(&self.camera_buffer, 0, bytemuck::cast_slice(&uniform));
+    }
+}
+#item frame v1 @first-window "Open a window and clear it every frame"
+impl Renderer {
+    /// Clears the window to the background colour and presents it.
+    pub fn frame(&mut self) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("clear"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+        }
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v2 @camera-follow "Add a parallax starfield behind the orbit view"
+impl Renderer {
+    /// Clears the window, draws the starfield through the camera, and presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+        }
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v3 @verdant-art "Show the verdant planet in the orbit view"
+impl Renderer {
+    /// Clears the window, draws the starfield and then the sprites through the camera, and presents the
+    /// frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+        }
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v4 @hud-font "Add the HUD font"
+impl Renderer {
+    /// Clears the window and draws the starfield, the sprites and the text through the camera, then
+    /// presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+            self.text.pass_draw(&self.queue, &mut pass, scene.text);
+        }
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v5 @bloom-pass "Add a bloom pass that glows over bright pixels"
+impl Renderer {
+    /// Draws the starfield, the sprites and the text into the offscreen scene, then composites the
+    /// bloom onto the window and presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.scene_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+            self.text.pass_draw(&self.queue, &mut pass, scene.text);
+        }
+        self.bloom.run(&mut encoder, &view);
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v6 @bloom-cost-doc "Cap bloom passes at two per frame"
+impl Renderer {
+    /// Draws the starfield, the sprites and the text into the offscreen scene, then composites the
+    /// bloom onto the window and presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.scene_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+            self.text.pass_draw(&self.queue, &mut pass, scene.text);
+        }
+        // Three passes are asked for; the bloom pass caps the request at MAX_PASSES.
+        self.bloom.run(&mut encoder, &view, 3);
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v7 @shader-reload "Reload shaders without restarting the game"
+impl Renderer {
+    /// Draws the starfield, the sprites and the text into the offscreen scene, then composites the
+    /// bloom onto the window and presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        self.bloom.upload(&self.queue);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.scene_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+            self.text.pass_draw(&self.queue, &mut pass, scene.text);
+        }
+        self.bloom.run(&mut encoder, &view, 3);
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v8 @orbit-trails "Draw a fading trail behind each orbit"
+impl Renderer {
+    /// Draws the starfield, the trails, the sprites and the text into the offscreen scene, then
+    /// composites the bloom onto the window and presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        self.bloom.upload(&self.queue);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.scene_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            self.trails
+                .pass_draw(&self.queue, &mut pass, scene.trails, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+            self.text.pass_draw(&self.queue, &mut pass, scene.text);
+        }
+        self.bloom.run(&mut encoder, &view, 3);
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item frame v9 @hud-cargo "Draw the HUD's panels in their own pass"
+impl Renderer {
+    /// Draws the starfield, the trails, the sprites, the HUD's panels and the text into the offscreen
+    /// scene, then composites the bloom onto the window and presents the frame.
+    pub fn frame(&mut self, camera: &Camera, scene: &Scene) {
+        let Ok(output) = self.surface.get_current_texture() else {
+            log::warn!("no frame to draw; reconfiguring the surface");
+            self.surface.configure(&self.device, &self.config);
+            return;
+        };
+        let view = output
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        self.write_camera(camera);
+        self.bloom.upload(&self.queue);
+        if scene.sprites.sprites().len() > SPRITE_CAPACITY {
+            log::warn!("the sprite batch is over capacity; the rest are dropped");
+        }
+        let instances: Vec<GpuSprite> = scene
+            .sprites
+            .sprites()
+            .iter()
+            .take(SPRITE_CAPACITY)
+            .map(GpuSprite::from_sprite)
+            .collect();
+        self.queue
+            .write_buffer(&self.sprite_buffer, 0, bytemuck::cast_slice(&instances));
+        let screen = Vec2::new(self.config.width as f32, self.config.height as f32);
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("scene"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &self.scene_view,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(clear_colour()),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: None,
+                timestamp_writes: None,
+                occlusion_query_set: None,
+            });
+            self.stars
+                .pass_draw(&self.queue, &mut pass, scene.stars, camera, screen);
+            self.trails
+                .pass_draw(&self.queue, &mut pass, scene.trails, camera, screen);
+            pass.set_pipeline(&self.sprites);
+            pass.set_bind_group(0, &self.sprite_group, &[]);
+            pass.draw(0..4, 0..instances.len() as u32);
+            self.panels
+                .pass_draw(&self.queue, &mut pass, scene.panels, screen);
+            self.text.pass_draw(&self.queue, &mut pass, scene.text);
+        }
+        self.bloom.run(&mut encoder, &view, 3);
+        self.queue.submit(Some(encoder.finish()));
+        output.present();
+    }
+}
+#item reload_shaders v1 @shader-reload "Reload shaders without restarting the game"
+impl Renderer {
+    /// Rebuilds the sprite pipeline and its bind group from the shader file on disk. A file that fails to
+    /// read keeps the old pipeline, so a half-saved edit doesn't blank the window.
+    pub fn reload_shaders(&mut self) {
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/shaders/sprite.wgsl");
+        match std::fs::read_to_string(path) {
+            Ok(source) => {
+                self.sprites = sprite_pipeline(&self.device, self.config.format, &source);
+                self.sprite_group = build_sprite_group(
+                    &self.device,
+                    &self.sprites,
+                    &self.camera_buffer,
+                    &self.sprite_buffer,
+                    &self.atlas_view,
+                    &self.atlas_sampler,
+                );
+            }
+            Err(err) => log::warn!("couldn't reload {path}: {err}"),
+        }
+    }
+}
+#item upload_atlas v1 @verdant-art "Show the verdant planet in the orbit view"
+impl Renderer {
+    /// Uploads the atlas's texels, `ATLAS_SIZE` to a row at four bytes a texel.
+    pub fn upload_atlas(&self, pixels: &[u8]) {
+        self.queue.write_texture(
+            wgpu::TexelCopyTextureInfo {
+                texture: &self.atlas,
+                mip_level: 0,
+                origin: wgpu::Origin3d::ZERO,
+                aspect: wgpu::TextureAspect::All,
+            },
+            pixels,
+            wgpu::TexelCopyBufferLayout {
+                offset: 0,
+                bytes_per_row: Some(ATLAS_SIZE * 4),
+                rows_per_image: Some(ATLAS_SIZE),
+            },
+            wgpu::Extent3d {
+                width: ATLAS_SIZE,
+                height: ATLAS_SIZE,
+                depth_or_array_layers: 1,
+            },
+        );
+    }
+}
+#item set_light v1 @light-direction "Add a light direction setting for the planets"
+impl Renderer {
+    /// Sets the direction the planets are lit from, as a unit vector in screen space.
+    pub fn set_light(&mut self, dir: [f32; 2]) {
+        self.light = dir;
+    }
+}
+#test clear_level_is_dark v1 @first-window "Test that the background stays dark"
+#[test]
+fn clear_level_is_dark() {
+    const { assert!(CLEAR_LEVEL < 0.1) };
+}
