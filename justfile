@@ -193,6 +193,11 @@ run-app repo="":
     if [ -e "{{sandbox_helper}}" ]; then export CHROME_DEVEL_SANDBOX="{{sandbox_helper}}"; rm -f target/release/chrome-sandbox; fi
     GITBOLT_OPEN="{{repo}}" target/release/gitbolt
 
+# The app's icon set (crates/gitbolt-app/icons) from icons/source.svg, with the 32-64 px outputs from source-mid.svg and the 16 and 24 px
+# layers from icons/source-small.svg (scripts/icons.py; needs the Tauri CLI and Pillow).
+icons:
+    python3 scripts/icons.py
+
 # A desktop entry for the unbundled release build (H13): the dock and the app grid then show
 # GitBolt's icon and match its window (StartupWMClass = the window's WM_CLASS, set in
 # crates/gitbolt-app/src/desktop.rs). Writes only under $XDG_DATA_HOME (default

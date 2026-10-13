@@ -5,6 +5,12 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **New app icon:** two graph lanes, one cool and one warm, branch from a commit and merge into
+  another, outlining a bolt. Its commits are drawn as the graph draws them: a ring in the lane's
+  colour. Small sizes use a bolder version of the same mark.
+
 ### Fixed
 
 - Compare with working tree against an older commit lists binary files (images and the like)

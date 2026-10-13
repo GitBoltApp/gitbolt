@@ -1,74 +1,57 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <!-- GitBolt round 4, R3C: fading lanes, set B, shadow 1 -->
+  <!-- Concept 2, "Branch and merge" (v2), the large-size master (128 px and up, thinner lanes; source-mid.svg
+       has the heavier weights for 32-64 px): two lanes branch from one commit, zig-zag apart and
+       merge into one commit; together they outline the bolt. Commits are drawn like the graph's
+       nodes: a ring in the lane's colour around a dark centre (where the app puts the avatar). -->
   <defs>
-    <linearGradient id="plate" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#1d2a4a"/>
-      <stop offset="1" stop-color="#0a0f1e"/>
+    <linearGradient id="i2-plate" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2c4282"/>
+      <stop offset="1" stop-color="#152049"/>
     </linearGradient>
-    <radialGradient id="glow" cx="0.5" cy="0.5" r="0.5">
-      <stop offset="0" stop-color="#0669f7" stop-opacity="0.42"/>
-      <stop offset="1" stop-color="#0669f7" stop-opacity="0"/>
+    <linearGradient id="i2-cool" gradientUnits="userSpaceOnUse" x1="0" y1="72" x2="0" y2="440">
+      <stop offset="0" stop-color="#43efb8"/>
+      <stop offset="0.5" stop-color="#24c6e8"/>
+      <stop offset="1" stop-color="#3b8cff"/>
+    </linearGradient>
+    <linearGradient id="i2-warm" gradientUnits="userSpaceOnUse" x1="0" y1="72" x2="0" y2="440">
+      <stop offset="0" stop-color="#f2ca33"/>
+      <stop offset="0.5" stop-color="#f25d2e"/>
+      <stop offset="1" stop-color="#d90171"/>
+    </linearGradient>
+    <linearGradient id="i2-fill" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#24c6e8" stop-opacity="1"/>
+      <stop offset="0.5" stop-color="#8e00c2" stop-opacity="1"/>
+      <stop offset="1" stop-color="#d90171" stop-opacity="1"/>
+    </linearGradient>
+    <radialGradient id="i2-glow" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#c517b6" stop-opacity="0.35"/>
+      <stop offset="1" stop-color="#c517b6" stop-opacity="0"/>
     </radialGradient>
-    <linearGradient id="litFace" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#8cc4ff"/>
-      <stop offset="1" stop-color="#2a82ff"/>
-    </linearGradient>
-    <linearGradient id="shadeFace" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#2a80ff"/>
-      <stop offset="1" stop-color="#0757e0"/>
-    </linearGradient>
-    <linearGradient id="sheen" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity="0.16"/>
-      <stop offset="0.55" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <filter id="drop" x="-30%" y="-30%" width="160%" height="160%">
-      <feGaussianBlur stdDeviation="10"/>
-    </filter>
-    <clipPath id="plateClip">
-      <path d="M152 32H360C440 32 480 72 480 152V360C480 440 440 480 360 480H152C72 480 32 440 32 360V152C32 72 72 32 152 32Z"/>
-    </clipPath>
-      <linearGradient id="fadeY" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#fff" stop-opacity="0"/>
-      <stop offset="0.3" stop-color="#fff" stop-opacity="1"/>
-      <stop offset="0.7" stop-color="#fff" stop-opacity="1"/>
-      <stop offset="1" stop-color="#fff" stop-opacity="0"/>
-    </linearGradient>
-    <mask id="fade" maskUnits="userSpaceOnUse" x="0" y="0" width="512" height="512">
-      <rect width="512" height="512" fill="url(#fadeY)"/>
-    </mask>
-    <filter id="halo" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="18"/></filter>
-    <filter id="drop" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="20"/></filter>
-    <filter id="contact" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="5"/></filter>
+    <radialGradient id="i2-core" cx="0.38" cy="0.32" r="0.75">
+      <stop offset="0" stop-color="#2b3766"/>
+      <stop offset="0.55" stop-color="#121a38"/>
+      <stop offset="1" stop-color="#0a0f24"/>
+    </radialGradient>
+    <clipPath id="i2-clip"><rect x="16" y="16" width="480" height="480" rx="108"/></clipPath>
   </defs>
-  <!-- K85: scaled about the centre so the plate inset is about 6px of 512 (was 32px) -->
-  <g transform="translate(256 256) scale(1.116) translate(-256 -256)">
-
-  <path d="M152 32H360C440 32 480 72 480 152V360C480 440 440 480 360 480H152C72 480 32 440 32 360V152C32 72 72 32 152 32Z" fill="url(#plate)"/>
-  <g clip-path="url(#plateClip)">
-    <circle cx="256" cy="262" r="230" fill="url(#glow)"/>
-    <g mask="url(#fade)">
-      <line x1="112" y1="0" x2="112" y2="512" stroke="#2ece9d" stroke-width="18"/>
-      <line x1="184" y1="0" x2="184" y2="512" stroke="#f25d2e" stroke-width="18"/>
-      <line x1="256" y1="0" x2="256" y2="512" stroke="#c517b6" stroke-width="18"/>
-      <line x1="328" y1="0" x2="328" y2="512" stroke="#f2ca33" stroke-width="18"/>
-      <line x1="400" y1="0" x2="400" y2="512" stroke="#15a0bf" stroke-width="18"/>
-    </g>
-    <path d="M152 32H360C440 32 480 72 480 152V360C480 440 440 480 360 480H152C72 480 32 440 32 360V152C32 72 72 32 152 32Z" fill="url(#sheen)"/>
+  <!-- No shadow, so no margin: the tile (drawn at 16..496) fills the canvas edge to edge. -->
+  <g data-edge="full" transform="translate(256 256) scale(1.0666667) translate(-256 -256)">
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#i2-plate)"/>
+  <g clip-path="url(#i2-clip)">
+    <circle cx="256" cy="256" r="250" fill="url(#i2-glow)"/>
   </g>
-  <path d="M152 34.5H360C438.5 34.5 477.5 73.5 477.5 152V360C477.5 438.5 438.5 477.5 360 477.5H152C73.5 477.5 34.5 438.5 34.5 360V152C34.5 73.5 73.5 34.5 152 34.5Z"
-        fill="none" stroke="#fff" stroke-opacity="0.10" stroke-width="5"/>
-
-  <!-- Bolt shadows, cast on the lanes and the plate -->
-  <g clip-path="url(#plateClip)">
-  <path d="M318 74 150 290H250L202 446 366 220H264Z" transform="translate(22 36)" fill="#02040c" opacity="0.85" filter="url(#drop)"/>
-  <path d="M318 74 150 290H250L202 446 366 220H264Z" transform="translate(3 6)" fill="none" stroke="#02040c" stroke-width="30" stroke-linejoin="round" opacity="0.8" filter="url(#contact)"/>
-  <path d="M318 74 150 290H250L202 446 366 220H264Z" fill="none" stroke="#070e22" stroke-width="20" stroke-linejoin="round"/>
+  <!-- the bolt between the two lanes -->
+  <path d="M335.2,72.4 L108.0,284.9 L234.0,284.9 L164.2,439.6 L405.5,218.6 L279.5,218.6 Z" fill="url(#i2-fill)"/>
+  <g fill="none" stroke-width="30" stroke-linejoin="round" stroke-linecap="round">
+    <polyline points="335.2,72.4 108.0,284.9 234.0,284.9 164.2,439.6" stroke="url(#i2-cool)"/>
+    <polyline points="335.2,72.4 279.5,218.6 405.5,218.6 164.2,439.6" stroke="url(#i2-warm)"/>
   </g>
-  <!-- Bolt: a lit upper-left face and a shaded lower-right face. -->
-  <g stroke-linejoin="round" stroke-width="14">
-    <path d="M318 74 150 290H250L202 446 366 220H264Z" fill="url(#shadeFace)" stroke="#0a55d8"/>
-    <path d="M318 74 150 290H250L264 220Z" fill="url(#litFace)" stroke="none"/>
+  <!-- commits: the branch point and the warm lane's corner (warm), the cool lane's corner and the merge (cool) -->
+  <g fill="url(#i2-core)" stroke-width="15">
+    <circle cx="335.2" cy="72.4" r="35.0" stroke="#f2ca33"/>
+    <circle cx="405.5" cy="218.6" r="35.0" stroke="#f25d2e"/>
+    <circle cx="108.0" cy="284.9" r="35.0" stroke="#24c6e8"/>
+    <circle cx="164.2" cy="439.6" r="35.0" stroke="#3b8cff"/>
   </g>
-
   </g>
 </svg>
