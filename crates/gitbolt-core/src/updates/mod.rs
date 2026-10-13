@@ -447,8 +447,8 @@ impl Updates {
         let ran = self.cfg.runner.run(&cmd).await;
         let manual = manual_command(kind, &file).unwrap_or_default();
         let mut output = None;
-        // deb and arch run through pkexec; a .dmg's script runs as this user.
-        let pkexec = matches!(kind, InstallKind::Deb | InstallKind::Arch);
+        // deb, arch and rpm run through pkexec; a .dmg's script runs as this user.
+        let pkexec = matches!(kind, InstallKind::Deb | InstallKind::Arch | InstallKind::Rpm);
         let reason = match ran {
             Ok(out) if out.code == Some(0) => {
                 let mut inner = self.lock();

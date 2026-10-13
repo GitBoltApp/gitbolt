@@ -36,9 +36,9 @@ current code; each point names where to look.
   This works with the bundle ad-hoc signed (no Apple identity). GitBolt only runs from its
   bundle there, which always ships the library: a helper without it fails to start rather than
   run unsandboxed.
-- The `.deb` and Arch packages ship Chromium's `chrome-sandbox` helper owned by root with the
-  setuid bit (mode 4755). The packaging checks fail the build otherwise (`scripts/check-deb.sh`,
-  `scripts/package-arch.sh`). For development builds, see [docs/dev-setup.md](docs/dev-setup.md).
+- The `.deb`, `.rpm` and Arch packages ship Chromium's `chrome-sandbox` helper owned by root with
+  the setuid bit (mode 4755). The packaging checks fail the build otherwise (`scripts/check-deb.sh`,
+  `scripts/package-arch.sh`, `scripts/package-rpm.sh`). For development builds, see [docs/dev-setup.md](docs/dev-setup.md).
 - Release builds ignore Chromium switches given on the command line, so the installed binary
   can't be started with `--remote-debugging-port` or `--disable-web-security`. DevTools are off
   in release builds (`vendor/tauri-runtime-cef`).
@@ -267,8 +267,11 @@ GitBolt can download and install its own updates from GitHub Releases
   gh attestation verify GitBolt_0.3.0_amd64.deb --repo GitBoltApp/gitbolt
   ```
 
-- **The install.** GitBolt runs `pkexec apt install -y ./<package>.deb` or
-  `pkexec pacman -U --noconfirm <package>` as an argument list (no shell), so your desktop's
+- **The install.** GitBolt runs `pkexec apt install -y /<path>/<package>.deb`,
+  `pkexec dnf install -y /<path>/<package>.rpm` (on openSUSE `pkexec zypper --non-interactive
+  install --allow-unsigned-rpm`, else `pkexec rpm -U`) or `pkexec pacman -U --noconfirm <package>`
+  as an argument list (no shell), with the absolute path of the download it has just checked
+  against `SHA256SUMS`, so your desktop's
   polkit prompt asks for the password; GitBolt never sees it and never uses `sudo` itself. If
   `pkexec` is missing or you cancel, it shows the `sudo` command to run yourself. On Windows it
   starts the installer (the NSIS setup, or `msiexec /i` for the MSI) and quits. On macOS it runs a
@@ -279,7 +282,7 @@ GitBolt can download and install its own updates from GitHub Releases
   (it isn't App Sandboxed and doesn't set `LSFileQuarantineEnabled`), so Gatekeeper doesn't check
   the copy again: `SHA256SUMS` is the check, as on the other platforms.
 - **Which package.** Each package names how it was installed in an `install-kind` file beside the
-  binary (`deb`, `arch`, `nsis` or `msi`), or in the bundle's `Contents/Resources` (`dmg`); a build
+  binary (`deb`, `arch`, `rpm`, `nsis` or `msi`), or in the bundle's `Contents/Resources` (`dmg`); a build
   from source has none and is only offered the release page.
 
 ### Test-only code

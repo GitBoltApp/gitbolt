@@ -80,7 +80,7 @@ Setting: Settings › Updates › **Check for updates automatically** (on by def
   repositories. GitHub sees your IP address and `User-Agent: GitBolt/<version>`. A repeated check
   is conditional (an ETag), so an unchanged list is a cheap 304.
 - **Download:** only when you click the update. GitBolt downloads that release's package for
-  your install (`.deb`, Arch package, Windows setup `.exe` or `.msi`) and its `SHA256SUMS` from
+  your install (`.deb`, `.rpm`, Arch package, Windows setup `.exe` or `.msi`) and its `SHA256SUMS` from
   `github.com/GitBoltApp/gitbolt/releases/download/…`, following GitHub's redirect to its asset
   storage (`objects.githubusercontent.com` or `release-assets.githubusercontent.com`), over https
   and without a token. No other host is followed.

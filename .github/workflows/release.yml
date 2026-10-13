@@ -1,6 +1,6 @@
 # Release: `just release <version>` commits the version bump and tags it v<version>; pushing them
 # together (git push origin main v<version>, or GitBolt's Push with "Push tags with branches")
-# runs one build, on main: it builds the .deb and the Arch package on Linux, the two Windows
+# runs one build, on main: it builds the .deb, the Arch package and the RPM on Linux, the two Windows
 # installers (NSIS and MSI, unsigned for now) and the macOS .dmg (Apple Silicon, ad-hoc signed),
 # checks them, and uploads them with SHA256SUMS to a draft GitHub release for review. Building on main matters for speed: only
 # main's runs save caches (a tag's run can restore main's but not another tag's), so each release
@@ -162,7 +162,7 @@ jobs:
             echo "prerelease=$(python3 scripts/version.py prerelease "$v")"
             echo "cef=$cef"
           } >> "$GITHUB_OUTPUT"
-          # The Arch package's file times and builddate: the release commit's time.
+          # The Arch package's and the RPM's file times and build dates: the release commit's time.
           echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
           echo "Version $v (pre-release: $(python3 scripts/version.py prerelease "$v")), CEF $cef"
 
@@ -197,11 +197,12 @@ jobs:
           sudo apt-get update -q
           # libgtk-4-dev and patchelf: the CEF runtime (docs/dev-setup.md); cmake and ninja: the
           # cef-dll-sys wrapper; dpkg-dev: fix-deb.sh's dpkg-shlibdeps; zstd and python3:
-          # package-arch.sh; appstream and desktop-file-utils: check-deb.sh validates the AppStream
+          # package-arch.sh and package-rpm.sh, and binutils: package-rpm.sh's readelf (the RPM's
+          # Requires); appstream and desktop-file-utils: check-deb.sh validates the AppStream
           # metainfo and the desktop entry. The packages' Depends come from this runner's libraries
           # (24.04).
           sudo apt-get install -y -q --no-install-recommends \
-            libgtk-4-dev patchelf pkg-config cmake ninja-build dpkg-dev zstd python3 jq \
+            libgtk-4-dev patchelf pkg-config cmake ninja-build dpkg-dev zstd python3 jq binutils \
             appstream desktop-file-utils
 
       - uses: dtolnay/rust-toolchain@7e38f4b43b4db5c8dd498af069a4f6196df1d067 # master
@@ -266,7 +267,8 @@ jobs:
       # `just package` = the license notices (scripts/licenses.sh, failing on a license outside
       # about.toml's allow-list), cargo tauri build (the UI build and its notices first),
       # fix-deb.sh, check-deb.sh (Depends, the setuid chrome-sandbox, icons, desktop entry and
-      # the license notices) and package-arch.sh, with the plain version for a release.
+      # the license notices), package-arch.sh and package-rpm.sh, with the plain version for a
+      # release.
       - name: Build the packages
         env:
           GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
@@ -284,17 +286,24 @@ jobs:
       - name: Check the Arch package
         run: just check-arch-pkg
 
+      # Installs it in fedora:latest: rpm -K, every Requires resolved by dnf, rpm -V, chrome-sandbox,
+      # the license notices (despite the image's nodocs), ldd, a headless launch and dnf remove.
+      - name: Check the RPM
+        run: just check-rpm-pkg
+
       - name: Collect the packages and SHA256SUMS
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           deb=(target/release/bundle/deb/GitBolt_*_amd64.deb)
           pkg=(target/release/bundle/arch/GitBolt-*-x86_64.pkg.tar.zst)
-          [ ${#deb[@]} = 1 ] && [ ${#pkg[@]} = 1 ] || { echo "::error::Expected one .deb and one Arch package: ${deb[*]} ${pkg[*]}"; exit 1; }
+          rpm=(target/release/bundle/rpm/GitBolt-*.x86_64.rpm)
+          [ ${#deb[@]} = 1 ] && [ ${#pkg[@]} = 1 ] && [ ${#rpm[@]} = 1 ] || { echo "::error::Expected one .deb, one Arch package and one RPM: ${deb[*]} ${pkg[*]} ${rpm[*]}"; exit 1; }
           [ "${deb[0]}" = "target/release/bundle/deb/GitBolt_${VERSION}_amd64.deb" ] || { echo "::error::Unexpected .deb name ${deb[0]}"; exit 1; }
-          echo "deb version: $(dpkg-deb -f "${deb[0]}" Version); Arch package: $(basename "${pkg[0]}")"
-          cp "${deb[0]}" "${pkg[0]}" dist/
-          (cd dist && sha256sum -- *.deb *.pkg.tar.zst > SHA256SUMS && cat SHA256SUMS)
+          [ "${rpm[0]}" = "target/release/bundle/rpm/GitBolt-${VERSION}-1.x86_64.rpm" ] || { echo "::error::Unexpected RPM name ${rpm[0]}"; exit 1; }
+          echo "deb version: $(dpkg-deb -f "${deb[0]}" Version); Arch package: $(basename "${pkg[0]}"); RPM: $(basename "${rpm[0]}")"
+          cp "${deb[0]}" "${pkg[0]}" "${rpm[0]}" dist/
+          (cd dist && sha256sum -- *.deb *.pkg.tar.zst *.rpm > SHA256SUMS && cat SHA256SUMS)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -631,6 +640,7 @@ jobs:
           subject-path: |
             dist/*.deb
             dist/*.pkg.tar.zst
+            dist/*.rpm
             dist/*.exe
             dist/*.msi
             dist/*.dmg
@@ -645,7 +655,7 @@ jobs:
           VERSION: ${{ needs.build.outputs.version }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          assets=(dist/*.deb dist/*.pkg.tar.zst dist/*.exe dist/*.msi dist/*.dmg dist/SHA256SUMS)
+          assets=(dist/*.deb dist/*.pkg.tar.zst dist/*.rpm dist/*.exe dist/*.msi dist/*.dmg dist/SHA256SUMS)
           if draft=$(gh release view "$TAG" --json isDraft --jq .isDraft 2>/dev/null); then
             if [ "$draft" != true ]; then
               echo "::error::The release $TAG is already published; not replacing its assets."

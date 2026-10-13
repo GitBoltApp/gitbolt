@@ -343,6 +343,45 @@ async fn arch_installs_with_pacman() {
 }
 
 #[tokio::test]
+async fn an_rpm_install_takes_the_rpm_and_installs_it_through_pkexec() {
+    const RPM: &str = "GitBolt-0.3.0-1.x86_64.rpm";
+    let mut releases = deb_release();
+    releases[0].assets = vec![asset(DEB), asset("GitBolt-0.3.0-1-x86_64.pkg.tar.zst"), asset(RPM), asset("SHA256SUMS")];
+    let source = FakeSource::with(releases, &format!("{}  {DEB}\n{}  {RPM}\n", sha(PAYLOAD), sha(PAYLOAD)));
+    source.files.lock().unwrap().insert(format!("https://downloads.example/{RPM}"), PAYLOAD.to_vec());
+    let s = setup(InstallKind::Rpm, "0.2.0", source);
+    s.updates.check(false, 1).await.unwrap();
+    s.updates.start_download().unwrap();
+    assert!(matches!(settled(&s.updates).await, UpdateState::Ready { .. }));
+    let file = s.dir.path().join("updates").join(RPM);
+    assert!(file.is_file(), "the .rpm, not the .deb or the Arch package");
+    assert_eq!(s.updates.install().await.unwrap(), InstallOutcome::Installed);
+    let ran = s.runner.ran.lock().unwrap().clone();
+    assert_eq!(ran, [install_command(InstallKind::Rpm, &file, None).unwrap()], "this system's dnf, zypper or rpm");
+    assert_eq!((ran[0].program.as_str(), ran[0].args.last()), ("pkexec", Some(&file.display().to_string())), "the absolute path, one argument");
+    s.updates.restart().unwrap();
+    assert_eq!(s.runner.quits.load(Ordering::SeqCst), 1, "restarts as a .deb does");
+    // A cancelled password prompt: pkexec's refusal, and the sudo command to run instead.
+    let s = ready_rpm().await;
+    *s.runner.answer.lock().unwrap() = Some(126);
+    let InstallOutcome::Manual { command, reason, .. } = s.updates.install().await.unwrap() else { panic!() };
+    assert!(reason.contains("password prompt was cancelled"), "{reason}");
+    assert_eq!(Some(command), manual_command(InstallKind::Rpm, &s.dir.path().join("updates").join(RPM)));
+
+    async fn ready_rpm() -> Setup {
+        let mut releases = deb_release();
+        releases[0].assets = vec![asset(RPM), asset("SHA256SUMS")];
+        let source = FakeSource::with(releases, &format!("{}  {RPM}\n", sha(PAYLOAD)));
+        source.files.lock().unwrap().insert(format!("https://downloads.example/{RPM}"), PAYLOAD.to_vec());
+        let s = setup(InstallKind::Rpm, "0.2.0", source);
+        s.updates.check(false, 1).await.unwrap();
+        s.updates.start_download().unwrap();
+        assert!(matches!(settled(&s.updates).await, UpdateState::Ready { .. }));
+        s
+    }
+}
+
+#[tokio::test]
 async fn windows_installers_start_and_gitbolt_quits() {
     for (kind, program) in [(InstallKind::Msi, "msiexec"), (InstallKind::Nsis, "GitBolt_0.3.0_x64-setup.exe")] {
         let s = ready(kind).await;

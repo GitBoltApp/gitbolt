@@ -24,6 +24,9 @@ every package carries them, generated fresh by each `just package`.
 - The Arch package has the same files, plus `/usr/share/licenses/gitbolt`, a symlink to
   `/usr/share/doc/gitbolt` (Arch's location for license files). Its `license` lines are MIT, the
   licenses in the two notices files' summaries, `BSD-3-Clause` and `LicenseRef-SCOWL`.
+- The RPM has the same files and the same `/usr/share/licenses/gitbolt` symlink (Fedora's
+  location too). They're `%license` files, so dnf installs them even with `tsflags=nodocs`. Its
+  `License` tag is the Arch package's list as one SPDX expression (`MIT AND Apache-2.0 AND …`).
 - The Windows installers put them in `licenses\` in the install folder.
 - On macOS they're inside the app, in `GitBolt.app/Contents/Resources/licenses/`
   (`crates/gitbolt-app/packaging/macos/dmg.conf.json`).
@@ -75,8 +78,9 @@ so the notices can't go stale.
    fails if the grammars don't match them.
 
 `.deb` packaging takes the files from `target/licenses/` and `ui/dist/licenses/` (the `files`
-map in `crates/gitbolt-app/tauri.conf.json`); `scripts/check-deb.sh`, `scripts/package-arch.sh`
-and `scripts/check-arch-pkg.sh` fail if any of them is missing or empty, as
+map in `crates/gitbolt-app/tauri.conf.json`); `scripts/check-deb.sh`, `scripts/package-arch.sh`,
+`scripts/check-arch-pkg.sh`, `scripts/package-rpm.sh` and `scripts/check-rpm-pkg.sh` fail if any
+of them is missing or empty, as
 `scripts/package-macos.sh` does for the `.dmg`'s app.
 
 ## Windows packaging tools

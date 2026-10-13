@@ -2,8 +2,9 @@
 //!
 //! Each package says how it was installed in a one-word file beside the binary, `install-kind`,
 //! read at run time: one build goes into every package of a platform, so the binary can't know.
-//! - Linux: the `.deb` ships `deb` (crates/gitbolt-app/tauri.conf.json) and
-//!   `scripts/package-arch.sh` rewrites it to `arch` in the Arch package.
+//! - Linux: the `.deb` ships `deb` (crates/gitbolt-app/tauri.conf.json), and
+//!   `scripts/package-arch.sh` and `scripts/package-rpm.sh` rewrite it to `arch` in the Arch
+//!   package and `rpm` in the RPM.
 //! - Windows: the NSIS installer writes `nsis` beside `GitBolt.exe` (packaging/windows/gitbolt.nsi),
 //!   and the MSI installs a file saying `msi` (gitbolt.wxs).
 //! - macOS: `GitBolt.app` carries `dmg` in `Contents/Resources` (tauri.macos.conf.json), the
@@ -27,6 +28,8 @@ pub const INSTALL_KIND_FILE: &str = "install-kind";
 pub enum InstallKind {
     Deb,
     Arch,
+    /// The RPM (Fedora, RHEL, openSUSE): dnf, else zypper, else plain rpm installs the update.
+    Rpm,
     Nsis,
     Msi,
     /// GitBolt.app from the `.dmg`: an update replaces the bundle in place.
@@ -41,6 +44,7 @@ impl InstallKind {
         match s.trim() {
             "deb" => Some(Self::Deb),
             "arch" => Some(Self::Arch),
+            "rpm" => Some(Self::Rpm),
             "nsis" => Some(Self::Nsis),
             "msi" => Some(Self::Msi),
             "dmg" => Some(Self::Dmg),
@@ -71,6 +75,55 @@ pub enum ArchMethod {
     Pacman,
     /// The user's AUR helper: GitBolt only shows its command.
     Aur,
+}
+
+/// What installs an RPM here: the first of dnf (Fedora, RHEL) and zypper (openSUSE) that is
+/// installed, else rpm itself, which can't fetch missing dependencies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RpmTool {
+    Dnf,
+    Zypper,
+    Rpm,
+}
+
+impl RpmTool {
+    /// The tool on this system, looked up on PATH and in the system's bin folders (pkexec runs
+    /// it with its own PATH).
+    pub fn detect() -> Self {
+        let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+        dirs.extend(["/usr/bin", "/usr/sbin", "/bin", "/sbin"].map(PathBuf::from));
+        Self::pick(|name| dirs.iter().any(|d| d.join(name).is_file()))
+    }
+
+    fn pick(installed: impl Fn(&str) -> bool) -> Self {
+        if installed("dnf") {
+            Self::Dnf
+        } else if installed("zypper") {
+            Self::Zypper
+        } else {
+            Self::Rpm
+        }
+    }
+
+    /// The install as root: `dnf install -y <file>`; `zypper --non-interactive install
+    /// --allow-unsigned-rpm <file>` (zypper refuses an unsigned package unless told, and GitBolt
+    /// has already checked it against `SHA256SUMS`); `rpm -U <file>`.
+    fn install_args(self, file: &str) -> Vec<&str> {
+        match self {
+            Self::Dnf => vec!["dnf", "install", "-y", file],
+            Self::Zypper => vec!["zypper", "--non-interactive", "install", "--allow-unsigned-rpm", file],
+            Self::Rpm => vec!["rpm", "-U", file],
+        }
+    }
+
+    /// The same for the user to run with sudo (it asks before it installs); `file` is quoted.
+    fn manual(self, file: &str) -> String {
+        match self {
+            Self::Dnf => format!("sudo dnf install {file}"),
+            Self::Zypper => format!("sudo zypper install --allow-unsigned-rpm {file}"),
+            Self::Rpm => format!("sudo rpm -U {file}"),
+        }
+    }
 }
 
 /// A program and its arguments, never a shell line; `cwd` when it needs one.
@@ -110,6 +163,7 @@ fn text(path: &Path) -> String {
 ///   doesn't keep the working directory, and apt only takes a path that starts with `/` or `./`
 ///   as a file to install;
 /// - arch: `pkexec pacman -U --noconfirm <file>`;
+/// - rpm: [`rpm_install_command`] with this system's [`RpmTool`];
 /// - nsis: the installer itself, with its normal UI; msi: `msiexec /i <file>` (UAC asks);
 /// - dmg: [`DMG_INSTALL`] over `bundle`, the running app's `.app` (none outside one);
 /// - none for a build from source.
@@ -119,11 +173,22 @@ pub fn install_command(kind: InstallKind, file: &Path, bundle: Option<&Path>) ->
         InstallKind::Deb if file.is_absolute() => Some(InstallCommand::new("pkexec", &["apt", "install", "-y", &text(file)])),
         InstallKind::Deb => None,
         InstallKind::Arch => Some(InstallCommand::new("pkexec", &["pacman", "-U", "--noconfirm", &text(file)])),
+        InstallKind::Rpm => rpm_install_command(file, RpmTool::detect()),
         InstallKind::Nsis => Some(InstallCommand::new(&text(file), &[])),
         InstallKind::Msi => Some(InstallCommand::new("msiexec", &["/i", &text(file)])),
         InstallKind::Dmg => Some(InstallCommand::new("/bin/sh", &["-c", DMG_INSTALL, "gitbolt-update", &text(file), &text(bundle?)])),
         InstallKind::Unpackaged => None,
     }
+}
+
+/// `pkexec <tool's install> <absolute file>`: absolute, since pkexec doesn't keep the working
+/// directory, and dnf and zypper take only a path (not a bare name) as a file to install.
+pub fn rpm_install_command(file: &Path, tool: RpmTool) -> Option<InstallCommand> {
+    if !file.is_absolute() || file.file_name().is_none() {
+        return None;
+    }
+    let file = text(file);
+    Some(InstallCommand::new("pkexec", &tool.install_args(&file)))
 }
 
 /// A `.dmg` update, as a script of its two arguments (never spliced into it): the verified image
@@ -169,7 +234,8 @@ pub fn bundle_replaceable(_bundle: &Path) -> bool {
 }
 
 /// The command to run by hand when the privileged one couldn't (no `pkexec`, the password
-/// prompt was cancelled): `sudo apt install <file>`, `sudo pacman -U <file>`; for a `.dmg`,
+/// prompt was cancelled): `sudo apt install <file>`, `sudo pacman -U <file>`, the RPM's with this
+/// system's [`RpmTool`] (`sudo dnf install <file>`); for a `.dmg`,
 /// `open <file>`, which shows the image's GitBolt and an Applications link to drag it to.
 /// Absolute paths, so it works from any folder.
 pub fn manual_command(kind: InstallKind, file: &Path) -> Option<String> {
@@ -177,6 +243,7 @@ pub fn manual_command(kind: InstallKind, file: &Path) -> Option<String> {
     match kind {
         InstallKind::Deb => Some(format!("sudo apt install {f}")),
         InstallKind::Arch => Some(format!("sudo pacman -U {f}")),
+        InstallKind::Rpm => Some(RpmTool::detect().manual(&f)),
         InstallKind::Dmg => Some(format!("open {f}")),
         _ => None,
     }
@@ -199,7 +266,7 @@ mod tests {
         assert_eq!(detect_install_kind(Some(dir.path())), InstallKind::Unpackaged, "no file: a build from source");
         assert_eq!(detect_install_kind(None), InstallKind::Unpackaged);
         // What each package writes: the .deb's and Arch's with a newline, NSIS's with CRLF.
-        for (text, kind) in [("deb\n", InstallKind::Deb), ("arch\n", InstallKind::Arch), ("nsis\r\n", InstallKind::Nsis), ("msi\n", InstallKind::Msi), ("msi", InstallKind::Msi), ("dmg\n", InstallKind::Dmg), ("snap", InstallKind::Unpackaged), ("", InstallKind::Unpackaged)] {
+        for (text, kind) in [("deb\n", InstallKind::Deb), ("arch\n", InstallKind::Arch), ("rpm\n", InstallKind::Rpm), ("nsis\r\n", InstallKind::Nsis), ("msi\n", InstallKind::Msi), ("msi", InstallKind::Msi), ("dmg\n", InstallKind::Dmg), ("snap", InstallKind::Unpackaged), ("", InstallKind::Unpackaged)] {
             std::fs::write(dir.path().join(INSTALL_KIND_FILE), text).unwrap();
             assert_eq!(detect_install_kind(Some(dir.path())), kind, "{text:?}");
         }
@@ -242,6 +309,33 @@ mod tests {
         assert_eq!(c.args[2..], ["gitbolt-update".to_string(), dmg.display().to_string(), "/Applications/GitBolt.app".into()], "the paths are arguments, never part of the script");
         assert_eq!(install_command(InstallKind::Dmg, dmg, None), None, "not running from a bundle");
         assert_eq!(manual_command(InstallKind::Dmg, dmg).unwrap(), "open /Users/u/Library/Caches/GitBolt/updates/GitBolt_0.3.0_aarch64.dmg");
+    }
+
+    #[test]
+    fn an_rpm_installs_with_dnf_else_zypper_else_rpm() {
+        let rpm = Path::new("/home/u/.cache/gitbolt/updates/GitBolt-0.3.0-1.x86_64.rpm");
+        let f = rpm.display().to_string();
+        assert_eq!(RpmTool::pick(|t| t == "dnf" || t == "zypper"), RpmTool::Dnf);
+        assert_eq!(RpmTool::pick(|t| t == "zypper"), RpmTool::Zypper);
+        assert_eq!(RpmTool::pick(|_| false), RpmTool::Rpm);
+        for (tool, args, manual) in [
+            (RpmTool::Dnf, vec!["dnf", "install", "-y", &f], format!("sudo dnf install {f}")),
+            (RpmTool::Zypper, vec!["zypper", "--non-interactive", "install", "--allow-unsigned-rpm", &f], format!("sudo zypper install --allow-unsigned-rpm {f}")),
+            (RpmTool::Rpm, vec!["rpm", "-U", &f], format!("sudo rpm -U {f}")),
+        ] {
+            let c = rpm_install_command(rpm, tool).unwrap();
+            assert_eq!((c.program.as_str(), c.args.clone()), ("pkexec", args.iter().map(|a| a.to_string()).collect()), "{tool:?}: an argument list, the path one argument");
+            assert_eq!(c.cwd, None);
+            assert_eq!(tool.manual(&quote(&f)), manual);
+        }
+        assert!(rpm_install_command(Path::new("GitBolt-0.3.0-1.x86_64.rpm"), RpmTool::Dnf).is_none(), "pkexec doesn't keep the working directory");
+        // install_command and manual_command take this system's tool.
+        let tool = RpmTool::detect();
+        assert_eq!(install_command(InstallKind::Rpm, rpm, None), rpm_install_command(rpm, tool));
+        assert_eq!(manual_command(InstallKind::Rpm, rpm), Some(tool.manual(&f)));
+        let spaced = Path::new("/home/o'neil/my cache/GitBolt-0.3.0-1.x86_64.rpm");
+        assert_eq!(RpmTool::Dnf.manual(&quote(&spaced.display().to_string())), r"sudo dnf install '/home/o'\''neil/my cache/GitBolt-0.3.0-1.x86_64.rpm'");
+        assert_eq!(rpm_install_command(spaced, RpmTool::Dnf).unwrap().args[3], spaced.display().to_string(), "unquoted: no shell");
     }
 
     #[test]

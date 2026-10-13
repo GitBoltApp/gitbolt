@@ -11,6 +11,7 @@ test-scripts:
     scripts/test-check-deb.sh
     scripts/test-package-meta.sh
     scripts/test-package-arch.sh
+    scripts/test-package-rpm.sh
     scripts/test-licenses.sh
     scripts/test-version-order.sh
     scripts/test-release.sh
@@ -108,9 +109,10 @@ dev repo="": check-tauri-cli
 build-app: check-tauri-cli
     cd crates/gitbolt-app && env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS=4 cargo tauri build --no-bundle
 
-# The .deb (AppImage and .rpm are deferred) with the GTK 4 dependency fix (spec §18): the .deb's
-# control member is rewritten by scripts/fix-deb.sh and checked by scripts/check-deb.sh. Then the
-# Arch package is made from it (`just package-arch`), so one build gives both.
+# The .deb (AppImage is deferred) with the GTK 4 dependency fix (spec §18): the .deb's control
+# member is rewritten by scripts/fix-deb.sh and checked by scripts/check-deb.sh. Then the Arch
+# package and the RPM are made from it (`just package-arch`, `just package-rpm`), so one build
+# gives all three.
 # `env -u CARGO_INCREMENTAL` (here and in build-app): a CARGO_INCREMENTAL=0 from the caller would
 # override the release profile's `incremental = true` (Cargo.toml), and sccache refuses a 1.
 package: check-tauri-cli
@@ -135,6 +137,7 @@ package: check-tauri-cli
     scripts/fix-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/check-deb.sh target/release/bundle/deb/GitBolt_*_amd64.deb
     scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch
+    scripts/package-rpm.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/rpm
 
 # The third-party license notices the packages ship (docs/licensing.md): the Rust crates, CEF and
 # Chromium into target/licenses (scripts/licenses.sh, needs cargo-about), then the UI build, which
@@ -149,6 +152,13 @@ licenses:
 # mapped through the table in scripts/arch-pkg.py. `just package` already runs it.
 package-arch:
     scripts/package-arch.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/arch
+
+# The RPM for Fedora, RHEL and openSUSE (target/release/bundle/rpm/GitBolt-<version>-1.x86_64.rpm),
+# made from the .deb of `just package` without rpmbuild: same payload less the system directories,
+# Requires from the ELF files in rpm's form, the notices as %license files (scripts/rpm-pkg.py).
+# `just package` already runs it.
+package-rpm:
+    scripts/package-rpm.sh target/release/bundle/deb/GitBolt_*_amd64.deb target/release/bundle/rpm
 
 # On Windows: the NSIS per-user installer and the per-machine MSI, from one release build, in
 # target\release\bundle\windows\ (scripts/package-windows.ps1 has the steps and requirements).
@@ -168,6 +178,13 @@ package-macos: check-tauri-cli
 # chrome-sandbox, ldd, and a headless launch. See scripts/check-arch-pkg.sh.
 check-arch-pkg:
     scripts/check-arch-pkg.sh target/release/bundle/arch/GitBolt-*-x86_64.pkg.tar.zst
+
+# Installs the RPM in a throwaway fedora:latest container and checks it (Docker and the network, so
+# `just package` doesn't run it): rpm -K, dnf resolving every Requires, rpm -V, the setuid
+# chrome-sandbox, the notices despite nodocs, ldd, a headless launch, and a clean dnf remove. See
+# scripts/check-rpm-pkg.sh.
+check-rpm-pkg:
+    scripts/check-rpm-pkg.sh target/release/bundle/rpm/GitBolt-*.x86_64.rpm
 
 # Runs the release binary from `just build-app`, with the installed sandbox helper if present.
 run-app repo="":

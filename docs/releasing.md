@@ -2,9 +2,8 @@
 
 A release is a tag. `just release <version>` prepares the release commit and tag locally;
 pushing them starts [.github/workflows/release.yml](../.github/workflows/release.yml), which
-builds the `.deb`, the Arch package, the two Windows installers and the macOS `.dmg`, checks
-them, and uploads
-them to a **draft** GitHub release. You review the draft and publish it. Nothing is published
+builds the `.deb`, the Arch package, the `.rpm`, the two Windows installers and the macOS
+`.dmg`, checks them, and uploads them to a **draft** GitHub release. You review the draft and publish it. Nothing is published
 automatically.
 
 ## Before you start
@@ -50,7 +49,7 @@ automatically.
    section for it.
 
 4. **Review the draft** under Releases. It's titled "GitBolt 0.1.0-alpha.1" and has the
-   changelog section as its notes, plus the `.deb`, the `.pkg.tar.zst`, the Windows
+   changelog section as its notes, plus the `.deb`, the `.pkg.tar.zst`, the `.rpm`, the Windows
    `-setup.exe` and `.msi`, the macOS `.dmg`, and `SHA256SUMS`. A
    version with a pre-release part (`-alpha.1`, `-rc.2`) is marked pre-release. Edit the notes
    if needed, and install the packages from the draft to try them.
@@ -68,6 +67,7 @@ package `SHA256SUMS` doesn't list is never installed.
 |---|---|
 | `.deb` | `GitBolt_<version>_amd64.deb` |
 | Arch | `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
+| `.rpm` (Fedora, openSUSE) | `GitBolt-<version>-1.x86_64.rpm` (the version as in the `.deb`'s name: `GitBolt-0.1.0-alpha.1-1.x86_64.rpm`, although the package's Version is `0.1.0~alpha.1`) |
 | Windows (NSIS) | `GitBolt_<version>_x64-setup.exe` |
 | Windows (MSI) | `GitBolt_<version>_x64.msi` |
 | macOS | `GitBolt_<version>_aarch64.dmg` (Apple Silicon; an Intel Mac takes `GitBolt_<version>_x64.dmg`, which no release has yet) |
@@ -83,7 +83,7 @@ can't know):
 
 - the `.deb` ships `/usr/share/GitBolt/install-kind` = `deb`
   (`crates/gitbolt-app/packaging/install-kind-deb`, through tauri.conf.json), and
-  `scripts/package-arch.sh` rewrites it to `arch`;
+  `scripts/package-arch.sh` rewrites it to `arch`, `scripts/package-rpm.sh` to `rpm`;
 - the NSIS installer writes `install-kind` = `nsis` beside `GitBolt.exe`, and the MSI installs
   `packaging/windows/install-kind-msi` (`msi`) there; `scripts/package-windows.ps1` checks the
   MSI has it;
@@ -109,21 +109,25 @@ them differently. The rules are in `scripts/version.py`.
 Each package manager gets a version that sorts the same way as SemVer, with pre-releases
 before the release:
 
-| SemVer (tag `v…`) | `.deb` Version | Arch `pkgver` | Files |
+| SemVer (tag `v…`) | `.deb` and `.rpm` Version | Arch `pkgver` | Files |
 |---|---|---|---|
-| `0.1.0-alpha.1` | `0.1.0~alpha.1` | `0.1.0alpha.1` | `GitBolt_0.1.0-alpha.1_amd64.deb`, `GitBolt-0.1.0alpha.1-1-x86_64.pkg.tar.zst` |
-| `0.1.0-rc.2` | `0.1.0~rc.2` | `0.1.0rc.2` | `GitBolt_0.1.0-rc.2_amd64.deb`, `GitBolt-0.1.0rc.2-1-x86_64.pkg.tar.zst` |
-| `0.1.0` | `0.1.0` | `0.1.0` | `GitBolt_0.1.0_amd64.deb`, `GitBolt-0.1.0-1-x86_64.pkg.tar.zst` |
+| `0.1.0-alpha.1` | `0.1.0~alpha.1` | `0.1.0alpha.1` | `GitBolt_0.1.0-alpha.1_amd64.deb`, `GitBolt-0.1.0alpha.1-1-x86_64.pkg.tar.zst`, `GitBolt-0.1.0-alpha.1-1.x86_64.rpm` |
+| `0.1.0-rc.2` | `0.1.0~rc.2` | `0.1.0rc.2` | `GitBolt_0.1.0-rc.2_amd64.deb`, `GitBolt-0.1.0rc.2-1-x86_64.pkg.tar.zst`, `GitBolt-0.1.0-rc.2-1.x86_64.rpm` |
+| `0.1.0` | `0.1.0` | `0.1.0` | `GitBolt_0.1.0_amd64.deb`, `GitBolt-0.1.0-1-x86_64.pkg.tar.zst`, `GitBolt-0.1.0-1.x86_64.rpm` |
 | local build of `0.1.0` | `0.1.0+202610051325.ab4dbf9e` | `0.1.0.202610051325.ab4dbf9e` | stamped, as before |
 
 - Debian's `~` sorts before anything, so `0.1.0~alpha.1` is older than `0.1.0`
   (`scripts/fix-deb.sh` writes it; Tauri only accepts SemVer).
+- rpm sorts `~` before anything too, and treats `+` as a separator, so the RPM takes the `.deb`'s
+  Version as is (Release `1`; `scripts/rpm-pkg.py`). Its file name keeps the SemVer form, as
+  the `.deb`'s does.
 - pacman's `vercmp` treats a leftover part that starts with a letter as older, but one that
   starts with a `.` as newer: `0.1.0.alpha.1` would sort *after* `0.1.0`, so the word follows the
   number directly (`scripts/arch-pkg.py`).
 - `scripts/test-version-order.sh` (part of `just test-scripts`) checks the whole order with
-  `dpkg --compare-versions`, and with `vercmp` when it's installed. Run it with
-  `GITBOLT_TEST_DOCKER=1` to use `vercmp` in an `archlinux:latest` container.
+  `dpkg --compare-versions`, and with `vercmp` and rpm's `rpm.vercmp` when they're installed. Run
+  it with `GITBOLT_TEST_DOCKER=1` to use them in `archlinux:latest` and `fedora:latest`
+  containers.
 
 Windows wants numeric versions: the MSI's `ProductVersion` and the files' `FILEVERSION` are
 `X.Y.Z.0` for every build of `X.Y.Z`, its pre-releases and local builds included. Windows Installer
@@ -147,14 +151,16 @@ side by side, then the release job:
    - checks the tag against `tauri.conf.json`'s version and extracts the release notes from
      CHANGELOG.md (`scripts/changelog.py notes <version> CHANGELOG.md`);
    - installs the toolchain: the system packages (`libgtk-4-dev`, `patchelf`, `dpkg-dev`, `zstd`,
-     `cmake`, `ninja-build`, and `appstream` and `desktop-file-utils` for `check-deb.sh`), stable
+     `binutils`, `cmake`, `ninja-build`, and `appstream` and `desktop-file-utils` for
+     `check-deb.sh`), stable
      Rust, Node 22, `just`, `tauri-cli` 3.0.0-alpha.4 and cargo-about 0.9.2;
    - runs `just package` with `GITBOLT_RELEASE_VERSION` set. That generates the third-party
      license notices (`scripts/licenses.sh`, failing on a license outside `about.toml`'s
      allow-list; see [licensing.md](licensing.md)), builds, and runs `fix-deb.sh`, `check-deb.sh`
-     (which also checks the notices are in the `.deb`) and `package-arch.sh`;
+     (which also checks the notices are in the `.deb`), `package-arch.sh` and `package-rpm.sh`;
    - runs `just check-arch-pkg` (Docker), which installs the Arch package in `archlinux:latest`
-     and checks it, its notices included;
+     and checks it, its notices included, then `just check-rpm-pkg`, which does the same for the
+     RPM in `fedora:latest` with dnf;
    - writes `SHA256SUMS`, and keeps the packages, the checksums and the notes as a workflow
      artifact for 3 days.
 2. **Windows** (`windows-latest`, read-only): stable Rust, Node 22, `just`, cargo-about 0.9.2
@@ -171,7 +177,8 @@ side by side, then the release job:
    the draft release, or updates it on a re-run.
 
 The packages' `Depends` come from the build machine's libraries (dpkg-shlibdeps), so packages
-built on the 24.04 runner install on Ubuntu 24.04 and later. A local `just package` on a newer
+built on the 24.04 runner install on Ubuntu 24.04 and later. The RPM's `Requires` come from the
+same libraries (glibc 2.39's symbol versions): Fedora 40 and later. A local `just package` on a newer
 distribution can require newer library versions; publish the workflow's packages, not local ones.
 
 ## Which run builds
@@ -275,7 +282,8 @@ also warms the caches.
 
 ## Re-running and fixing
 
-- **A transient failure** (a download, the Arch mirror in `check-arch-pkg`): use "Re-run failed
+- **A transient failure** (a download, the Arch mirror in `check-arch-pkg`, Fedora's in
+  `check-rpm-pkg`): use "Re-run failed
   jobs". Re-running only the release job reuses the run's build artifact (kept 3 days).
 - **Re-running for the same tag** updates the draft's title, notes and pre-release flag, and
   replaces its assets (`gh release upload --clobber`). If the release is already published, the
@@ -308,10 +316,11 @@ runner; public ones get 4 vCPUs, roughly halving the compile steps):
 | `tauri-cli` and `cargo-about` installs | 10–15 min (compiled) | seconds (cached) |
 | CEF download (~310 MB) | 1 min | restored from the cache |
 | `just package`: Rust release build | 30–45 min | 10–15 min (only GitBolt's own crates) |
-| `just package`: UI build, `.deb`, Arch package | 4–6 min | 4–6 min |
+| `just package`: UI build, `.deb`, Arch package, `.rpm` | 6–8 min | 6–8 min |
 | `just check-arch-pkg` | 3–5 min | 3–5 min |
+| `just check-rpm-pkg` | 2–3 min | 2–3 min |
 | Release job | 1 min | 1 min |
-| **Total** | **about 50–75 min** | **about 20–30 min** |
+| **Total** | **about 55–80 min** | **about 25–35 min** |
 
 The job's timeout is 120 minutes. The Windows and macOS jobs run at the same time and take about
 as long (their Rust builds are the longest steps); on a private repository Windows minutes count
@@ -319,7 +328,7 @@ double and macOS minutes ten times.
 
 The repository is private, so the runs count against the account's included Actions minutes
 (Linux runners at a 1× rate: 2,000 minutes a month on GitHub Free, 3,000 on Team). A release is
-roughly 25 minutes warm and 60 or more cold, and so is each dry run. Caches (about 3–5 GB:
+roughly 30 minutes warm and 65 or more cold, and so is each dry run. Caches (about 3–5 GB:
 the Rust target and registry, the CEF archive, the two cargo tools) use the repository's 10 GB cache
 allowance, not the storage quota, and are evicted after 7 days unused. The workflow artifact
 (about 300 MB) counts against the Actions storage quota (500 MB on Free) for its 3 days.

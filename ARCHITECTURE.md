@@ -341,7 +341,7 @@ faster (20 s, backing off to 2 min). A failed poll keeps the data shown.
 
 `gitbolt-core/src/updates/` checks GitHub Releases for a newer version (SemVer; a local build's
 `+<stamp>` doesn't count), downloads the package for the install kind into the cache, keeps it only
-if the release's `SHA256SUMS` matches, and installs it (`pkexec apt`/`pacman` on Linux, the
+if the release's `SHA256SUMS` matches, and installs it (`pkexec apt`/`dnf`/`zypper`/`pacman` on Linux, the
 installer on Windows, a copy of the `.dmg`'s GitBolt.app over the running bundle on macOS). The
 fetching is `gitbolt-forge/src/updates.rs`, through the forge HTTP client without a token; the
 commands run through an `UpdateRunner` the app supplies (the harness only records them). The

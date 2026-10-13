@@ -7,7 +7,7 @@ the app either won't launch or (never do this) has to run with the sandbox disab
 
 Packages: the `.deb` payload itself ships `chrome-sandbox` as root:root, mode 4755 (the Tauri
 bundler writes the tar entry that way; there is no post-install script involved), so a packaged
-`.deb` needs no setup, and neither does the Arch package built from it. There is no `.rpm` or
+`.deb` needs no setup, and neither do the Arch package and the `.rpm` built from it. There is no
 AppImage build. The app uses `SandboxPolicy::Required` on Linux: it refuses to start rather than run unsandboxed.
 
 **Symptom:** an unbundled run without a usable setuid helper opens no window and exits with code 133.
@@ -361,7 +361,7 @@ Debian field, but GNOME Software reads it), and `tauri.conf.json` sets `Homepage
   from CHANGELOG.md's dated sections, and the README screenshot by its raw GitHub URL at the
   newest release's tag.
 - Its `<pkgname>` is the package's name: `git-bolt` in the `.deb`, `gitbolt` in the Arch package
-  (`package-arch.sh` changes it). App Center and Discover match an installed component to its
+  and the RPM (`package-arch.sh` and `package-rpm.sh` change it). App Center and Discover match an installed component to its
   package by it, and GNOME Software finds the package to remove that way, since no distribution
   catalog lists GitBolt.
 - The desktop entry keeps its name, `GitBolt.desktop` (`linux/GitBolt.desktop.hbs`), so existing
@@ -420,6 +420,46 @@ Debian field, but GNOME Software reads it), and `tauri.conf.json` sets `Homepage
   the release `.deb`. The build doesn't use it.
 - **Install on Arch:** `sudo pacman -U GitBolt-<ver>-1-x86_64.pkg.tar.zst`. **Remove:**
   `sudo pacman -R gitbolt`.
+
+### RPM (`just package-rpm`, `just check-rpm-pkg`)
+
+- `just package` also runs `just package-rpm`, which turns the `.deb` into
+  `target/release/bundle/rpm/GitBolt-<version>-1.x86_64.rpm` for Fedora and openSUSE, without
+  rpmbuild (`scripts/package-rpm.sh`; `scripts/rpm-pkg.py` writes the package: the lead, the
+  signature header with its digests, the header, and a zstd-compressed cpio payload, as rpmbuild
+  does). It reads the package back and checks it against the `.deb` before keeping it.
+  - The payload is the `.deb`'s, path for path and mode for mode (`chrome-sandbox` root:root
+    4755), with the Arch package's two changes (the `/usr/share/licenses/gitbolt` symlink, and
+    `<pkgname>gitbolt</pkgname>`), `install-kind` saying `rpm`, and without the system's
+    directories (`/usr`, `/usr/bin`, the icon theme's): the package owns only `/usr/share/GitBolt`
+    and `/usr/share/doc/gitbolt`. Fedora's `/usr/bin` is mode 555, and owning a directory with
+    another mode is a file conflict. A `.deb` directory in neither list fails the build
+    (`OWNED_DIRS` and `SYSTEM_DIRS` in `rpm-pkg.py`).
+  - The license notices are `%license` files: dnf installs them even with `tsflags=nodocs`.
+  - `Requires` are what rpmbuild would generate: the libraries the ELF files need and the
+    payload doesn't bring, with their symbol versions (`libnss3.so()(64bit)`,
+    `libc.so.6(GLIBC_2.34)(64bit)`, from `readelf`), so Fedora's and openSUSE's own package names
+    don't matter. From the `.deb`'s `Depends` it adds `git-core >= 2.40` and GTK 4's library
+    (`DEB_TO_RPM`); another Debian name that isn't a `lib*` one fails the build.
+  - `Version` is the `.deb`'s (`0.1.0~alpha.1`, `0.1.0+202610051325.ab4dbf9e`): rpm sorts `~`
+    before anything, as dpkg does, and `+` as a separator. `Release` is 1. The file name keeps
+    the SemVer form of the `.deb`'s (`GitBolt-0.1.0-alpha.1-1.x86_64.rpm`). Times as in the Arch
+    package.
+  - It isn't signed (rpm reports `Signature: (none)`); dnf says it skipped the OpenPGP check of a
+    local file, and zypper wants `--allow-unsigned-rpm`.
+- `scripts/test-package-rpm.sh` (part of `just test`) checks the version and dependency mapping
+  and a synthetic `.deb` through the whole script; `GITBOLT_TEST_DOCKER=1` adds rpm's own checks
+  of the result in `fedora:latest`.
+- `just check-rpm-pkg` installs the package in a throwaway `fedora:latest` Docker container: `rpm
+  -K`, `dnf install` (every Requires resolved from Fedora's repositories), `rpm -V`, the setuid
+  `chrome-sandbox`, the license notices, `install-kind`, the AppStream metainfo, desktop entry and
+  icons, `ldd`, the same 20 s headless launch as Arch's, and `dnf remove` leaving nothing behind.
+- The release's `Requires` come from the Ubuntu 24.04 runner's libraries (glibc 2.39), so it
+  needs Fedora 40 or later; openSUSE Tumbleweed installs it too. RHEL 9 (glibc 2.34) and
+  openSUSE Leap 15 can't.
+- **Install on Fedora:** `sudo dnf install ./GitBolt-<version>-1.x86_64.rpm`; on openSUSE,
+  `sudo zypper install --allow-unsigned-rpm ./GitBolt-<version>-1.x86_64.rpm`. **Remove:**
+  `sudo dnf remove gitbolt` (`sudo zypper remove gitbolt`).
 
 ## `just bench` (idle CPU and memory smoke)
 

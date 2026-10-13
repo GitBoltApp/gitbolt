@@ -101,7 +101,7 @@ notices in the same change, and check the new dependency's license.
 
 Open an issue on GitHub with:
 - what you did, what you expected, and what happened instead;
-- your distribution and desktop, how you installed GitBolt (`.deb`, Arch package, or built from
+- your distribution and desktop, how you installed GitBolt (`.deb`, `.rpm`, Arch package, or built from
   source), and your git version;
 - the diagnostics: Help → Debug…, then **Copy diagnostics**, and paste the text. It holds the
   GitBolt, Chromium, git and OS versions and your settings, with secrets removed;

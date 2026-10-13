@@ -67,6 +67,8 @@ pub fn newest_update<'a>(releases: &'a [GhRelease], current: &Version, include_p
 /// - deb: `GitBolt_<version>_amd64.deb`;
 /// - arch: `GitBolt-<pkgver>-1-x86_64.pkg.tar.zst`, where pkgver drops the pre-release's `-`
 ///   (`0.3.0-rc.1` → `0.3.0rc.1`, scripts/arch-pkg.py);
+/// - rpm: `GitBolt-<version>-1.x86_64.rpm`, the version as in the `.deb`'s name (the package's
+///   own Version is `0.3.0~rc.1`; scripts/rpm-pkg.py);
 /// - nsis: `GitBolt_<version>_x64-setup.exe`; msi: `GitBolt_<version>_x64.msi`;
 /// - dmg: `GitBolt_<version>_<arch>.dmg`, this machine's: `aarch64` (Apple Silicon) or `x64`
 ///   (Intel, which has no release yet), as Tauri's bundler names them;
@@ -76,6 +78,7 @@ pub fn asset_name(kind: InstallKind, version: &Version) -> Option<String> {
     match kind {
         InstallKind::Deb => Some(format!("GitBolt_{v}_amd64.deb")),
         InstallKind::Arch => Some(format!("GitBolt-{}-1-x86_64.pkg.tar.zst", v.replacen('-', "", 1))),
+        InstallKind::Rpm => Some(format!("GitBolt-{v}-1.x86_64.rpm")),
         InstallKind::Nsis => Some(format!("GitBolt_{v}_x64-setup.exe")),
         InstallKind::Msi => Some(format!("GitBolt_{v}_x64.msi")),
         InstallKind::Dmg => Some(format!("GitBolt_{v}_{DMG_ARCH}.dmg")),
@@ -195,6 +198,8 @@ mod tests {
         assert_eq!(asset_name(InstallKind::Deb, &rc).as_deref(), Some("GitBolt_0.3.0-rc.1_amd64.deb"));
         assert_eq!(asset_name(InstallKind::Arch, &rel).as_deref(), Some("GitBolt-0.3.0-1-x86_64.pkg.tar.zst"));
         assert_eq!(asset_name(InstallKind::Arch, &rc).as_deref(), Some("GitBolt-0.3.0rc.1-1-x86_64.pkg.tar.zst"));
+        assert_eq!(asset_name(InstallKind::Rpm, &rel).as_deref(), Some("GitBolt-0.3.0-1.x86_64.rpm"));
+        assert_eq!(asset_name(InstallKind::Rpm, &rc).as_deref(), Some("GitBolt-0.3.0-rc.1-1.x86_64.rpm"));
         assert_eq!(asset_name(InstallKind::Nsis, &rel).as_deref(), Some("GitBolt_0.3.0_x64-setup.exe"));
         assert_eq!(asset_name(InstallKind::Msi, &rel).as_deref(), Some("GitBolt_0.3.0_x64.msi"));
         let dmg = if cfg!(target_arch = "aarch64") { "GitBolt_0.3.0-rc.1_aarch64.dmg" } else { "GitBolt_0.3.0-rc.1_x64.dmg" };
