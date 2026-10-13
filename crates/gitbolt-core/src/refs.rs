@@ -61,6 +61,8 @@ pub struct RepoRefs {
     /// Each remote's project, as its fetch URL names it: `host/path` (lowercase) when it parses,
     /// else the URL itself; two remotes with the same one are the same project.
     pub remote_ids: HashMap<String, String>,
+    /// The MR/PR heads Compare fetched (`forge::COMPARE_REFS`): graph tips, with no label.
+    pub compare_heads: Vec<ObjectId>,
 }
 
 pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
@@ -80,6 +82,7 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
     let mut refs = Vec::new();
     let mut remote_heads = HashMap::new();
     let mut push_remotes = HashMap::new();
+    let mut compare_heads = Vec::new();
     let platform = repo.references().map_err(gix_err)?;
     for reference in platform.all().map_err(gix_err)? {
         let mut reference = match reference {
@@ -106,6 +109,11 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
         } else if let Some(s) = full.strip_prefix("refs/tags/") {
             (RefKind::Tag, s.to_string())
         } else {
+            if full.starts_with(crate::forge::COMPARE_REFS)
+                && let Ok(id) = reference.peel_to_id()
+            {
+                compare_heads.push(id.detach());
+            }
             continue;
         };
         let mut annotation = None;
@@ -130,7 +138,7 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
         refs.push(RefInfo { full_name: full, short_name: short, kind, target, upstream, upstream_mismatch, annotation });
     }
 
-    Ok(RepoRefs { head: read_head(repo)?, refs, remote_heads, remote_hosts, remote_host_names, stashes: read_stashes(repo)?, push_remotes, remote_ids })
+    Ok(RepoRefs { head: read_head(repo)?, refs, remote_heads, remote_hosts, remote_host_names, stashes: read_stashes(repo)?, push_remotes, remote_ids, compare_heads })
 }
 
 /// A remote's project as its URL names it (`RepoRefs::remote_ids`).

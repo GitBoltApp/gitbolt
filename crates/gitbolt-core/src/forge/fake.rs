@@ -633,7 +633,7 @@ impl ForgeProvider for StackFake {
         let found = self.mrs.lock().unwrap().iter().find(|(m, _)| m.number == number).cloned();
         Box::pin(async move {
             let (mr, description) = found.ok_or_else(|| self.missing(number))?;
-            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None }, 1))
+            Ok(Fresh::new(ForgeMrDetail { mr, description, reviewers: vec![], assignees: vec![], merge_status: MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None, merged_sha: None }, 1))
         })
     }
     fn edit<'a>(&'a self, _project: &'a ForgeProject, number: u64, edit: &'a MrEdit) -> ForgeFuture<'a, ForgeMr> {

@@ -20,6 +20,12 @@ export interface GridRow {
 
 export { rowHeight };
 
+/** A cell's padding, both sides (table.css `.csv-cell`). */
+const CELL_PAD = 16;
+const gutterCh = (gutter: number[]) => gutter.reduce((a, b) => a + b, 0);
+const gutterPx = (gutter: number[]) => gutter.length * 8 + 8;
+const round = (n: number) => Math.round(n * 10) / 10;
+
 /**
  * A delimited file as a table: the header row sticky at the top, the row numbers sticky at the
  * left, and only the rows in view rendered (`@tanstack/react-virtual`, as the file list), so a
@@ -58,8 +64,12 @@ export function TableGrid({ header, headerChanged = null, rows, columns, fontPx,
     laidOut.current = rowH;
     v.measure();
   }, [rowH, v]);
+  // Each column its content's width; a pane wider than the table shares the rest out to the
+  // columns by their widths (`fr`). Every row is its own grid, so the tracks never depend on the
+  // cells: the row is as wide as the columns' widths add up to (`--csv-width`), or the pane.
   const style = useMemo(() => ({
-    '--csv-cols': [`calc(${gutter.reduce((a, b) => a + b, 0)}ch + ${gutter.length * 8 + 8}px)`, ...columns.map((c) => `calc(${c.ch}ch + 16px)`)].join(' '),
+    '--csv-cols': [`calc(${gutterCh(gutter)}ch + ${gutterPx(gutter)}px)`, ...columns.map((c) => `minmax(calc(${c.ch}ch + ${CELL_PAD}px), ${c.ch}fr)`)].join(' '),
+    '--csv-width': `calc(${round(gutterCh(gutter) + columns.reduce((a, c) => a + c.ch, 0))}ch + ${gutterPx(gutter) + columns.length * CELL_PAD}px)`,
     '--csv-row-h': `${rowH}px`,
     '--md-font-size': `${fontPx}px`,
   }) as CSSProperties, [columns, gutter, rowH, fontPx]);

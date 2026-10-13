@@ -314,7 +314,7 @@ pub async fn build_graph_with_text(repo: gix::ThreadSafeRepository, workdir: Pat
 }
 
 /// The commits the graph walks from, deduplicated, in order: HEAD, every ref, every worktree's
-/// HEAD, then the stashes. Find's `locateCommit` walks from the same tips, so the window it
+/// HEAD, then the stashes and the MR heads Compare fetched. Find's `locateCommit` walks from the same tips, so the window it
 /// computes is the one the graph then loads.
 pub(crate) fn graph_tips(refs: &RepoRefs, worktrees: &[Worktree]) -> Vec<ObjectId> {
     let mut tips = Vec::new();
@@ -322,7 +322,8 @@ pub(crate) fn graph_tips(refs: &RepoRefs, worktrees: &[Worktree]) -> Vec<ObjectI
     let candidates = refs.head.target.into_iter()
         .chain(refs.refs.iter().map(|r| r.target))
         .chain(worktrees.iter().filter_map(|w| w.head))
-        .chain(refs.stashes.iter().map(|s| s.id));
+        .chain(refs.stashes.iter().map(|s| s.id))
+        .chain(refs.compare_heads.iter().copied());
     for id in candidates {
         if seen.insert(id) {
             tips.push(id);

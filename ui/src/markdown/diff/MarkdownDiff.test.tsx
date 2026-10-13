@@ -139,6 +139,26 @@ describe('<MarkdownDiff> (5C)', () => {
     expect(screen.getByRole('group', { name: 'Changed' })).toHaveTextContent('Part 3three');
   });
 
+  it("sizes the chunks not laid out yet by those that are (their real height per character), not prose's fixed factor", async () => {
+    const big = Array.from({ length: 30 }, (_, i) => `## Part ${i}\n\n${'word '.repeat(400)}`).join('\n\n');
+    const { container } = render(<MarkdownDiff old={big} new={big.replace('Part 3', 'Part three')} flavor="github" context={NEW} oldContext={OLD} />);
+    await waitFor(() => expect(container.querySelectorAll('.md-chunk').length).toBeGreaterThan(1), { timeout: 5000 });
+    await waitFor(() => expect(screen.queryByText('Rendering…')).toBeNull(), { timeout: 5000 });
+    const chunks = [...container.querySelectorAll<HTMLElement>('.md-chunk')];
+    const estimate = (c: HTMLElement) => parseFloat(c.style.containIntrinsicSize.replace('auto ', ''));
+    const fixed = chunks.map(estimate);
+    // The first chunk lays out (jsdom: every box is 600 px tall): 600 px over its characters.
+    const laid = Object.assign(new Event('contentvisibilityautostatechange'), { skipped: false });
+    chunks[0]!.dispatchEvent(laid);
+    const px = 600 / Number(chunks[0]!.dataset.chars);
+    await waitFor(() => expect(estimate(chunks[1]!)).toBe(Math.max(40, Math.round(Number(chunks[1]!.dataset.chars) * px))));
+    expect(estimate(chunks[1]!)).not.toBe(fixed[1]);
+    // A chunk skipped (off screen) teaches nothing.
+    chunks[1]!.dispatchEvent(Object.assign(new Event('contentvisibilityautostatechange'), { skipped: true }));
+    await new Promise((r) => requestAnimationFrame(r));
+    expect(estimate(chunks[1]!)).toBe(Math.max(40, Math.round(Number(chunks[1]!.dataset.chars) * px)));
+  });
+
   describe('a diff that runs out of time (R14)', () => {
     afterEach(() => vi.restoreAllMocks());
     /** A clock that moves 1 s on every read: any diff runs past its deadline. */

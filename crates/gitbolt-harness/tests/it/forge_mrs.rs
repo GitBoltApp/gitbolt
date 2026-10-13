@@ -99,6 +99,74 @@ async fn auto_merge_is_set_and_cancelled_through_the_api() {
 }
 // --- end auto-merge ---
 
+// --- merged MR compare ---
+/// A merged MR's Compare (no ref of its MR fetched): the detail names the commit it landed as,
+/// found on the trunk with its first parent; one the repository doesn't have is not found.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merged_mr_names_the_commit_it_landed_as_on_the_trunk() {
+    let h = Harness::for_tests().await;
+    let r = repo_on("https://gitlab.example.com/group/project.git");
+    r.git(&["checkout", "-q", "-b", "feature/old"]);
+    r.commit("Old feature");
+    r.git(&["checkout", "-q", "-"]);
+    let before_merge = r.git(&["rev-parse", "HEAD"]);
+    r.git(&["merge", "-q", "--no-ff", "-m", "Merge branch 'feature/old'", "feature/old"]);
+    let merge = r.git(&["rev-parse", "HEAD"]);
+    let squash = r.commit("Squashed work (!10)");
+    r.git(&["update-ref", "refs/remotes/origin/main", "HEAD"]);
+    let gone = "ab".repeat(20);
+    let mut seed = h.forge.current_seed();
+    let mrs = &mut seed.gitlab.merge_requests;
+    let old = mrs.iter_mut().find(|m| m.iid == 9).unwrap();
+    (old.merge_commit_sha, old.squash_commit_sha) = (merge.clone(), String::new());
+    let template = old.clone();
+    mrs.push(gitlab_mrs::FakeMergeRequest { iid: 10, source_branch: "squashed".into(), squash: true, merge_commit_sha: String::new(), squash_commit_sha: squash.clone(), ..template.clone() });
+    mrs.push(gitlab_mrs::FakeMergeRequest { iid: 11, source_branch: "rewritten".into(), merge_commit_sha: gone.clone(), ..template.clone() });
+    mrs.push(gitlab_mrs::FakeMergeRequest { iid: 13, source_branch: "fast-forwarded".into(), merge_commit_sha: String::new(), ..template });
+    seed.gitlab.merge_requests.iter_mut().find(|m| m.iid == 12).unwrap().merge_commit_sha = "cd".repeat(20);
+    h.forge.seed(seed);
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "gitlab.example.com", "kind": "gitlab", "token": GITLAB_TOKEN}})).await.unwrap();
+    let id = open(&h.api, &r).await;
+    call(&h.api, json!({"method": "graph", "params": {"repo": id, "limit": null}})).await.unwrap();
+    let landed = async |n: u64| call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": n}})).await.unwrap()["value"]["mergedSha"].clone();
+    let locate = async |sha: &Value| call(&h.api, json!({"method": "locateCommit", "params": {"repo": id, "sha": sha}})).await;
+
+    // Merged with a merge commit: it, on the trunk; its first parent is the trunk before it.
+    assert_eq!(landed(9).await, json!(merge));
+    assert_eq!(locate(&json!(merge)).await.unwrap()["found"], true);
+    assert_eq!(r.git(&["rev-parse", &format!("{merge}^1")]), before_merge);
+    // Squashed: the squash commit.
+    assert_eq!(landed(10).await, json!(squash));
+    assert_eq!(locate(&json!(squash)).await.unwrap()["found"], true);
+    // One the repository doesn't have (the trunk rewritten since, or not fetched): not found,
+    // and Compare says so rather than fetching the MR's own ref.
+    assert_eq!(landed(11).await, json!(gone));
+    assert!(locate(&json!(gone)).await.is_err());
+    // Fast-forwarded (no merge or squash commit): none, its head is on the target.
+    assert_eq!(landed(13).await, Value::Null);
+    // An open MR: none, whatever GitLab says.
+    assert_eq!(landed(12).await, Value::Null);
+    assert!(!serde_json::to_string(&h.forge.requests()).unwrap().contains(GITLAB_TOKEN));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_merged_pr_names_its_merge_commit_and_an_open_ones_test_merge_is_left_out() {
+    let h = Harness::for_tests().await;
+    let mut seed = h.forge.current_seed();
+    seed.github.pulls.iter_mut().find(|p| p.number == 4).unwrap().merge_commit_sha = "ef".repeat(20);
+    seed.github.pulls.iter_mut().find(|p| p.number == 3).unwrap().merge_commit_sha = "cd".repeat(20);
+    h.forge.seed(seed);
+    call(&h.api, json!({"method": "addForgeAccount", "params": {"host": "github.com", "kind": "github", "token": GITHUB_TOKEN}})).await.unwrap();
+    let r = repo_on("https://github.com/octo-org/widget.git");
+    let id = open(&h.api, &r).await;
+    let detail = async |n: u64| call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": n}})).await.unwrap()["value"].clone();
+    let merged = detail(4).await;
+    assert_eq!((merged["mr"]["state"].as_str(), merged["mergedSha"].as_str()), (Some("merged"), Some("ef".repeat(20).as_str())));
+    assert_eq!(detail(3).await["mergedSha"], Value::Null, "an open PR's test merge isn't on the base");
+    assert!(!serde_json::to_string(&h.forge.requests()).unwrap().contains(GITHUB_TOKEN));
+}
+// --- end merged MR compare ---
+
 // --- branch update ---
 #[tokio::test(flavor = "multi_thread")]
 async fn a_gitlab_mr_behind_its_target_is_rebased_through_the_api() {

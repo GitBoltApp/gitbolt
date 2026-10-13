@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { THEMES } from '../theme/themes';
 import { editorColors } from './monaco/theme';
-import { dragScrollTop, LANE_WIDTH, markKind, markRects, MIN_MARK_PX, MIN_SLIDER_PX, RULER_WIDTH, rulerColors, scrollTopAt, sliderOf, wheelPixels } from './mdRuler';
+import { LANE_WIDTH, markKind, markRects, MIN_MARK_PX, MIN_SLIDER_PX, RULER_WIDTH, rulerColors, scrollTopAt, sliderOf, sliderPointAt, wheelPixels } from './mdRuler';
 
 describe('the rendered diff overview ruler: geometry', () => {
   it("is as wide as Monaco's diff overview (two 15 px lanes)", () => {
@@ -80,11 +80,27 @@ describe('pointer and wheel on the strip', () => {
     expect(scrollTopAt(300, 500, 400, 500)).toBe(0);
   });
 
-  it('dragging the slider moves the view by the slider ratio, clamped', () => {
-    // ratio (500 - 125) / (2000 - 500) = 0.25: 10 px of drag is 40 px of content.
-    expect(dragScrollTop(100, 10, 500, 2000, 500)).toBe(140);
-    expect(dragScrollTop(100, -1000, 500, 2000, 500)).toBe(0);
-    expect(dragScrollTop(100, 1000, 500, 2000, 500)).toBe(1500);
+  it('dragging keeps the grabbed point of the slider under the pointer, clamped', () => {
+    // ratio (500 - 125) / (2000 - 500) = 0.25; at scrollTop 100 the slider's top is at 25.
+    expect(sliderPointAt(50, 500, 2000, 100, 500)).toBe(0.2);
+    // Its top at 35 (10 px further): scrollTop 140.
+    expect(scrollTopAt(60, 500, 2000, 500, 0.2)).toBe(140);
+    expect(scrollTopAt(-1000, 500, 2000, 500, 0.2)).toBe(0);
+    expect(scrollTopAt(1000, 500, 2000, 500, 0.2)).toBe(1500);
+  });
+
+  it('the pointer maps with the content height of that moment: a chunk laid out keeps the slider under it', () => {
+    // A press at 250 on 2000 px: centred. The content grows to 4000 px (a chunk laid out at its
+    // real height): the same pointer now needs a later scrollTop, centred again.
+    const before = scrollTopAt(250, 500, 2000, 500);
+    const after = scrollTopAt(250, 500, 4000, 500);
+    expect(before).toBe(750);
+    expect(after).toBe(1750);
+    // The slider's middle sits on the pointer either way.
+    for (const [content, top] of [[2000, before], [4000, after]] as const) {
+      const s = sliderOf(500, content, top, 500);
+      expect(Math.abs(s.top + s.height / 2 - 250)).toBeLessThanOrEqual(1);
+    }
   });
 
   it('the wheel: pixels as they are, lines and pages scaled', () => {

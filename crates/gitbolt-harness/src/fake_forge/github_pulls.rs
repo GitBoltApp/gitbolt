@@ -108,6 +108,9 @@ pub struct FakePull {
     /// `open`, `closed`.
     pub state: String,
     pub merged: bool,
+    /// `merge_commit_sha`: an open PR's test merge, a merged one's merge, squash or last rebased
+    /// commit; empty: none.
+    pub merge_commit_sha: String,
     /// The method the fake merged it with.
     pub merged_with: String,
     pub draft: bool,
@@ -354,6 +357,7 @@ pub fn pull_json(st: &ForgeState, p: &FakePull, base: &str, single: bool) -> Val
     let mut v = json!({
         "id": 9_000 + p.number, "node_id": format!("PR_{}", p.number), "number": p.number, "title": p.title, "body": p.body,
         "state": p.state, "draft": p.draft, "merged": p.merged, "merged_at": if p.merged { Value::from(WRITE_TIME) } else { Value::Null },
+        "merge_commit_sha": if p.merge_commit_sha.is_empty() { Value::Null } else { Value::from(p.merge_commit_sha.as_str()) },
         "user": user_json(st, &p.author, base),
         "head": { "ref": p.head_ref, "sha": p.head_sha, "repo": { "full_name": head_repo(p) } },
         "base": { "ref": p.base_ref, "sha": if p.base_sha.is_empty() { Value::Null } else { Value::from(p.base_sha.as_str()) }, "repo": { "full_name": p.repo } },

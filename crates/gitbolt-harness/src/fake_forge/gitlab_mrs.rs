@@ -175,6 +175,9 @@ pub struct FakeMergeRequest {
     /// The messages the last merge (or auto-merge) asked for.
     pub merge_commit_message: Option<String>,
     pub squash_commit_message: Option<String>,
+    /// What a merge left on the target (`merge_commit_sha`, `squash_commit_sha`); empty: none.
+    pub merge_commit_sha: String,
+    pub squash_commit_sha: String,
     /// RFC 3339.
     pub updated_at: String,
     pub discussions: Vec<FakeDiscussion>,
@@ -207,6 +210,15 @@ pub struct FakeMergeRequest {
     pub rebases: u32,
     pub rebase_skipped_ci: bool,
     // --- end branch update ---
+}
+
+/// A seed's merge statuses are ones GitLab sends: `merge_status` is `detailed_merge_status`, so a
+/// legacy `merge_status` value (`can_be_merged`) would show a mergeable MR as blocked.
+pub fn check_merge_statuses(mrs: &[FakeMergeRequest]) -> Result<(), String> {
+    match mrs.iter().find(|m| !m.merge_status.is_empty() && !gitbolt_forge::gitlab::json::DETAILED_MERGE_STATUSES.contains(&m.merge_status.as_str())) {
+        Some(m) => Err(format!("!{}: {:?} isn't a GitLab detailed_merge_status (mergeable, need_rebase, not_approved, …)", m.iid, m.merge_status)),
+        None => Ok(()),
+    }
 }
 
 pub fn default_users() -> Vec<FakeUser> {
@@ -285,6 +297,10 @@ fn pipeline_json(m: &FakeMergeRequest, status: &str, base: &str) -> Value {
     json!({ "id": id, "sha": m.head_sha, "ref": m.source_branch, "status": status, "web_url": format!("{base}/gitlab/{}/-/pipelines/{id}", m.project), "updated_at": m.updated_at })
 }
 
+fn sha_or_null(sha: &str) -> Value {
+    if sha.is_empty() { Value::Null } else { Value::from(sha) }
+}
+
 /// One MR as GitLab answers it; `single`: a GET of that MR (with its head pipeline).
 pub fn mr_json(st: &ForgeState, m: &FakeMergeRequest, base: &str, single: bool) -> Value {
     let source = if m.source_project.is_empty() { m.project.as_str() } else { m.source_project.as_str() };
@@ -302,6 +318,7 @@ pub fn mr_json(st: &ForgeState, m: &FakeMergeRequest, base: &str, single: bool) 
         "squash": m.squash, "force_remove_source_branch": m.remove_source_branch, "updated_at": m.updated_at,
         "merge_when_pipeline_succeeds": m.auto_merge_by.is_some(),
         "merge_user": m.auto_merge_by.as_deref().map_or(Value::Null, |u| user_json(&person(st, u), base)),
+        "merge_commit_sha": sha_or_null(&m.merge_commit_sha), "squash_commit_sha": sha_or_null(&m.squash_commit_sha),
     });
     if single {
         v["head_pipeline"] = m.pipeline.as_deref().map_or(Value::Null, |s| pipeline_json(m, s, base));

@@ -421,6 +421,13 @@ pub struct ForgeMrDetail {
     #[ts(optional)]
     pub update: Option<BranchUpdateOffer>,
     // --- end branch update ---
+    /// A merged MR/PR's changes as they landed on the target: GitLab's `merge_commit_sha`, else
+    /// its `squash_commit_sha`; GitHub's `merge_commit_sha` (the merge or squash commit, or the
+    /// last of a rebase's). The Compare of a merged one diffs it against its first parent.
+    /// `None`: not merged, or merged without one (GitLab's fast-forward: the head is on the target).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub merged_sha: Option<String>,
 }
 
 // --- branch update ---
@@ -859,15 +866,30 @@ pub struct MrHead {
     pub number: u64,
 }
 
+/// Where Compare keeps the MR/PR heads it fetched: outside `refs/remotes`, where a pruning fetch
+/// would delete them (they match `refs/remotes/<remote>/*` but no remote branch), and with them
+/// the compare's commits from the graph. The graph walks them unlabelled (`RepoRefs::compare_heads`).
+pub const COMPARE_REFS: &str = "refs/gitbolt/compare/";
+
 impl MrHead {
-    /// The refspec: the forge's ref into `refs/remotes/<remote>/mr/<n>` (GitLab) or `…/pr/<n>`
-    /// (GitHub), the usual names for them.
+    /// The refspec: the forge's ref (`refs/merge-requests/<n>/head`, `refs/pull/<n>/head`) into
+    /// `local_ref`.
     pub fn refspec(&self, remote: &str) -> String {
         let n = self.number;
-        match self.kind {
-            ForgeKind::GitLab => format!("+refs/merge-requests/{n}/head:refs/remotes/{remote}/mr/{n}"),
-            ForgeKind::GitHub => format!("+refs/pull/{n}/head:refs/remotes/{remote}/pr/{n}"),
-        }
+        let src = match self.kind {
+            ForgeKind::GitLab => format!("refs/merge-requests/{n}/head"),
+            ForgeKind::GitHub => format!("refs/pull/{n}/head"),
+        };
+        format!("+{src}:{}", self.local_ref(remote))
+    }
+
+    /// `refs/gitbolt/compare/<remote>/mr/<n>` (GitLab) or `…/pr/<n>` (GitHub).
+    pub fn local_ref(&self, remote: &str) -> String {
+        let word = match self.kind {
+            ForgeKind::GitLab => "mr",
+            ForgeKind::GitHub => "pr",
+        };
+        format!("{COMPARE_REFS}{remote}/{word}/{}", self.number)
     }
 }
 

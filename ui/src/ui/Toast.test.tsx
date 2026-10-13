@@ -17,6 +17,28 @@ describe('Toast', () => {
     expect(screen.getByRole('alert')).toHaveClass('toast-top');
   });
 
+  it("a top toast goes below an open flyout's title bar it would cover (an MR view's header)", () => {
+    const rect = (left: number, top: number, width: number, height: number) => ({ left, top, width, height, right: left + width, bottom: top + height, x: left, y: top, toJSON: () => ({}) }) as DOMRect;
+    const head = document.createElement('header');
+    head.className = 'flyout-head';
+    document.body.append(head);
+    const spy = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (this: HTMLElement) {
+      return this === head ? rect(240, 78, 560, 40) : rect(550, 96, 300, 30);
+    });
+    try {
+      render(<Toast />);
+      act(() => useToast.getState().show('Applied the suggestion', { action: { label: 'Undo', run: () => {} } }));
+      expect(screen.getByRole('status').style.getPropertyValue('--toast-below')).toBe('126px');
+      // Clear of it sideways (a narrow flyout): it stays where it was.
+      spy.mockImplementation(function (this: HTMLElement) { return this === head ? rect(240, 78, 200, 40) : rect(550, 96, 300, 30); });
+      act(() => useToast.getState().show('Applied another', { action: { label: 'Undo', run: () => {} } }));
+      expect(screen.getByRole('status').style.getPropertyValue('--toast-below')).toBe('0px');
+    } finally {
+      spy.mockRestore();
+      head.remove();
+    }
+  });
+
   it('keeps the single `action` working', () => {
     const run = vi.fn();
     render(<Toast />);

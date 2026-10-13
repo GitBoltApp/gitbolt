@@ -172,7 +172,7 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
         </div>
       )}
       {isMd && !html && (
-        <MdDiffFrame pane={pane} active={rendered} split={splitPicked && !narrow}>
+        <MdDiffFrame pane={pane} active={rendered} split={splitPicked && !narrow} after={rendered && <RenderedReviewNote tabId={tabId} path={path} />}>
           <div ref={paneRef} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>
             {rendered && ctx && (waiting
               ? <div className="diff-message" aria-busy="true">Rendering…</div>
@@ -186,7 +186,6 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
                 </Suspense>
               ))}
           </div>
-          {rendered && <RenderedReviewNote tabId={tabId} path={path} />}
         </MdDiffFrame>
       )}
     </>

@@ -309,6 +309,13 @@ impl Api {
             let _ = progress.await;
             let server = crate::write::remote_output::capture(self, op.id, &mut out);
             out?;
+            // One Compare at a time: the MR heads fetched before it go, so none piles up.
+            if let (Some(r), Some(m)) = (&remote, mr_head) {
+                let keep = m.local_ref(r);
+                for name in before.keys().filter(|n| n.starts_with(crate::forge::COMPARE_REFS) && **n != keep) {
+                    self.cli.run(GitInvocation::new(&h.workdir, NO_EXT.into_iter().chain(["update-ref", "-d", "--end-of-options", name.as_str()]))).await?;
+                }
+            }
             Ok::<(bool, _), GbError>((ref_state_async(h.repo.clone()).await? != before, server))
         }
         .await;
@@ -455,7 +462,7 @@ mod tests {
 
     // --- MR round 2 ---
     #[tokio::test]
-    async fn an_mr_head_is_fetched_into_a_remote_tracking_ref_of_its_own() {
+    async fn an_mr_head_is_fetched_into_a_ref_of_its_own_that_a_pruning_fetch_keeps() {
         use crate::forge::{ForgeKind, MrHead};
         let r = TestRepo::new();
         fixtures::basic(&r);
@@ -468,9 +475,18 @@ mod tests {
         let head = r.git_in(&other, &["rev-parse", "HEAD"]);
         let gitlab = MrHead { kind: ForgeKind::GitLab, number: 7 };
         api.fetch_remote(id, false, Some("origin".into()), Some(gitlab)).await.unwrap();
-        assert_eq!(r.git(&["rev-parse", "refs/remotes/origin/mr/7"]), head);
+        assert_eq!(r.git(&["rev-parse", "refs/gitbolt/compare/origin/mr/7"]), head);
+        assert!(r.git(&["for-each-ref", "refs/remotes/origin/mr"]).is_empty(), "no remote-tracking ref of it");
+        // The next fetch, pruning (the default): the head stays, and the graph still walks it.
+        assert!(api.store.state().settings.prune);
+        api.fetch(id, true).await.unwrap();
+        assert_eq!(r.git(&["rev-parse", "refs/gitbolt/compare/origin/mr/7"]), head);
+        let repo = gix::open(r.path()).unwrap();
+        assert_eq!(crate::refs::read_refs(&repo).unwrap().compare_heads.iter().map(|h| h.to_string()).collect::<Vec<_>>(), std::slice::from_ref(&head));
+        // Another MR's Compare: its head replaces the one before.
         api.fetch_remote(id, false, Some("origin".into()), Some(MrHead { kind: ForgeKind::GitHub, number: 8 })).await.unwrap();
-        assert_eq!(r.git(&["rev-parse", "refs/remotes/origin/pr/8"]), head);
+        assert_eq!(r.git(&["rev-parse", "refs/gitbolt/compare/origin/pr/8"]), head);
+        assert_eq!(r.git(&["for-each-ref", "--format=%(refname)", "refs/gitbolt"]), "refs/gitbolt/compare/origin/pr/8");
         let e = api.fetch_remote(id, false, None, Some(gitlab)).await.unwrap_err();
         assert_eq!(e.kind, GbErrorKind::InvalidInput);
     }

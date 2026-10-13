@@ -12,7 +12,9 @@
 /* A font: its name, then its samples, from the top. */
 .media-font-pane { justify-content: flex-start; align-items: stretch; }
 .media-font-pane > .media-label { align-self: center; }
-.font-name { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* overflow: hidden makes its flex min-height 0: without flex-shrink: 0 a glyph grid taller than the
+   pane squeezes the name to nothing instead of the pane scrolling. */
+.font-name { flex-shrink: 0; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .font-sample { display: flex; flex-direction: column; gap: 10px; color: var(--text-normal); }
 .font-line { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
 /* The size, in the UI's own font (the sample's family is on the parent). */

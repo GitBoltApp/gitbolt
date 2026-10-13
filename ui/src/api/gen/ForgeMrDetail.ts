@@ -30,4 +30,11 @@ bodyHtml?: string,
  * GitHub's Update branch): offered for an open MR the user may push to, behind or not (the
  * view decides, from the commits when it has them); `None`: no update offered.
  */
-update?: BranchUpdateOffer, };
+update?: BranchUpdateOffer, 
+/**
+ * A merged MR/PR's changes as they landed on the target: GitLab's `merge_commit_sha`, else
+ * its `squash_commit_sha`; GitHub's `merge_commit_sha` (the merge or squash commit, or the
+ * last of a rebase's). The Compare of a merged one diffs it against its first parent.
+ * `None`: not merged, or merged without one (GitLab's fast-forward: the head is on the target).
+ */
+mergedSha?: string, };

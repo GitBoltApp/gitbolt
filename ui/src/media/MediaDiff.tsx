@@ -42,7 +42,7 @@ function PlayerPane({ side, label, openIn, onShowHex }: { side: MediaSource; lab
       {playable ? (
         kind === 'audio'
           ? <audio className="media-audio" src={side.url} controls preload="metadata" aria-label={label ? `${label} audio` : 'Audio'} onError={() => setFailed(true)} />
-          : <video className="media-video" src={side.url} controls preload="metadata" playsInline aria-label={label ? `${label} video` : 'Video'} onError={() => setFailed(true)} />
+          : <VideoPlayer src={side.url} label={label ? `${label} video` : 'Video'} onError={() => setFailed(true)} />
       ) : (
         <div className="media-unplayable" role="note">
           <span>{`This ${what}'s format (${videoFormat(side.mime, codec)}) can't play here`}</span>
@@ -53,6 +53,32 @@ function PlayerPane({ side, label, openIn, onShowHex }: { side: MediaSource; lab
         </div>
       )}
     </div>
+  );
+}
+
+/** A video, its first frame shown clear: Chromium's controls cover a paused video's frame (all of
+ * a small one), so they show only while the pointer is on it or it has focus (Tab reaches it,
+ * and Space plays), and from its first play on. Overlaid: showing them moves nothing. */
+function VideoPlayer({ src, label, onError }: { src: string; label: string; onError: () => void }) {
+  const [hover, setHover] = useState(false);
+  const [focus, setFocus] = useState(false);
+  const [played, setPlayed] = useState(false);
+  return (
+    <video
+      className="media-video"
+      src={src}
+      controls={hover || focus || played}
+      preload="metadata"
+      playsInline
+      tabIndex={0}
+      aria-label={label}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onFocus={() => setFocus(true)}
+      onBlur={() => setFocus(false)}
+      onPlay={() => setPlayed(true)}
+      onError={onError}
+    />
   );
 }
 

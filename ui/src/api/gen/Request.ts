@@ -50,8 +50,8 @@ active?: string, } } | { "method": "commandLog" } | { "method": "requestLog" } |
 fallback: BlobSource | null, } } | { "method": "loadState" } | { "method": "saveSettings", "params": { settings: AppSettings, } } | { "method": "saveProfile", "params": { profile: Profile, } } | { "method": "createProfile", "params": { name: string, color: string, } } | { "method": "switchProfile", "params": { id: string, } } | { "method": "deleteProfile", "params": { id: string, } } | { "method": "authAnswer", "params": { prompt: number, answer: string | null, } } | { "method": "cancelOp", "params": { op: number, } } | { "method": "fetch", "params": { repo: number, background: boolean, remote?: string, 
 /**
  * With `remote`: only that MR/PR's head (`refs/merge-requests/<n>/head`,
- * `refs/pull/<n>/head`), into `refs/remotes/<remote>/mr/<n>` or `…/pr/<n>`, so its
- * commits are in the graph (the MR view's Compare).
+ * `refs/pull/<n>/head`), into `refs/gitbolt/compare/<remote>/mr/<n>` or `…/pr/<n>`, so its
+ * commits are in the graph (the MR view's Compare), and stay through a pruning fetch.
  */
 mrHead?: MrHead, } } | { "method": "addRemote", "params": { repo: number, worktree: string, name: string, url: string, } } | { "method": "removeRemote", "params": { repo: number, worktree: string, name: string, } } | { "method": "submodules", "params": { repo: number, worktree: string, } } | { "method": "submoduleUpdate", "params": { repo: number, worktree: string, path?: string, 
 /**

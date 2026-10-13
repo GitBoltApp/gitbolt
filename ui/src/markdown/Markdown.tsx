@@ -2,7 +2,8 @@ import type { Root } from 'mdast';
 import { Component, memo, useContext, useEffect, useMemo, useState, useSyncExternalStore, type ErrorInfo, type JSX, type ReactNode } from 'react';
 import { emojiReady, HAS_SHORTCODE, loadEmoji } from '../forge/emoji';
 import { whenIdle } from './idle';
-import { chunkHeightOf } from './chunks';
+import { useLearnedPxPerChar } from './chunkHeights';
+import { CHUNK_CHARS, chunkHeightOf } from './chunks';
 import { MdFontPx } from './fontPx';
 import { DEFAULT_MAX_BYTES, overBytes, RENDERING_NOTE_CHARS, SYNC_PARSE_CHARS } from './limits';
 import { parseMarkdown, peekParsed } from './parse';
@@ -49,15 +50,19 @@ export function Whole({ tree, context, old, split = false, className }: { tree: 
 }
 
 /** One chunk of a large document: converted once, never re-rendered by the next chunk's arrival.
- * Until the browser lays it out, it holds a height estimated from its source length. */
-const Chunk = memo(function Chunk({ tree, context, old, split = false }: { tree: Root; context: MarkdownContext; old?: MarkdownContext; split?: boolean }) {
+ * Until the browser lays it out, it holds a height estimated from its source length: by
+ * `pxPerChar` when one has been learned (a rendered diff's, `useLearnedPxPerChar`), else
+ * `chunkHeightOf`'s. */
+const Chunk = memo(function Chunk({ tree, context, old, split = false, pxPerChar = null }: { tree: Root; context: MarkdownContext; old?: MarkdownContext; split?: boolean; pxPerChar?: number | null }) {
   const ctxKey = contextKey(context);
   const was = oldKey(old);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyed on the contexts' values
   const body = useMemo(() => renderTree(tree, context, old ? { old, split } : undefined), [tree, ctxKey, was, split]);
   const fontPx = useContext(MdFontPx);
-  return <div className="md-chunk" style={{ containIntrinsicSize: `auto ${chunkHeightOf(tree, fontPx)}px` }}>{body}</div>;
-}, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context) && oldKey(a.old) === oldKey(b.old) && a.split === b.split);
+  const chars = tree.data?.gbChars ?? CHUNK_CHARS;
+  const height = pxPerChar === null ? chunkHeightOf(tree, fontPx) : Math.max(40, Math.round(chars * pxPerChar));
+  return <div className="md-chunk" data-chars={chars} style={{ containIntrinsicSize: `auto ${height}px` }}>{body}</div>;
+}, (a, b) => a.tree === b.tree && contextKey(a.context) === contextKey(b.context) && oldKey(a.old) === oldKey(b.old) && a.split === b.split && a.pxPerChar === b.pxPerChar);
 
 /** A large body (ruling 21) as `stream` brings it: one more chunk per idle callback. Its text (or
  * "Rendering…") holds the place until the first chunk; "Rendering…" follows the last rendered
@@ -65,6 +70,9 @@ const Chunk = memo(function Chunk({ tree, context, old, split = false }: { tree:
 export function StreamBody({ stream, text, context, old, split, className }: { stream: ChunkStream; text: string; context: MarkdownContext; old?: MarkdownContext; split?: boolean; className: string }) {
   useSyncExternalStore(stream.subscribe, () => stream.version);
   const [count, setCount] = useState(0);
+  // A rendered diff (`old`) sizes the chunks not laid out yet by those that are.
+  const [box, setBox] = useState<HTMLDivElement | null>(null);
+  const pxPerChar = useLearnedPxPerChar(box, old !== undefined);
   const total = stream.chunks.length;
   // The first chunk renders with the message that brought it (one chunk per task either way).
   const shown = Math.max(count, Math.min(total, 1));
@@ -76,8 +84,8 @@ export function StreamBody({ stream, text, context, old, split, className }: { s
   if (stream.failed) return <Failed text={text} className={className} />;
   if (shown === 0) return text.length > RENDERING_NOTE_CHARS ? <div className={className}><p className="md-rendering">Rendering…</p></div> : <PlainBody text={text} className={className} />;
   return (
-    <div className={className}>
-      {stream.chunks.slice(0, shown).map((c, i) => <Chunk key={i} tree={c} context={context} old={old} split={split} />)}
+    <div ref={setBox} className={className}>
+      {stream.chunks.slice(0, shown).map((c, i) => <Chunk key={i} tree={c} context={context} old={old} split={split} pxPerChar={pxPerChar} />)}
       {(!stream.done || shown < total) && <p className="md-rendering">Rendering…</p>}
     </div>
   );

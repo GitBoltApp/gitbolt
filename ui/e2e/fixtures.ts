@@ -133,7 +133,7 @@ export async function forgeSeed(request: APIRequestContext): Promise<ForgeSeed> 
 }
 export async function setForgeSeed(request: APIRequestContext, seed: ForgeSeed): Promise<void> {
   const res = await request.post(`${harnessHttp}/test/forge/seed`, { data: seed });
-  if (!res.ok()) throw new Error(`forge seed refused: ${res.status()}`);
+  if (!res.ok()) throw new Error(`forge seed refused: ${res.status()} ${await res.text()}`);
 }
 // --- end 4A T14 ---
 

@@ -518,9 +518,19 @@ impl FakeForge {
         self.state.lock().expect("fake forge poisoned")
     }
 
+    /// Panics on a seed GitLab couldn't send (`try_seed`).
     pub fn seed(&self, seed: ForgeSeed) {
+        if let Err(e) = self.try_seed(seed) {
+            panic!("{e}");
+        }
+    }
+
+    /// Takes `seed` unless it holds what the real forge never sends (`check_merge_statuses`).
+    pub fn try_seed(&self, seed: ForgeSeed) -> Result<(), String> {
+        gitlab_mrs::check_merge_statuses(&seed.gitlab.merge_requests)?;
         self.lock().seed = seed;
         self.changed();
+        Ok(())
     }
 
     /// Time passes (a test's polls are a minute apart): answers kept fresh for `FRESH_SECS`

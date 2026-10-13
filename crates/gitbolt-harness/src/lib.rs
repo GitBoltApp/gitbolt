@@ -434,8 +434,10 @@ async fn test_forge_seed(State(h): State<Arc<Harness>>, headers: HeaderMap, Json
     if foreign_origin(&headers) {
         return StatusCode::FORBIDDEN.into_response();
     }
-    h.forge.seed(seed);
-    "ok".into_response()
+    match h.forge.try_seed(seed) {
+        Ok(()) => "ok".into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, e).into_response(),
+    }
 }
 
 async fn test_forge_script(State(h): State<Arc<Harness>>, headers: HeaderMap, Json(s): Json<fake_forge::Scripted>) -> Response {

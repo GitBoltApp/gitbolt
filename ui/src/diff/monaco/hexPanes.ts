@@ -47,8 +47,8 @@ const CONTEXT_ROWS = 3;
 const SCROLL_IMMEDIATE = 1;
 /** Room after a pane's last column, for the cursor, in px. */
 const PANE_PAD_PX = 4;
-/** The view's one vertical scrollbar (the app's slim native one, tokens.css). */
-const BAR_PX = 10;
+/** The view's one vertical scrollbar, as wide as the other diffs' rulers (hex.css). */
+const BAR_PX = 30;
 /** At most this many marks on the scrollbar: closer changes share one. */
 const RULER_MARKS = 400;
 

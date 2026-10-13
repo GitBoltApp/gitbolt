@@ -1,5 +1,5 @@
 import { act, render, waitFor } from '@testing-library/react';
-import { useRef } from 'react';
+import { useRef, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTheme } from '../theme/store';
 import { THEMES } from '../theme/themes';
@@ -36,10 +36,10 @@ afterEach(() => {
 const scrolled = (el: HTMLElement) => (el.closest('[data-testid="pane"]') as HTMLElement | null)?.scrollTop ?? 0;
 
 type M = { top: number; h: number; mark: string };
-function Harness({ marks, active = true, split = false }: { marks: M[]; active?: boolean; split?: boolean }) {
+function Harness({ marks, active = true, split = false, after }: { marks: M[]; active?: boolean; split?: boolean; after?: ReactNode }) {
   const pane = useRef<HTMLDivElement>(null);
   return (
-    <MdDiffFrame pane={pane} active={active} split={split}>
+    <MdDiffFrame pane={pane} active={active} split={split} after={after}>
       <div
         ref={(el) => {
           pane.current = el;
@@ -113,6 +113,16 @@ describe('the rendered Markdown diff overview ruler', () => {
     expect(fills).toEqual([{ style: rulerColors(THEMES['default-dark']).changed, rect: [0, 300, 30, 10] }]);
   });
 
+  it("spans the pane alone: review mode's note, after it, is outside the strip (the pointer maps over the pane's height)", async () => {
+    const { container } = render(<Harness marks={MARKS} after={<p role="note">Reviewing</p>} />);
+    await waitFor(() => expect(ruler(container)).toHaveAttribute('data-marks', '3'));
+    const box = ruler(container)!.parentElement!;
+    expect(box).toHaveClass('md-diff-box');
+    expect(box).toContainElement(pane(container));
+    expect(box).not.toContainElement(container.querySelector('[role="note"]'));
+    expect(box.nextElementSibling).toHaveAttribute('role', 'note');
+  });
+
   it('no changes: no strip, and the native scrollbar stays', async () => {
     const { container } = render(<Harness marks={[]} />);
     await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
@@ -145,6 +155,74 @@ describe('the rendered Markdown diff overview ruler', () => {
     act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientY: 310 })); });
     act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientY: 400 })); });
     expect(pane(container).scrollTop).toBe(940);
+  });
+
+  it('dragging the slider keeps the point grabbed under the pointer, without a jump on the press', async () => {
+    const { container } = render(<Harness marks={MARKS} />);
+    await waitFor(() => expect(ruler(container)).toHaveAttribute('data-marks', '3'));
+    act(() => { pane(container).scrollTop = 900; });
+    // The 150 px slider spans 225–375: grabbed 30 px below its top.
+    act(() => { slider(container).dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 255 })); });
+    expect(pane(container).scrollTop).toBe(900);
+    act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientY: 265 })); });
+    expect(pane(container).scrollTop).toBe(940);
+    act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientY: 265 })); });
+  });
+
+  describe('the content grows under a press (a chunk laid out at its real height, not its estimate)', () => {
+    let resized: (() => void)[] = [];
+    beforeEach(() => {
+      resized = [];
+      vi.stubGlobal('ResizeObserver', class { constructor(cb: () => void) { resized.push(cb); } observe() {} unobserve() {} disconnect() {} });
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      metrics.scrollHeight = 2400;
+    });
+
+    it('a held press keeps the view centred on the pointer, and the slider on it', async () => {
+      const { container } = render(<Harness marks={MARKS} />);
+      await waitFor(() => expect(ruler(container)).toHaveAttribute('data-marks', '3'));
+      act(() => { ruler(container)!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 300 })); });
+      expect(pane(container).scrollTop).toBe(900);
+      // 2400 → 4800 px: the slider halves (75 px); centred on 300 again, scrollTop (300 - 37.5) / 0.125.
+      metrics.scrollHeight = 4800;
+      act(() => { for (const cb of resized) cb(); });
+      expect(pane(container).scrollTop).toBe(2100);
+      act(() => { pane(container).dispatchEvent(new Event('scroll')); });
+      await waitFor(() => expect(slider(container).style.height).toBe('75px'));
+      expect(slider(container).style.transform).toBe('translateY(263px)');
+      // Dragging on maps with the new height.
+      act(() => { window.dispatchEvent(new MouseEvent('pointermove', { clientY: 400 })); });
+      expect(pane(container).scrollTop).toBe(2900);
+      act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientY: 400 })); });
+      // Just released (a quick click's chunk lays out a frame or two later): it still follows.
+      // 6000 px: a 60 px slider, ratio 0.1.
+      metrics.scrollHeight = 6000;
+      act(() => { for (const cb of resized) cb(); });
+      expect(pane(container).scrollTop).toBe(3700);
+      // The user moves on (the wheel over the pane): the content changing leaves the view be.
+      act(() => { pane(container).dispatchEvent(new WheelEvent('wheel', { deltaY: 10 })); });
+      metrics.scrollHeight = 7200;
+      act(() => { for (const cb of resized) cb(); });
+      expect(pane(container).scrollTop).toBe(3700);
+    });
+
+    it('a streamed chunk arriving under a press does the same', async () => {
+      const { container } = render(<Harness marks={MARKS} />);
+      await waitFor(() => expect(ruler(container)).toHaveAttribute('data-marks', '3'));
+      act(() => { ruler(container)!.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientY: 300 })); });
+      metrics.scrollHeight = 4800;
+      act(() => { pane(container).append(document.createElement('div')); });
+      await waitFor(() => expect(pane(container).scrollTop).toBe(2100));
+      act(() => { window.dispatchEvent(new MouseEvent('pointerup', { clientY: 300 })); });
+      // Settled: a later chunk leaves the view where it is.
+      await act(() => new Promise((r) => setTimeout(r, 300)));
+      metrics.scrollHeight = 6000;
+      act(() => { pane(container).append(document.createElement('div')); });
+      await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+      expect(pane(container).scrollTop).toBe(2100);
+    });
   });
 
   it('a click is the strip\'s own: it does not reach the panel (which would focus the editor)', async () => {

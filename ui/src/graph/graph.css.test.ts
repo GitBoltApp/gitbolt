@@ -348,3 +348,9 @@ describe('graph.css row text: the row-dim mechanism and its motion (J22)', () =>
     expect(reduced).toMatch(/--motion-row-dim:\s*0s/);
   });
 });
+
+describe('graph.css toasts', () => {
+  it('a top toast sits below the toolbar, or lower when Toast.tsx says a flyout title bar is in the way', () => {
+    expect(css.match(/\n\.toast-top\s*\{([^}]*)\}/)?.[1] ?? '').toMatch(/top:\s*max\(96px,\s*var\(--toast-below,\s*0px\)\)/);
+  });
+});

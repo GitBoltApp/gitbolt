@@ -247,7 +247,11 @@ test.describe('the rendered Markdown diff (5C)', () => {
     // A long file with front matter, edited far down: it opens at that change.
     const l1 = '---\nname: release-checklist\ndescription: The steps a release goes through.\n---\n\n# Release checklist\n'
       + Array.from({ length: 60 }, (_, i) => `\nStep ${i + 1} of the release checklist stays as it was.\n`).join('');
-    const repo = docsRepo({ 'guide.md': v1, 'long.md': l1 }, 'Add guide');
+    // A long document (rendered in chunks) changed all through it, for the ruler's press.
+    const s1 = bigMarkdown(12_000);
+    const s2 = s1.replace(/tuned for (\d*[05])\n/g, 'tuned for $1, then measured again\n- [ ] a new item for $1\n');
+    const repo = docsRepo({ 'guide.md': v1, 'long.md': l1, 'spread.md': s1 }, 'Add guide');
+    writeFileSync(join(repo, 'spread.md'), s2);
     writeFileSync(join(repo, 'guide.md'), v2);
     writeFileSync(join(repo, 'long.md'), l1.replace('Step 50 of the release checklist stays as it was.', 'Step 50 of the release checklist now runs twice.'));
     git(repo, 'commit', '-qam', 'Edit guide');
@@ -383,6 +387,40 @@ test.describe('the rendered Markdown diff (5C)', () => {
       });
       await expect.poll(offCentre).toBeLessThanOrEqual(2);
       expect(await md.evaluate((el) => el.scrollTop)).toBeGreaterThan(0);
+    });
+
+    await test.step("pressing the ruler's middle on a long diff centres the view there, as its chunks lay out at their real height", async () => {
+      await page.locator('[role="option"][data-path="spread.md"]').click();
+      await expect(md.locator('.md-chunk')).not.toHaveCount(0);
+      await expect(md.locator('.md-rendering')).toHaveCount(0);
+      const ruler = page.locator('.md-diff-ruler');
+      const box = (await ruler.boundingBox())!;
+      // The strip spans the pane, which the pointer maps over.
+      const pane = (await md.boundingBox())!;
+      expect(Math.abs(box.y - pane.y) + Math.abs(box.height - pane.height)).toBeLessThan(1);
+      const y = box.y + box.height / 2;
+      /** How far the view's middle (as a point on the ruler, by the real scroll height) and the slider's are from the pointer. */
+      const offPointer = () => md.evaluate((el, at) => {
+        const strip = document.querySelector('.md-diff-ruler')!.getBoundingClientRect();
+        const s = document.querySelector('.md-diff-ruler-slider')!.getBoundingClientRect();
+        const view = strip.top + ((el.scrollTop + el.clientHeight / 2) / el.scrollHeight) * strip.height;
+        return Math.max(Math.abs(view - at), Math.abs((s.top + s.bottom) / 2 - at));
+      }, y);
+      await page.mouse.move(box.x + box.width / 2, y);
+      await page.mouse.down();
+      await page.mouse.up();
+      // A chunk lays out a frame or two after the jump: the view follows it, then holds.
+      await page.waitForTimeout(400);
+      expect(await offPointer()).toBeLessThanOrEqual(3);
+      // Dragging on tracks the pointer.
+      await page.mouse.move(box.x + box.width / 2, y);
+      await page.mouse.down();
+      await page.mouse.move(box.x + box.width / 2, y + 60, { steps: 3 });
+      await expect.poll(() => md.evaluate((el, at) => {
+        const strip = document.querySelector('.md-diff-ruler')!.getBoundingClientRect();
+        return Math.abs(strip.top + ((el.scrollTop + el.clientHeight / 2) / el.scrollHeight) * strip.height - at);
+      }, y + 60)).toBeLessThanOrEqual(3);
+      await page.mouse.up();
     });
 
     // Source: the text diff and its view modes again.

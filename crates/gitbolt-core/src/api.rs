@@ -209,8 +209,8 @@ pub enum Request {
         #[ts(optional)]
         remote: Option<String>,
         /// With `remote`: only that MR/PR's head (`refs/merge-requests/<n>/head`,
-        /// `refs/pull/<n>/head`), into `refs/remotes/<remote>/mr/<n>` or `…/pr/<n>`, so its
-        /// commits are in the graph (the MR view's Compare).
+        /// `refs/pull/<n>/head`), into `refs/gitbolt/compare/<remote>/mr/<n>` or `…/pr/<n>`, so its
+        /// commits are in the graph (the MR view's Compare), and stay through a pruning fetch.
         #[serde(default)]
         #[ts(optional)]
         mr_head: Option<crate::forge::MrHead>,
@@ -5494,7 +5494,7 @@ mod tests {
         p.mrs.lock().unwrap().push(mr(12, "group/project", "dev", MrState::Open));
         // --- 4D T4: the merge guard reads the MR and the project's default ---
         p.settings = Some(crate::forge::ForgeProjectSettings { merge_methods: vec![], squash: crate::forge::SquashOption::DefaultOff, delete_source_branch: false });
-        p.details.lock().unwrap().insert(12, crate::forge::ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: String::new(), reviewers: vec![], assignees: vec![], merge_status: crate::forge::MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None });
+        p.details.lock().unwrap().insert(12, crate::forge::ForgeMrDetail { mr: mr(12, "group/project", "dev", MrState::Open), description: String::new(), reviewers: vec![], assignees: vec![], merge_status: crate::forge::MergeStatus::Mergeable, squash: None, delete_source_branch: None, body_html: None, base_sha: None, subscribed: None, update: None, merged_sha: None });
         // --- end 4D T4 ---
         let conn = Arc::new(FakeConnector::default());
         let fake = conn.add(TOKEN, p);

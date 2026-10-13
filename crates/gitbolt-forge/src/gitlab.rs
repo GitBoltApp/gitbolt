@@ -280,6 +280,16 @@ pub mod json {
         (set && v["state"].as_str() == Some("opened")).then(|| AutoMerge { enabled_by: user(&v["merge_user"]), method: None })
     }
 
+    /// Every `detailed_merge_status` GitLab documents, each with its own reason in `merge_status`.
+    /// Anything else (a status newer than this list) shows as GitLab words it.
+    pub const DETAILED_MERGE_STATUSES: &[&str] = &[
+        "mergeable", "checking", "unchecked", "preparing", "approvals_syncing", "ci_must_pass", "ci_still_running",
+        "discussions_not_resolved", "draft_status", "not_approved", "requested_changes", "conflict", "need_rebase",
+        "blocked_status", "merge_request_blocked", "not_open", "broken_status", "external_status_checks",
+        "status_checks_must_pass", "jira_association_missing", "merge_time", "security_policy_violations",
+        "policies_denied", "locked_paths", "locked_lfs_files", "title_regex", "commits_status",
+    ];
+
     /// Why GitLab won't merge it (`detailed_merge_status`, GitLab ≥ 15.6; `merge_status` before).
     pub fn merge_status(v: &Value) -> MergeStatus {
         let blocked = |r: &str| MergeStatus::Blocked { reason: r.to_string() };
@@ -303,10 +313,10 @@ pub mod json {
             Some("blocked_status" | "merge_request_blocked") => blocked("Another merge request blocks it"),
             Some("not_open") => blocked("It isn't open"),
             Some("broken_status") => blocked("The source branch can't be merged as it is"),
-            Some("external_status_checks") => blocked("External status checks must pass first"),
+            Some("external_status_checks" | "status_checks_must_pass") => blocked("External status checks must pass first"),
             Some("jira_association_missing") => blocked("Its title or description needs a Jira issue key"),
             Some("merge_time") => blocked("It can't merge before its scheduled time"),
-            Some("security_policy_violations") => blocked("Security policies block it"),
+            Some("security_policy_violations" | "policies_denied") => blocked("Security policies block it"),
             Some("locked_paths" | "locked_lfs_files") => blocked("Locked files block it"),
             Some("title_regex") => blocked("Its title doesn't match the project's rule"),
             Some("commits_status") => blocked("Its commits don't meet the project's rules"),
@@ -353,6 +363,7 @@ pub mod json {
             subscribed: v["subscribed"].as_bool(),
             body_html: None,
             update: None,
+            merged_sha: if v["state"].as_str() == Some("merged") { text(&v["merge_commit_sha"]).or_else(|| text(&v["squash_commit_sha"])) } else { None },
         })
     }
 
@@ -1966,6 +1977,11 @@ mod tests {
         assert_eq!(status("checking"), MergeStatus::Checking);
         assert_eq!(status("ci_must_pass"), MergeStatus::Blocked { reason: "The pipeline must succeed first".into() });
         assert_eq!(status("something_new"), MergeStatus::Blocked { reason: "GitLab says: something new".into() });
+        // Every documented status has its own reason: none falls through to GitLab's own words
+        // (which read "Merge is blocked: GitLab says: can be merged" for a legacy value).
+        for s in json::DETAILED_MERGE_STATUSES {
+            assert!(!matches!(status(s), MergeStatus::Blocked { reason } if reason.starts_with("GitLab says")), "{s}");
+        }
         assert_eq!(json::merge_status(&json!({"state": "merged"})), MergeStatus::Blocked { reason: "It's merged already".into() });
         assert_eq!(json::merge_status(&json!({"state": "opened", "merge_status": "cannot_be_merged"})), MergeStatus::Blocked { reason: "It has conflicts: rebase or merge the target branch first".into() });
         let grace = json!({"user": {"id": 8, "username": "grace", "name": "Grace"}});
@@ -2134,6 +2150,16 @@ mod tests {
         assert_eq!((d.base_sha.as_deref(), d.subscribed), (Some("abc"), Some(true)));
     }
     // --- end MR round 2 ---
+
+    #[test]
+    fn a_merged_mr_landed_as_its_merge_commit_else_its_squash_commit() {
+        let v = |state: &str, merge: serde_json::Value, squash: serde_json::Value| json!({"iid": 12, "title": "t", "state": state, "author": {"id": 1, "username": "ada", "name": "Ada"}, "source_branch": "dev", "target_branch": "main", "merge_commit_sha": merge, "squash_commit_sha": squash});
+        let landed = |v: serde_json::Value| json::detail(&v, "group/project", "group/project", None).unwrap().merged_sha;
+        assert_eq!(landed(v("merged", json!("m1"), json!("s1"))).as_deref(), Some("m1"), "a squash with a merge commit: the merge commit");
+        assert_eq!(landed(v("merged", json!(null), json!("s1"))).as_deref(), Some("s1"), "squashed and fast-forwarded");
+        assert_eq!(landed(v("merged", json!(null), json!(null))), None, "fast-forwarded: the head is on the target");
+        assert_eq!(landed(v("opened", json!("m1"), json!(null))), None);
+    }
 
     #[test]
     fn auto_merge_refusals_are_said_plainly() {
@@ -2478,6 +2504,14 @@ mod tests {
         assert_eq!(offer(json!({"diverged_commits_count": 3}), None), Some(BranchUpdateOffer { behind: Some(3), forge_behind: true, kinds: rebase.clone(), in_progress: false }));
         // A fast-forward project says so without a count (an older GitLab has none).
         assert_eq!(offer(json!({"detailed_merge_status": "need_rebase"}), None).map(|o| (o.behind, o.forge_behind)), Some((None, true)));
+        // Behind in a fast-forward (or semi-linear) project: blocked until rebased, and rebase offered.
+        let ff = mr_json(json!({"detailed_merge_status": "need_rebase", "merge_status": "can_be_merged", "diverged_commits_count": 1}));
+        assert_eq!(json::merge_status(&ff), MergeStatus::Blocked { reason: "Rebase the source branch first".into() });
+        assert_eq!(json::update_offer(&ff, None).map(|o| (o.behind, o.forge_behind)), Some((Some(1), true)));
+        // Behind with merge commits: it merges as it is, and rebase is still offered.
+        let merge = mr_json(json!({"detailed_merge_status": "mergeable", "merge_status": "can_be_merged", "diverged_commits_count": 1}));
+        assert_eq!(json::merge_status(&merge), MergeStatus::Mergeable);
+        assert_eq!(json::update_offer(&merge, None).map(|o| o.behind), Some(Some(1)));
         assert_eq!(offer(json!({"diverged_commits_count": 3, "rebase_in_progress": true}), None).map(|o| o.in_progress), Some(true));
         // Up to date as GitLab says: still offered (the view tells from the commits too).
         assert_eq!(offer(json!({"diverged_commits_count": 0}), None), Some(BranchUpdateOffer { behind: None, forge_behind: false, kinds: rebase.clone(), in_progress: false }));

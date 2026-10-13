@@ -54,6 +54,20 @@ describe('a long document (ruling 21)', () => {
     } finally { vi.useRealTimers(); }
   });
 
+  it("a document (not a diff) keeps the fixed placeholder factor as its chunks lay out", async () => {
+    vi.useFakeTimers();
+    try {
+      const text = Array.from({ length: 30 }, () => `## Same\n\n${'word '.repeat(400)}`).join('\n\n');
+      const { container } = render(<Markdown flavor="github" context={ctx} text={text} />);
+      while (container.querySelector('.md-rendering') || !container.querySelector('.md-chunk')) await act(() => vi.advanceTimersToNextTimerAsync());
+      const [first, second] = [...container.querySelectorAll<HTMLElement>('.md-chunk')];
+      const before = second!.style.containIntrinsicSize;
+      first!.dispatchEvent(Object.assign(new Event('contentvisibilityautostatechange'), { skipped: false }));
+      await act(() => vi.advanceTimersToNextTimerAsync());
+      expect(second!.style.containIntrinsicSize).toBe(before);
+    } finally { vi.useRealTimers(); }
+  });
+
   it('once the parse worker has died, a long body shows as written with "Too large to render"', async () => {
     class Crashing { onerror: ((e: Event) => void) | null = null; onmessage = null; postMessage() { setTimeout(() => this.onerror?.(new Event('error'))); } terminate() {} }
     vi.stubGlobal('Worker', Crashing);

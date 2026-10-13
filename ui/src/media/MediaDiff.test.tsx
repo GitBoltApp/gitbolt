@@ -46,10 +46,29 @@ describe('MediaDiff', () => {
     playable('video/webm');
     const { container } = render(<MediaDiff old={null} new={src('video', 'video/webm', 100)} single="added" />);
     const video = container.querySelector('video')!;
-    expect([video.controls, video.autoplay, video.getAttribute('src')]).toEqual([true, false, 'blob:video-100']);
+    expect([video.autoplay, video.preload, video.getAttribute('src')]).toEqual([false, 'metadata', 'blob:video-100']);
     expect(container.querySelectorAll('[data-testid="media-pane"]')).toHaveLength(1);
     expect(container.querySelector('.media-label')).toBeNull();
     expect(screen.getByTestId('media-meta')).toHaveTextContent(/^100 B \(added\)$/);
+  });
+
+  it("a paused video's frame shows clear: its controls only while hovered or focused, then from its first play on", () => {
+    playable('video/webm');
+    render(<MediaDiff old={src('video', 'video/webm', 100)} new={src('video', 'video/webm', 200)} />);
+    const video = screen.getByLabelText('New video') as HTMLVideoElement;
+    expect(video.controls).toBe(false);
+    fireEvent.mouseEnter(video);
+    expect(video.controls).toBe(true);
+    fireEvent.mouseLeave(video);
+    expect(video.controls).toBe(false);
+    // From the keyboard: Tab reaches it, and its controls show while it has focus.
+    expect(video.tabIndex).toBe(0);
+    fireEvent.focus(video);
+    expect(video.controls).toBe(true);
+    fireEvent.play(video);
+    fireEvent.blur(video);
+    expect(video.controls).toBe(true);
+    expect((screen.getByLabelText('Old video') as HTMLVideoElement).controls).toBe(false);
   });
 
   it("a format the webview says it can't play shows the note with Open in and Show hex, naming an MP4's codec", () => {

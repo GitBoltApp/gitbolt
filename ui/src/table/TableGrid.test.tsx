@@ -47,7 +47,9 @@ describe('CsvTable', () => {
   it('sizes columns from their content, and rows from the text size', () => {
     render(<Csv text={'id,description\n1,a fairly long description\n'} fontPx={16} />);
     const table = screen.getByRole('table');
-    expect(table.style.getPropertyValue('--csv-cols')).toMatch(/calc\(3ch \+ 16px\) calc\(25ch \+ 16px\)$/);
+    // Spare width goes to the columns by their widths (fr), the gutter (2ch) keeps its own.
+    expect(table.style.getPropertyValue('--csv-cols')).toMatch(/^calc\(2ch \+ 16px\) minmax\(calc\(3ch \+ 16px\), 3fr\) minmax\(calc\(25ch \+ 16px\), 25fr\)$/);
+    expect(table.style.getPropertyValue('--csv-width')).toBe('calc(30ch + 48px)');
     expect(table.style.getPropertyValue('--csv-row-h')).toBe(`${rowHeight(16)}px`);
     expect(table).toHaveAttribute('data-font-zoom');
   });
@@ -250,5 +252,14 @@ describe('table.css', () => {
     expect(rule('.csv-row[data-kind="added"]')).toMatch(/var\(--diff-inserted-line\)/);
     expect(rule('.csv-row[data-kind="removed"]')).toMatch(/var\(--diff-removed-line\)/);
     expect(css).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+  });
+
+  it("lines every row's columns up: rows as wide as the columns or the pane, never their own content", () => {
+    const row = rule('.csv-row');
+    expect(row).toMatch(/width:\s*var\(--csv-width\);\s*min-width:\s*100%/);
+    expect(row).not.toMatch(/max-content/);
+    // The header's bold is on its cells: the row's ch (the columns' unit) is the body's.
+    expect(rule('.csv-head')).not.toMatch(/font-weight/);
+    expect(rule('.csv-head > .csv-cell, .csv-old-head > .csv-cell')).toMatch(/font-weight:\s*600/);
   });
 });

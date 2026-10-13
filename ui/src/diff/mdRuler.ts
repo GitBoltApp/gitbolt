@@ -60,18 +60,21 @@ export function sliderOf(visible: number, content: number, scrollTop: number, st
 
 const clampTop = (top: number, visible: number, content: number) => Math.min(Math.max(0, top), Math.max(0, content - visible));
 
-/** The scrollTop that centres the slider on `y` (a click on the strip, as Monaco's scrollbar). */
-export function scrollTopAt(y: number, visible: number, content: number, strip: number): number {
+/** The scrollTop that puts the slider's point `at` (a fraction of its height: 0.5, its middle)
+ * on `y`: a click on the strip centres the view there, as Monaco's scrollbar, and a drag keeps
+ * the point it grabbed under the pointer. Absolute, not by the pointer's travel: given the
+ * content's height at that moment, it holds as the content grows (a chunk laid out). */
+export function scrollTopAt(y: number, visible: number, content: number, strip: number, at = 0.5): number {
   const s = sliderOf(visible, content, 0, strip);
   if (!s.needed || s.ratio <= 0) return 0;
-  return clampTop((y - s.height / 2) / s.ratio, visible, content);
+  return clampTop((y - s.height * at) / s.ratio, visible, content);
 }
 
-/** The scrollTop after dragging the slider `dy` px from where the view was at `startTop`. */
-export function dragScrollTop(startTop: number, dy: number, visible: number, content: number, strip: number): number {
-  const s = sliderOf(visible, content, startTop, strip);
-  if (!s.needed || s.ratio <= 0) return 0;
-  return clampTop(startTop + dy / s.ratio, visible, content);
+/** The point of the slider (a fraction of its height, `scrollTopAt`'s `at`) at `y` on the strip. */
+export function sliderPointAt(y: number, visible: number, content: number, scrollTop: number, strip: number): number {
+  const s = sliderOf(visible, content, scrollTop, strip);
+  // The slider's exact top, not its rounded one: grabbing it doesn't move the view.
+  return s.needed && s.height > 0 ? Math.min(Math.max(0, (y - scrollTop * s.ratio) / s.height), 1) : 0.5;
 }
 
 /** A wheel event's vertical delta in px (`page`: the view's height, for deltaMode 2). */

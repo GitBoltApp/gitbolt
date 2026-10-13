@@ -110,6 +110,19 @@ async fn the_harness_owns_one_and_its_reset_restores_the_default_seed() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_seed_takes_only_merge_statuses_gitlab_sends() {
+    let f = FakeForge::start().await;
+    let mut seed = f.current_seed();
+    seed.gitlab.merge_requests[0].merge_status = "need_rebase".into();
+    assert_eq!(f.try_seed(seed.clone()), Ok(()));
+    // A legacy `merge_status` value in the detailed field: refused, the seed kept as it was.
+    seed.gitlab.merge_requests[0].merge_status = "can_be_merged".into();
+    let err = f.try_seed(seed).unwrap_err();
+    assert!(err.contains("\"can_be_merged\" isn't a GitLab detailed_merge_status"), "{err}");
+    assert_eq!(f.current_seed().gitlab.merge_requests[0].merge_status, "need_rebase");
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn token_query_params_are_redacted_in_the_log() {
     let f = FakeForge::start().await;
     get(format!("{}/user?private_token=glpat-secret&x=1&access_token=a&token=b", f.gitlab_api()), None, None).await;

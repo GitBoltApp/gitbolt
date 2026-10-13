@@ -220,6 +220,7 @@
 @keyframes ref-spin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .ref-rebasing .spin { animation: none; } }
 /* --- end 2D T18 --- */
-.toast-top { bottom: auto; top: 96px; animation: gb-toast-in 140ms ease-out; }
+/* Below the toolbar, and below an open flyout's title bar it would cover (--toast-below, Toast.tsx). */
+.toast-top { bottom: auto; top: max(96px, var(--toast-below, 0px)); animation: gb-toast-in 140ms ease-out; }
 @keyframes gb-toast-in { from { opacity: 0; margin-top: -8px; } to { opacity: 1; margin-top: 0; } }
 @media (prefers-reduced-motion: reduce) { .toast-top { animation: none; } }

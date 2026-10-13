@@ -6,7 +6,7 @@ vi.mock('../../api/client', () => ({ api, errorMessage: String }));
 const fetching = vi.hoisted(() => ({ runFetch: vi.fn(async () => {}) }));
 vi.mock('../../app/fetchSchedule', () => fetching);
 // The graph: its loaded rows, and Ctrl+click's compare.
-type Graph = { indexById: Map<string, number>; compareCommits: (a: string, b: string) => boolean };
+type Graph = { indexById: Map<string, number>; graph?: { rows: { id: string; parents: string[] }[] }; compareCommits: (a: string, b: string) => boolean };
 const graph = vi.hoisted(() => ({ store: null as unknown as import('zustand/vanilla').StoreApi<Graph> }));
 vi.mock('../../app/tabStores', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../app/tabStores')>()),
@@ -100,6 +100,54 @@ describe("the branch card's Compare", () => {
     expect(await compareMr('t', 'gitlab', other, detailOf(other))).toBe(true);
     expect(compareCommits).toHaveBeenCalledWith(BASE, other.headSha);
     expect(poll.refreshReview).not.toHaveBeenCalled();
+  });
+
+  describe('a merged one: the commit it landed as, against its first parent, never a ref of its own', () => {
+    const LANDED = 'a'.repeat(40);
+    const BEFORE = 'c'.repeat(40);
+    const merged = mrOf(12, { state: 'merged' });
+    // The trunk: the merge (its first parent the trunk before it, its second the MR's head).
+    const trunk = { indexById: new Map([[LANDED, 0], [BEFORE, 1]]), graph: { rows: [{ id: LANDED, parents: [BEFORE, head] }, { id: BEFORE, parents: [] }] } };
+    const refresh = () => useRuntime.getState().refresh as ReturnType<typeof vi.fn>;
+
+    it('in the repository: compared at once, no fetch, and no review starts', async () => {
+      graph.store.setState(trunk);
+      expect(await compareMr('t', 'gitlab', merged, detailOf(merged, { mergedSha: LANDED }))).toBe(true);
+      expect(compareCommits).toHaveBeenCalledWith(BEFORE, LANDED);
+      expect(fetching.runFetch).not.toHaveBeenCalled();
+      expect(review.startReview).not.toHaveBeenCalled();
+    });
+
+    it("not fetched yet: the remote's branches are fetched (not the MR's head ref), then compared", async () => {
+      graph.store.setState({ indexById: new Map([[BASE, 5]]) });
+      refresh().mockImplementation(async () => { graph.store.setState(trunk); });
+      expect(await compareMr('t', 'github', merged, detailOf(merged, { mergedSha: LANDED }))).toBe(true);
+      expect(fetching.runFetch).toHaveBeenCalledTimes(1);
+      expect(fetching.runFetch).toHaveBeenCalledWith('t', false, 'origin');
+      expect(compareCommits).toHaveBeenCalledWith(BEFORE, LANDED);
+    });
+
+    it("one the remote doesn't have either: says so, and nothing else is fetched or compared", async () => {
+      graph.store.setState({ indexById: new Map([[BASE, 5]]) });
+      expect(await compareMr('t', 'gitlab', merged, detailOf(merged, { mergedSha: LANDED }))).toBe(false);
+      expect(useToast.getState().message).toBe("The merge request was merged as aaaaaa, which isn't on origin");
+      expect(fetching.runFetch).toHaveBeenCalledTimes(1);
+      expect(fetching.runFetch).toHaveBeenCalledWith('t', false, 'origin');
+      expect(compareCommits).not.toHaveBeenCalled();
+      expect(review.startReview).not.toHaveBeenCalled();
+    });
+
+    it('fast-forwarded (no merge or squash commit named): its head, which a fetch of the branches brings', async () => {
+      graph.store.setState({ indexById: new Map([[BASE, 5]]) });
+      expect(await compareMr('t', 'gitlab', merged, detailOf(merged))).toBe(false);
+      expect(fetching.runFetch).toHaveBeenCalledWith('t', false, 'origin');
+      expect(useToast.getState().message).toBe("The merged merge request's commits aren't on origin");
+      vi.clearAllMocks();
+      refresh().mockImplementation(async () => { graph.store.setState({ indexById: new Map([[head, 0], [BASE, 6]]) }); });
+      expect(await compareMr('t', 'gitlab', merged, detailOf(merged))).toBe(true);
+      expect(fetching.runFetch).toHaveBeenCalledWith('t', false, 'origin');
+      expect(compareCommits).toHaveBeenCalledWith(BASE, head);
+    });
   });
 
   it('says why when the base or the head is out of reach', async () => {

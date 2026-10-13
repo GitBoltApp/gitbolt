@@ -1015,6 +1015,8 @@ impl ForgeProvider for GitHubProvider {
             // --- branch update: a fork's head is pushed to by its author (who the user is: asked once) ---
             let fork = v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"];
             let me = if fork { self.me_soft().await } else { None };
+            // An open PR's is its test merge (`refs/pull/<n>/merge`), never on the base.
+            let merged_sha = if mr.state == MrState::Merged { json::text(&v["merge_commit_sha"]) } else { None };
             let detail = ForgeMrDetail {
                 description: v["body"].as_str().unwrap_or_default().to_string(),
                 reviewers,
@@ -1027,6 +1029,7 @@ impl ForgeProvider for GitHubProvider {
                 mr,
                 body_html: json::text(&v["body_html"]),
                 update: json::update_offer(&v, me),
+                merged_sha,
             };
             self.names.learn_detail(&detail);
             // Not modified only when the PR, its reviews and its checks all were (a 304 each).
