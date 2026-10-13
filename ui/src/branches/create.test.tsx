@@ -118,6 +118,30 @@ describe('Create branch: inline in the graph row (UX round 1)', () => {
       vi.useRealTimers();
     }
   });
+  it('keepSelection: the WIP it was started from comes back once the input closes', async () => {
+    const wip: RowPayload = { ...row('wip:/r'), kind: 'wip', parents: [A], wip: { worktreePath: '/r', worktreeName: null, modified: 1, added: 0, deleted: 0, renamed: 0, conflicted: 0 } };
+    store.getState().setGraph({ ...graph, rows: [wip, row(A)] });
+    store.getState().selectCommitById('wip:/r');
+    const selected = () => { const s = store.getState().selection; return s.kind === 'wip' || s.kind === 'commit' ? `${s.kind}:${s.index}` : s.kind; };
+    expect(selected()).toBe('wip:0');
+    const create = vi.spyOn(api, 'createBranch').mockResolvedValue(ok as never);
+    const start = async () => {
+      const done = createBranchAt(ctx, { sha: A, ref: 'refs/heads/main' }, { keepSelection: true });
+      const editor = useRowEditors.getState().editor!;
+      expect(selected()).toBe('commit:1');
+      render(<>{editor.render()}</>);
+      await act(async () => { await done; });
+      return screen.getByRole('textbox', { name: 'Branch name' });
+    };
+    fireEvent.keyDown(await start(), { key: 'Escape' });
+    expect(selected()).toBe('wip:0');
+    cleanup();
+    const input = await start();
+    fireEvent.change(input, { target: { value: 'topic' } });
+    await act(async () => { fireEvent.keyDown(input, { key: 'Enter' }); });
+    expect(create).toHaveBeenCalledWith(1, '/r', expect.objectContaining({ name: 'topic', start: A, startRef: 'refs/heads/main', checkout: true }), false);
+    expect(selected()).toBe('wip:0');
+  });
   it('falls back to the dialog when the row never renders', async () => {
     const ask = vi.spyOn(prompt, 'promptText').mockResolvedValue(null);
     await createBranchAt(ctx, { sha: A, ref: null });

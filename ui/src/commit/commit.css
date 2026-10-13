@@ -54,6 +54,12 @@
 .commit-op-hint.conflicted { color: var(--orange); }
 .commit-op-actions { display: flex; gap: 6px; }
 .commit-op-actions > * { flex: 1; }
+/* In a fork, on its trunk branch: a non-blocking note above Commit, with its two actions. */
+.commit-notice { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-left: 3px solid var(--blue); border-radius: 4px; background: var(--panel-bg0); color: var(--text-secondary); font-size: 12px; }
+.commit-notice-actions { display: flex; gap: 12px; }
+.commit-notice-action { all: unset; display: inline-flex; align-items: center; gap: 4px; color: var(--blue); cursor: pointer; }
+.commit-notice-action:focus-visible { outline: 1px solid var(--blue); }
+.commit-notice-action:hover { text-decoration: underline; }
 /* UX F: a write past 30 s says so, with Cancel. */
 .commit-still { display: flex; align-items: center; gap: 6px; color: var(--text-secondary); font-size: 12px; }
 .commit-still-cancel { all: unset; margin-left: auto; color: var(--blue); cursor: pointer; }

@@ -212,6 +212,22 @@ main remote's default branch: the remote's HEAD (or main, master, dev, develop),
 ordered so a fork's parent comes first (from the forge's cached data, then `upstream` before
 `origin`), then the local branch tracking it. Each repository can pick another ref or turn it off.
 
+In a fork the default pair is the original project's trunk first, then the local main (even when
+main tracks the fork's own main, which is never pinned): diverged, the original's commits run down
+lane 0 and main's own take lane 1. `snapshot::fork_of` tells a fork from cached data only, never a
+request:
+- **By the forge** (`ForgeHub::cached_forks`): a remote whose project is a fork of another
+  remote's, and which is yours: `origin`, or a remote the original's local trunk branch tracks or
+  pushes to (`branch.<name>.pushRemote`, `remote.pushDefault`). A maintainer with a contributor's
+  fork as a remote isn't in a fork.
+- **By convention**, else: a remote named `upstream` next to `origin`, unless a forge account
+  covers origin's host (then the forge's data alone decides), the forge knows origin's project
+  isn't a fork, or `upstream` is origin's own project under another URL (same host and path).
+
+The graph payload reports the fork (`ForkPayload`: the remotes, how it was told, both trunks, the
+original's host kind), whatever the pin. The commit panel uses it to note a commit on the fork's
+trunk branches (a pull or merge request usually starts from a branch of its own).
+
 **Drawing.** The rows are DOM elements in a list virtualized with `@tanstack/react-virtual`; the
 lines and nodes are drawn on one `<canvas>` beside them (`ui/src/graph/GraphCanvas.tsx`,
 `draw.ts`). The canvas sits inside the scrolled content and covers a band taller than the

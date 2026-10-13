@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GraphPayload } from '../api/gen/GraphPayload';
 import type { PinSetting } from '../api/gen/PinSetting';
@@ -21,6 +21,7 @@ const sidebar = {
   remotes: [{ name: 'origin', hostKind: 'generic', branches: [{ name: 'main', fullName: 'refs/remotes/origin/main' }, { name: 'topic', fullName: 'refs/remotes/origin/topic' }] }],
 } as unknown as SidebarPayload;
 const PAIR = ['refs/heads/main', 'refs/remotes/origin/main'];
+const DEFAULT_TIP = 'The local branch that tracks the main remote\'s default branch (its HEAD), pinned with that remote branch: both stay at the left. The remote branch alone if no local branch tracks it. The main remote is the one the others are forks of, else upstream, else origin. In a fork, the original project\'s default branch (upstream/main) with your local main, even when main tracks your fork: your fork\'s own main is never pinned. With no remote: main, master, dev or develop';
 const setup = (pinnedRefs: string[], pin: PinSetting | null = null, compact = false) => {
   useAppState.setState({ profile: { ...EMPTY_PROFILE, repos: { '/r': { ...EMPTY_REPO_SETTINGS, pin } } } });
   useRuntime.setState({ tabs: { t1: { graph: { pinnedRefs } as unknown as GraphPayload, sidebar } as never }, refresh });
@@ -68,7 +69,29 @@ describe('PinButton (spec §8.4, amendment 4)', () => {
     expect(screen.getByRole('option', { name: /Default/ }).hasAttribute('data-current')).toBe(true);
     expect(screen.getByRole('option', { name: 'None' }).hasAttribute('data-current')).toBe(false);
     fireEvent.mouseEnter(screen.getByRole('option', { name: /Default/ }));
-    expect(screen.getByRole('tooltip').textContent).toBe('The local branch that tracks the main remote\'s default branch (its HEAD), pinned with that remote branch: both stay at the left. The remote branch alone if no local branch tracks it. The main remote is the one the others are forks of, else upstream, else origin. With no remote: main, master, dev or develop');
+    expect(screen.getByRole('tooltip').textContent).toBe(DEFAULT_TIP);
+  });
+
+  it('a fork\'s default pair shows the original\'s trunk first, as it leads lane 0', () => {
+    setup(['refs/remotes/upstream/main', 'refs/heads/main']);
+    expect(screen.getByRole('button', { name: 'Pinned trunk: upstream/main ↔ main' })).toBeInTheDocument();
+    fireEvent.mouseEnter(pinButton());
+    expect(screen.getByRole('tooltip').textContent).toBe('Pinned trunk: upstream/main ↔ main (default): both upstream/main and main stay at the left. Click to change');
+  });
+
+  it('in a fork, Default\'s tooltip says what it picks there, and how the fork was told', () => {
+    const fork = { fork: 'origin', original: 'upstream', detectedBy: 'upstreamRemote', trunk: 'refs/remotes/upstream/main', forkTrunk: 'refs/remotes/origin/main', trunkBranches: ['refs/heads/main'] };
+    const tipFor = (f: object) => {
+      setup(['refs/remotes/upstream/main', 'refs/heads/main']);
+      useRuntime.setState({ tabs: { t1: { graph: { pinnedRefs: ['refs/remotes/upstream/main', 'refs/heads/main'], fork: f } as unknown as GraphPayload, sidebar } as never } });
+      fireEvent.click(pinButton());
+      fireEvent.mouseEnter(screen.getByRole('option', { name: /Default/ }));
+      const text = screen.getByRole('tooltip').textContent;
+      cleanup();
+      return text;
+    };
+    expect(tipFor(fork)).toBe(`${DEFAULT_TIP}. This repository is a fork (upstream is the original project by convention, origin your fork): upstream/main is pinned, not origin/main`);
+    expect(tipFor({ ...fork, fork: 'origin', original: 'project', detectedBy: 'forge', trunk: null })).toBe(`${DEFAULT_TIP}. This repository is a fork (the forge says origin's project is a fork of project's): project isn't fetched yet, so its default branch can't be pinned`);
   });
 
   it('each branch\'s tooltip names the pair it pins, as the core pairs it', () => {

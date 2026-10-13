@@ -55,6 +55,12 @@ pub struct RepoRefs {
     /// Each remote's host name (the UI applies the profile's host-type overrides by host).
     pub remote_host_names: HashMap<String, String>,
     pub stashes: Vec<StashEntry>,
+    /// A local branch (full name) → the remote it pushes to when that's set apart from its
+    /// upstream: `branch.<name>.pushRemote`, else `remote.pushDefault`.
+    pub push_remotes: HashMap<String, String>,
+    /// Each remote's project, as its fetch URL names it: `host/path` (lowercase) when it parses,
+    /// else the URL itself; two remotes with the same one are the same project.
+    pub remote_ids: HashMap<String, String>,
 }
 
 pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
@@ -65,13 +71,15 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
     let fresh = gix::config::File::from_path_no_includes(repo.common_dir().join("config"), gix::config::Source::Local).ok();
     let config = fresh.as_ref().unwrap_or(snapshot.plumbing());
     let remotes: Vec<String> = repo.remote_names().into_iter().map(|n| n.to_str_lossy().into_owned()).collect();
-    let parsed: Vec<(String, Option<String>)> =
-        remotes.iter().map(|r| (r.clone(), remote_url(repo, r, Direction::Fetch).and_then(|u| parse_remote_url(&u)).map(|u| u.host))).collect();
+    let urls: Vec<(String, Option<String>)> = remotes.iter().map(|r| (r.clone(), remote_url(repo, r, Direction::Fetch))).collect();
+    let remote_ids = urls.iter().filter_map(|(r, u)| Some((r.clone(), remote_id(u.as_deref()?)))).collect();
+    let parsed: Vec<(String, Option<String>)> = urls.into_iter().map(|(r, u)| (r, u.and_then(|u| parse_remote_url(&u)).map(|u| u.host))).collect();
     let remote_hosts = parsed.iter().map(|(r, h)| (r.clone(), h.as_deref().map(host_kind).unwrap_or(HostKind::Generic))).collect();
     let remote_host_names = parsed.into_iter().filter_map(|(r, h)| h.map(|h| (r, h))).collect();
 
     let mut refs = Vec::new();
     let mut remote_heads = HashMap::new();
+    let mut push_remotes = HashMap::new();
     let platform = repo.references().map_err(gix_err)?;
     for reference in platform.all().map_err(gix_err)? {
         let mut reference = match reference {
@@ -114,10 +122,26 @@ pub fn read_refs(repo: &gix::Repository) -> Result<RepoRefs, GbError> {
             }
         };
         let (upstream, upstream_mismatch) = if kind == RefKind::Local { (upstream_of(config, &short), upstream_mismatch(config, &short)) } else { (None, None) };
+        if kind == RefKind::Local
+            && let Some(push) = config.string(format!("branch.{short}.pushRemote").as_str()).or_else(|| config.string("remote.pushDefault"))
+        {
+            push_remotes.insert(full.clone(), push.to_str_lossy().into_owned());
+        }
         refs.push(RefInfo { full_name: full, short_name: short, kind, target, upstream, upstream_mismatch, annotation });
     }
 
-    Ok(RepoRefs { head: read_head(repo)?, refs, remote_heads, remote_hosts, remote_host_names, stashes: read_stashes(repo)? })
+    Ok(RepoRefs { head: read_head(repo)?, refs, remote_heads, remote_hosts, remote_host_names, stashes: read_stashes(repo)?, push_remotes, remote_ids })
+}
+
+/// A remote's project as its URL names it (`RepoRefs::remote_ids`).
+fn remote_id(url: &str) -> String {
+    match parse_remote_url(url) {
+        Some(u) => format!("{}/{}", u.host, u.path.to_ascii_lowercase()),
+        None => {
+            let url = url.trim().trim_end_matches('/');
+            url.strip_suffix(".git").unwrap_or(url).to_string()
+        }
+    }
 }
 
 /// Longest remote name that prefixes `rest` (remote names may contain `/`).

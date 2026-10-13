@@ -12,9 +12,10 @@ pub struct GraphPayload {
     pub rows: Vec<RowPayload>,
     pub labels: Vec<RefLabel>,
     pub max_lanes: u16,
-    /// The pinned refs, local first: the chosen pin (the default trunk or an explicit one) and
-    /// its pair, a local branch's upstream or the local branch tracking a remote one. Their
-    /// commits are laid out at the left (lane 0, and lane 1 for a diverged pair's remote).
+    /// The pinned refs, the one leading lane 0 first: the chosen pin (the default trunk or an
+    /// explicit one) and its pair, a local branch's upstream or the local branch tracking a remote
+    /// one, local first; in a fork by default, the original project's trunk then the local main.
+    /// Their commits are laid out at the left (lane 0, and lane 1 for a diverged pair's second).
     /// Only refs whose commit is in the window; empty when nothing is pinned.
     pub pinned_refs: Vec<String>,
     pub head: HeadPayload,
@@ -34,6 +35,48 @@ pub struct GraphPayload {
     #[ts(optional, as = "Option<std::collections::BTreeMap<String, crate::in_progress::InProgress>>")]
     pub in_progress: std::collections::BTreeMap<String, crate::in_progress::InProgress>,
     // 2D-T6 end
+    /// The repository is a fork (`snapshot::fork_of`): which remote is your fork, which the
+    /// original project, and how that was told. Absent otherwise.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub fork: Option<ForkPayload>,
+}
+
+/// A fork's remotes as the graph sees them: the default pin is the original project's trunk,
+/// and a commit on a local branch standing for a trunk here gets a notice (the commit panel).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct ForkPayload {
+    /// Your fork's remote (`origin`).
+    pub fork: String,
+    /// The original project's remote (`upstream`).
+    pub original: String,
+    /// The original remote's host, and the forge it's detected as (the UI applies the
+    /// profile's host-type overrides by host): what a change for it is called, a merge request
+    /// on GitLab.
+    pub host: Option<String>,
+    pub host_kind: HostKind,
+    pub detected_by: ForkDetection,
+    /// The original project's trunk (`refs/remotes/upstream/main`); `None` until it's fetched.
+    pub trunk: Option<String>,
+    /// Your fork's own trunk (`refs/remotes/origin/main`), never pinned by default.
+    pub fork_trunk: Option<String>,
+    /// The local branches a commit on which goes to a trunk rather than a branch of its own:
+    /// `trunk`'s local counterpart (the default pin's local branch) and every local branch whose
+    /// upstream is `fork_trunk`. Full names, sorted.
+    pub trunk_branches: Vec<String>,
+}
+
+/// How a fork was told (`ForkPayload::detected_by`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum ForkDetection {
+    /// The forge's cached data: the fork remote's project is a fork of the original remote's.
+    Forge,
+    /// No forge data: a remote named `upstream` next to `origin` (GitHub's fork workflow).
+    UpstreamRemote,
 }
 
 /// One usable worktree as the graph sees it (spec #2 §11.2): the UI moves the HEAD marker and

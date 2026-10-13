@@ -1,5 +1,6 @@
 import { GitBranch, Pin, PinOff, RotateCcw } from 'lucide-react';
 import { useCallback, useMemo, useRef, useState } from 'react';
+import type { ForkPayload } from '../api/gen/ForkPayload';
 import type { PinSetting } from '../api/gen/PinSetting';
 import type { SidebarPayload } from '../api/gen/SidebarPayload';
 import { useRepoContext } from '../app/repoContext';
@@ -13,10 +14,19 @@ const byName = (a: string, b: string) => a.localeCompare(b, undefined, { sensiti
 const AUTO = 'pin:auto';
 const OFF = 'pin:off';
 const NONE: readonly string[] = [];
-/** The core's rule (`snapshot::default_trunk`, `snapshot::pin_pair`). */
-const DEFAULT_TIP = 'The local branch that tracks the main remote\'s default branch (its HEAD), pinned with that remote branch: both stay at the left. The remote branch alone if no local branch tracks it. The main remote is the one the others are forks of, else upstream, else origin. With no remote: main, master, dev or develop';
+/** The core's rule (`snapshot::default_pair`, `snapshot::pin_pair`). */
+const DEFAULT_TIP = 'The local branch that tracks the main remote\'s default branch (its HEAD), pinned with that remote branch: both stay at the left. The remote branch alone if no local branch tracks it. The main remote is the one the others are forks of, else upstream, else origin. In a fork, the original project\'s default branch (upstream/main) with your local main, even when main tracks your fork: your fork\'s own main is never pinned. With no remote: main, master, dev or develop';
 
-/** A pinned pair's names, local first: `main ↔ origin/main`, or the one name. */
+/** The Default's tooltip: the rule, then what makes this repo a fork (the core says how it knows). */
+function defaultTip(fork: ForkPayload | undefined): string {
+  if (!fork) return DEFAULT_TIP;
+  const how = fork.detectedBy === 'forge' ? `the forge says ${fork.fork}'s project is a fork of ${fork.original}'s` : `${fork.original} is the original project by convention, ${fork.fork} your fork`;
+  const pick = fork.trunk ? `${short(fork.trunk)} is pinned${fork.forkTrunk ? `, not ${short(fork.forkTrunk)}` : ''}` : `${fork.original} isn't fetched yet, so its default branch can't be pinned`;
+  return `${DEFAULT_TIP}. This repository is a fork (${how}): ${pick}`;
+}
+
+/** A pinned pair's names, in the payload's order (the one leading lane 0 first): `main ↔ origin/main`,
+ * `upstream/main ↔ main` in a fork, or the one name. */
 const pairLabel = (refs: readonly string[]) => refs.map(short).join(' ↔ ');
 
 /**
@@ -44,6 +54,7 @@ export function PinButton({ compact }: { compact: boolean }) {
   const { tabId, path } = useRepoContext();
   const pinned = useRuntime((s) => s.tabs[tabId]?.graph?.pinnedRefs ?? NONE);
   const sidebar = useRuntime((s) => s.tabs[tabId]?.sidebar);
+  const fork = useRuntime((s) => s.tabs[tabId]?.graph?.fork);
   const setting = useAppState((s) => s.profile.repos[path]?.pin ?? null);
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const button = useRef<HTMLButtonElement>(null);
@@ -60,11 +71,11 @@ export function PinButton({ compact }: { compact: boolean }) {
       ...(sidebar?.remotes ?? []).flatMap((g) => g.branches.map((b): PickItem => ({ id: b.fullName, label: `${g.name}/${b.name}`, icon: GitBranch, detail: 'remote', tooltip: tip(b.fullName) }))),
     ].sort((a, b) => byName(a.label, b.label));
     return [
-      { id: AUTO, label: 'Default', icon: RotateCcw, detail: kind === 'auto' && pinned.length ? pairLabel(pinned) : undefined, tooltip: DEFAULT_TIP },
+      { id: AUTO, label: 'Default', icon: RotateCcw, detail: kind === 'auto' && pinned.length ? pairLabel(pinned) : undefined, tooltip: defaultTip(fork) },
       { id: OFF, label: 'None', icon: PinOff, tooltip: 'No trunk: every branch lays out freely' },
       ...branches,
     ].map((i) => ({ ...i, current: i.id === currentId }));
-  }, [sidebar, kind, pinned, currentId]);
+  }, [sidebar, kind, pinned, currentId, fork]);
 
   const close = useCallback(() => {
     setAnchor(null);

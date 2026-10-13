@@ -48,20 +48,27 @@ const INLINE_WAIT_MS = 500;
  * branch name" input in the commit's Branch/Tag cell. The row is selected first, which scrolls it
  * into view. Where there's no row to put it in (the commit isn't loaded, a file is open over the
  * graph, Branch/Tag is hidden, or the row didn't render), the dialog instead.
+ * `keepSelection`: once the input closes (created or cancelled), the selection goes back to what
+ * it was (the commit panel's Create branch… comes back to the WIP it was started from).
  */
-export async function createBranchAt(ctx: WriteCtx, start: BranchStart): Promise<void> {
+export async function createBranchAt(ctx: WriteCtx, start: BranchStart, { keepSelection = false } = {}): Promise<void> {
   const store = tabStore(ctx.tabId);
   const s = store?.getState();
   if (!store || !s || !s.indexById.has(start.sha) || s.diff !== null || useColumnPrefs.getState().hidden.has('labels')) return createInDialog(ctx, start);
+  const before = keepSelection ? s.snapshotSelection() : null;
+  const restore = () => { if (before) store.getState().restoreSelection(before); };
   s.selectCommitById(start.sha);
   const editor: RowEditor = {
     rowId: start.sha,
     render: () => createElement(BranchNameInput, {
       validate: (v: string) => branchCreateError(ctx.tabId, v),
-      onCancel: () => closeRowEditor(editor),
+      onCancel: () => {
+        closeRowEditor(editor);
+        restore();
+      },
       onSubmit: (name: string, checkout: boolean) => {
         closeRowEditor(editor);
-        void createBranch(ctx, start, name, checkout);
+        void createBranch(ctx, start, name, checkout).finally(restore);
       },
     }),
   };
@@ -73,6 +80,6 @@ export async function createBranchAt(ctx: WriteCtx, start: BranchStart): Promise
   while (!document.querySelector('.branch-inline-input') && performance.now() < until);
   if (!document.querySelector('.branch-inline-input')) {
     closeRowEditor(editor);
-    await createInDialog(ctx, start);
+    await createInDialog(ctx, start).finally(restore);
   }
 }

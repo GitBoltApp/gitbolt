@@ -20,6 +20,7 @@ import { useDisarmOnChange } from '../ui/arm/useDisarmOnChange';
 import { runWrite, type WriteCtx } from '../write/client';
 import { CommitFields } from './CommitFields';
 import { CommitIdentityLine } from './CommitIdentity';
+import { ForkTrunkNotice } from './ForkTrunkNotice';
 import { clearWipDraft, draftKey, draftMessage, EMPTY_DRAFT, splitMessage, useWipDraft, type WipDraft } from './draft';
 import { useCommitBox } from './store';
 import { toastRebaseOutcome } from '../irebase/outcome';
@@ -399,6 +400,7 @@ export function CommitBox({ inMerge: forced = false }: { inMerge?: boolean }) {
         )}
         <CommitIdentityLine repoId={ctx.repoId} worktree={worktree} />
       </div>
+      {!operation && <ForkTrunkNotice ctx={ctx} />}
       <HoverTooltip content={view.reason ?? `${view.label} (${displayChord('Mod+Enter')})`}>
         <button type="button" className="commit-button commit-positive" aria-disabled={blocked} aria-busy={committing} onClick={() => void submit()}>
           {committing && <Loader2 className="spin" size={13} aria-hidden />}

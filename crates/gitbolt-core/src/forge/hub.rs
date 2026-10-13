@@ -12,6 +12,7 @@ use crate::forge::{is_forbidden, AccountKey, ForgeConnector, ForgeKind, ForgePro
 use crate::journal::Clock;
 use crate::redact::Secret;
 use crate::settings::{Profile, SettingsStore};
+use crate::snapshot::ForkFacts;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -455,13 +456,15 @@ impl ForgeHub {
         RepoProjects { remotes: out, target, target_chosen: remotes.iter().any(|r| r.main) }
     }
 
-    /// Remote → the remote whose project it's a fork of, from what's known without a request:
-    /// this session's projects, else the cross-session cache (`project_on` keeps each one seen).
-    /// The graph's default trunk follows the root (`snapshot::default_trunk`).
-    pub fn cached_fork_parents(&self, store: &SettingsStore, remotes: &[RemotePayload]) -> HashMap<String, String> {
+    /// What the forge says about the remotes' forks, from what's known without a request: this
+    /// session's projects, else the cross-session cache (`project_on` keeps each one seen). Each
+    /// remote whose project forks another remote's, the remotes whose project is known not to be
+    /// a fork, and those an account covers. The graph's default trunk follows the root, and tells
+    /// a fork, from these (`snapshot::default_pair`, `snapshot::fork_of`).
+    pub fn cached_forks(&self, store: &SettingsStore, remotes: &[RemotePayload]) -> ForkFacts {
         let profile = store.active_profile();
         if profile.forge_accounts.is_empty() {
-            return HashMap::new();
+            return ForkFacts::default();
         }
         let cached = |host: &str, path: &str| -> Option<crate::forge::ForgeProject> {
             let host = account_for(&profile.forge_accounts, host)?.host.clone();
@@ -471,12 +474,20 @@ impl ForgeHub {
             }
             self.cache.with(&key, |c| c.project.clone())
         };
-        let mut out = HashMap::new();
+        let mut out = ForkFacts::default();
         for r in remotes {
             let (Some(host), Some(path)) = (&r.host, &r.path) else { continue };
-            let Some(parent) = cached(host, path).and_then(|p| p.fork_of) else { continue };
+            if account_for(&profile.forge_accounts, host).is_none() {
+                continue;
+            }
+            out.covered.insert(r.name.clone());
+            let Some(project) = cached(host, path) else { continue };
+            let Some(parent) = project.fork_of else {
+                out.roots.insert(r.name.clone());
+                continue;
+            };
             if let Some(up) = remotes.iter().find(|u| u.name != r.name && u.host.as_ref() == Some(host) && u.path.as_ref().is_some_and(|p| p.eq_ignore_ascii_case(&parent))) {
-                out.insert(r.name.clone(), up.name.clone());
+                out.parents.insert(r.name.clone(), up.name.clone());
             }
         }
         out
@@ -923,26 +934,30 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn fork_parents_come_from_cached_projects_only_and_survive_a_restart() {
+    async fn forks_come_from_cached_projects_only_and_survive_a_restart() {
         let (conn, first, store) = mapped().await;
         let dir = tempfile::tempdir().unwrap();
         first.set_cache_dir(dir.path().to_path_buf());
-        let remotes = [remote("origin", Some(HOST), Some("ada/project")), remote("upstream", Some(HOST), Some("group/project")), remote("other", Some(HOST), Some("ada/elsewhere"))];
+        let remotes = [remote("origin", Some(HOST), Some("ada/project")), remote("upstream", Some(HOST), Some("group/project")), remote("other", Some(HOST), Some("ada/elsewhere")), remote("gh", Some("github.com"), Some("o/r"))];
         let calls = || conn.by_token.lock().unwrap()[TOKEN].calls().len();
         let before = calls();
-        assert!(first.cached_fork_parents(&store, &remotes).is_empty(), "nothing seen yet");
+        let names = |n: &[&str]| n.iter().map(|s| s.to_string()).collect::<std::collections::HashSet<_>>();
+        // The remotes an account covers are known before any project is: gh's host has none.
+        let covered = names(&["origin", "upstream", "other"]);
+        assert_eq!(first.cached_forks(&store, &remotes), ForkFacts { covered: covered.clone(), ..Default::default() }, "nothing seen yet");
         assert_eq!(calls(), before, "never a request");
         first.repo_projects(&store, &remotes, false).await;
-        let expected = HashMap::from([("origin".to_string(), "upstream".to_string())]);
-        assert_eq!(first.cached_fork_parents(&store, &remotes), expected);
+        // upstream's project is known and no fork; ada/elsewhere isn't found: neither.
+        let expected = ForkFacts { parents: HashMap::from([("origin".to_string(), "upstream".to_string())]), roots: names(&["upstream"]), covered };
+        assert_eq!(first.cached_forks(&store, &remotes), expected);
         // The next session reads them from the cache, still without a request.
         let next = hub(conn.clone(), MemTokens::new(TokenStorage::Keyring));
         next.set_cache_dir(dir.path().to_path_buf());
         let before = calls();
-        assert_eq!(next.cached_fork_parents(&store, &remotes), expected);
+        assert_eq!(next.cached_forks(&store, &remotes), expected);
         assert_eq!(calls(), before);
         // Without an account, nothing.
-        assert!(next.cached_fork_parents(&SettingsStore::in_memory(), &remotes).is_empty());
+        assert_eq!(next.cached_forks(&SettingsStore::in_memory(), &remotes), ForkFacts::default());
     }
 
     #[test]

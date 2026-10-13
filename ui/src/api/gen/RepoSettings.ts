@@ -35,4 +35,8 @@ forgeTargetRemote: string | null,
  * How the merge panel last brought an MR's branch up to date (its split button's default);
  * `None`: the forge's default.
  */
-branchUpdate?: BranchUpdate, };
+branchUpdate?: BranchUpdate, 
+/**
+ * The commit panel's "committing to main in your fork" notice was dismissed for this repo.
+ */
+forkTrunkNoticeDismissed: boolean, };

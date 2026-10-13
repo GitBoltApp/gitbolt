@@ -323,6 +323,8 @@ pub struct RepoSettings {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub branch_update: Option<crate::forge::BranchUpdate>,
+    /// The commit panel's "committing to main in your fork" notice was dismissed for this repo.
+    pub fork_trunk_notice_dismissed: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]

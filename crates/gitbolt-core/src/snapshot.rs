@@ -3,7 +3,7 @@
 use crate::error::GbError;
 use crate::git::GitCli;
 use crate::graph::{layout, LayoutNode, NodeKind, Parent};
-use crate::payload::{FileListPayload, GraphPayload, GraphWorktree, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
+use crate::payload::{FileListPayload, ForkDetection, ForkPayload, GraphPayload, GraphWorktree, HeadPayload, RefLabel, RemoteRefLabel, RowPayload, WipPayload};
 use crate::refs::{read_refs, RefKind, RepoRefs};
 use crate::remotes::HostKind;
 use crate::status::{parse_porcelain_v2, status_raw, summarize, WipCounts};
@@ -33,14 +33,25 @@ pub struct BuildOptions {
     pub active: Option<PathBuf>,
     /// The handle's walk cache.
     pub walk_cache: Option<Arc<Mutex<Option<WalkCache>>>>,
-    /// Remote → the remote whose project it's a fork of, from the forge's cached data (never a
-    /// request): the default trunk follows the root (`default_trunk`).
-    pub fork_parents: HashMap<String, String>,
+    /// What the forge's cached data says about the remotes' forks (never a request): the default
+    /// pin follows the root, and tells a fork (`default_pair`, `fork_of`).
+    pub forks: ForkFacts,
+}
+
+/// The forge's cached data on the remotes' projects (`ForgeHub::cached_forks`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ForkFacts {
+    /// Remote → the remote whose project it's a fork of.
+    pub parents: HashMap<String, String>,
+    /// Remotes whose project is known and isn't a fork.
+    pub roots: HashSet<String>,
+    /// Remotes on a host a forge account covers: whether they're forks is the forge's to say.
+    pub covered: HashSet<String>,
 }
 
 impl Default for BuildOptions {
     fn default() -> Self {
-        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false, active: None, walk_cache: None, fork_parents: HashMap::new() }
+        Self { limit: DEFAULT_COMMIT_LIMIT, pinned_ref: None, no_pin: false, wip_cache: None, rescan: false, active: None, walk_cache: None, forks: ForkFacts::default() }
     }
 }
 
@@ -350,23 +361,94 @@ async fn collect_wip(cli: &GitCli, worktrees: &[Worktree], cache: Option<&WipCac
     futures_util::future::join_all(jobs).await.into_iter().flatten().filter(|(i, c)| !c.is_empty() || crate::in_progress::mid_operation(&worktrees[*i].path)).collect()
 }
 
-/// The default trunk (the pin setting `auto`): the local counterpart of the main remote's
-/// default branch.
+/// The default pin (the pin setting `auto`), the ref leading lane 0 first.
+///
+/// In a fork (`fork_of`) whose original project's trunk `T` is fetched (`upstream/main`): `T`
+/// then its local counterpart (see 2. below), so a local `main` tracking your fork's `main`
+/// still pins with `upstream/main`. `T` first: diverged, it leads lane 0 and main's own commits
+/// take lane 1. Your fork's own trunk is never pinned by default: changes for the original
+/// project start from its trunk, not from your fork's.
+///
+/// Otherwise the local counterpart of the main remote's default branch, with its pair (`pin_pair`):
 /// 1. The remote trunk `T`: per remote, its HEAD's target, else its main, master, dev or develop.
 ///    Remotes in order: roots first (a remote whose project forks another remote's, by the
 ///    forge's cached data, comes after it), then by convention `upstream` (GitHub's fork
 ///    workflow: `origin` is your fork, `upstream` the original), `origin`, the others by name.
 /// 2. Its local counterpart: a local branch whose upstream is `T` (the one named like `T`'s
 ///    branch first, then by name); else the local branch named like `T`'s branch, whatever its
-///    upstream (in the fork workflow, `main` tracking your fork stands for `upstream/main`);
-///    else `T` itself.
+///    upstream; else `T` itself.
 /// 3. No remote trunk at all (a local-only repo): the local main, master, dev or develop.
-///
-/// The chosen ref then pins with its pair (`pin_pair`).
-fn default_trunk(refs: &RepoRefs, fork_parents: &HashMap<String, String>) -> Option<String> {
-    match remote_trunk(refs, fork_parents) {
+fn default_pair(refs: &RepoRefs, fork: Option<&Fork>, fork_parents: &HashMap<String, String>) -> Vec<String> {
+    if let Some(f) = fork
+        && let Some((t, branch)) = trunk_of(refs, &f.original)
+    {
+        let local = local_counterpart(refs, &t, &branch);
+        return std::iter::once(t).chain(local).collect();
+    }
+    let chosen = match remote_trunk(refs, fork_parents) {
         Some((t, branch)) => Some(local_counterpart(refs, &t, &branch).unwrap_or(t)),
         None => ["main", "master", "dev", "develop"].into_iter().map(|b| format!("refs/heads/{b}")).find(|n| refs.refs.iter().any(|r| &r.full_name == n)),
+    };
+    chosen.map(|c| pin_pair(refs, &c)).unwrap_or_default()
+}
+
+/// A fork's remotes (`fork_of`).
+struct Fork {
+    fork: String,
+    original: String,
+    by: ForkDetection,
+}
+
+/// Whether the repository is a fork, and of what: by the forge's cached data, a remote whose
+/// project is a fork of another remote's, and which is yours: `origin`, or a remote the
+/// original's local trunk branch tracks or pushes to (`origin` first, then by name). A
+/// maintainer with a contributor's fork as a remote isn't in a fork. Else by convention, a
+/// remote named `upstream` next to `origin`, unless the forge can tell (an account covers
+/// origin's host), knows origin's project isn't a fork, or both remotes are the same project.
+fn fork_of(refs: &RepoRefs, facts: &ForkFacts) -> Option<Fork> {
+    let known = |r: &str| refs.remote_hosts.contains_key(r);
+    let yours = |r: &str, original: &str| r == "origin" || trunk_branch_remotes(refs, original).iter().any(|x| x == r);
+    let mut forks: Vec<(&String, &String)> = facts.parents.iter().filter(|(r, p)| r != p && known(r) && known(p) && yours(r, p)).collect();
+    forks.sort_by_key(|(r, _)| (r.as_str() != "origin", r.as_str()));
+    if let Some((fork, original)) = forks.first() {
+        return Some(Fork { fork: fork.to_string(), original: original.to_string(), by: ForkDetection::Forge });
+    }
+    let same_project = refs.remote_ids.get("origin").is_some_and(|o| refs.remote_ids.get("upstream") == Some(o));
+    let convention = known("origin") && known("upstream") && !facts.covered.contains("origin") && !facts.roots.contains("origin") && !same_project;
+    convention.then(|| Fork { fork: "origin".into(), original: "upstream".into(), by: ForkDetection::UpstreamRemote })
+}
+
+/// The remotes the local trunk branch for `original` (its trunk's local counterpart) tracks or
+/// pushes to.
+fn trunk_branch_remotes(refs: &RepoRefs, original: &str) -> Vec<String> {
+    let Some(local) = trunk_of(refs, original).and_then(|(t, branch)| local_counterpart(refs, &t, &branch)) else { return vec![] };
+    let Some(r) = refs.refs.iter().find(|r| r.full_name == local) else { return vec![] };
+    let tracked = r.upstream.as_ref().and_then(|u| match &refs.refs.iter().find(|x| &x.full_name == u)?.kind {
+        RefKind::Remote { remote } => Some(remote.clone()),
+        _ => None,
+    });
+    tracked.into_iter().chain(refs.push_remotes.get(&local).cloned()).collect()
+}
+
+/// The payload's account of a fork: its trunks, and the local branches standing for them.
+fn fork_payload(refs: &RepoRefs, f: &Fork) -> ForkPayload {
+    let trunk = trunk_of(refs, &f.original);
+    let fork_trunk = trunk_of(refs, &f.fork).map(|(t, _)| t);
+    let mut trunk_branches: Vec<String> = trunk.as_ref().and_then(|(t, branch)| local_counterpart(refs, t, branch)).into_iter().collect();
+    if let Some(ft) = &fork_trunk {
+        trunk_branches.extend(refs.refs.iter().filter(|r| r.kind == RefKind::Local && r.upstream.as_ref() == Some(ft)).map(|r| r.full_name.clone()));
+    }
+    trunk_branches.sort();
+    trunk_branches.dedup();
+    ForkPayload {
+        fork: f.fork.clone(),
+        original: f.original.clone(),
+        host: refs.remote_host_names.get(&f.original).cloned(),
+        host_kind: refs.remote_hosts.get(&f.original).copied().unwrap_or(HostKind::Generic),
+        detected_by: f.by,
+        trunk: trunk.map(|(t, _)| t),
+        fork_trunk,
+        trunk_branches,
     }
 }
 
@@ -399,7 +481,6 @@ fn tracking_local(refs: &RepoRefs, t: &str, branch: &str) -> Option<String> {
 
 /// `T` and its branch part (`main` for `refs/remotes/origin/main`).
 fn remote_trunk(refs: &RepoRefs, fork_parents: &HashMap<String, String>) -> Option<(String, String)> {
-    let exists = |n: &str| refs.refs.iter().any(|r| r.full_name == n);
     // A parent that isn't a configured remote says nothing about the order.
     let is_fork = |r: &str| fork_parents.get(r).is_some_and(|p| p != r && refs.remote_hosts.contains_key(p));
     let convention = |r: &str| match r {
@@ -409,25 +490,24 @@ fn remote_trunk(refs: &RepoRefs, fork_parents: &HashMap<String, String>) -> Opti
     };
     let mut remotes: Vec<&String> = refs.remote_hosts.keys().collect();
     remotes.sort_by_key(|r| (is_fork(r), convention(r), r.as_str()));
-    for remote in remotes {
-        let prefix = format!("refs/remotes/{remote}/");
-        if let Some(t) = refs.remote_heads.get(remote)
-            && exists(t)
-            && let Some(branch) = t.strip_prefix(&prefix)
-        {
-            return Some((t.clone(), branch.to_string()));
-        }
-        for b in ["main", "master", "dev", "develop"] {
-            let name = format!("{prefix}{b}");
-            if exists(&name) {
-                return Some((name, b.to_string()));
-            }
-        }
-    }
-    None
+    remotes.into_iter().find_map(|r| trunk_of(refs, r))
 }
 
-/// The local branch standing for the remote trunk `t` (see `default_trunk`).
+/// One remote's trunk and its branch part: its HEAD's target, else its main, master, dev or
+/// develop.
+fn trunk_of(refs: &RepoRefs, remote: &str) -> Option<(String, String)> {
+    let exists = |n: &str| refs.refs.iter().any(|r| r.full_name == n);
+    let prefix = format!("refs/remotes/{remote}/");
+    if let Some(t) = refs.remote_heads.get(remote)
+        && exists(t)
+        && let Some(branch) = t.strip_prefix(&prefix)
+    {
+        return Some((t.clone(), branch.to_string()));
+    }
+    ["main", "master", "dev", "develop"].into_iter().map(|b| (format!("{prefix}{b}"), b.to_string())).find(|(n, _)| exists(n))
+}
+
+/// The local branch standing for the remote trunk `t` (see `default_pair`).
 fn local_counterpart(refs: &RepoRefs, t: &str, branch: &str) -> Option<String> {
     tracking_local(refs, t, branch).or_else(|| refs.refs.iter().find(|r| r.kind == RefKind::Local && r.short_name == branch).map(|r| r.full_name.clone()))
 }
@@ -457,14 +537,13 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
     }
     let index: HashMap<ObjectId, usize> = commits.iter().enumerate().map(|(i, c)| (c.id, i)).collect();
 
-    let chosen = match (&opts.pinned_ref, opts.no_pin) {
-        (_, true) => None,
-        (Some(name), false) => Some(name.clone()),
-        (None, false) => default_trunk(&refs, &opts.fork_parents),
+    let fork = fork_of(&refs, &opts.forks);
+    let names = match (&opts.pinned_ref, opts.no_pin) {
+        (_, true) => vec![],
+        (Some(name), false) => pin_pair(&refs, name),
+        (None, false) => default_pair(&refs, fork.as_ref(), &opts.forks.parents),
     };
-    let pair: Vec<(String, ObjectId)> = chosen
-        .map(|c| pin_pair(&refs, &c))
-        .unwrap_or_default()
+    let pair: Vec<(String, ObjectId)> = names
         .into_iter()
         .filter_map(|n| {
             let target = refs.refs.iter().find(|r| r.full_name == n)?.target;
@@ -637,6 +716,7 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
         .collect();
     // 2D-T6 end
     let payload = GraphPayload {
+        fork: fork.as_ref().map(|f| fork_payload(&refs, f)),
         rows,
         labels: build_labels(&refs, worktrees, &here, &index, &row_of_commit),
         max_lanes: lay.max_lanes,
@@ -671,10 +751,11 @@ fn assemble(repo: &gix::Repository, worktrees: &[Worktree], wip: &[(usize, WipCo
 }
 
 /// The pinned commits (commit index → pinned lane) of the pinned pair whose tips are `tips`
-/// (commit indexes, local first), and each pinned lane's tip:
+/// (commit indexes, the one leading lane 0 first: the local branch, or in a fork the original's
+/// trunk), and each pinned lane's tip:
 /// - one tip, or two on one first-parent chain (one behind or ahead of the other, or equal):
 ///   one chain from the newer tip, through the older one, in lane 0;
-/// - two diverged tips: the local's chain in lane 0, the remote's own commits in lane 1, down to
+/// - two diverged tips: the first's chain in lane 0, the second's own commits in lane 1, down to
 ///   where its first-parent chain meets lane 0's (their shared history stays in lane 0).
 fn pinned_chains(commits: &[crate::walk::CommitMeta], index: &HashMap<ObjectId, usize>, tips: &[usize]) -> (HashMap<usize, u16>, Vec<usize>) {
     let mut pinned = HashMap::new();
@@ -1064,6 +1145,11 @@ mod tests {
         BuildOptions { pinned_ref: Some(name.into()), ..Default::default() }
     }
 
+    /// The forge's cached data: each remote → the remote its project forks.
+    fn parents(pairs: &[(&str, &str)]) -> BuildOptions {
+        BuildOptions { forks: ForkFacts { parents: pairs.iter().map(|(r, p)| (r.to_string(), p.to_string())).collect(), ..Default::default() }, ..Default::default() }
+    }
+
     /// The default: local main tracking origin/main pins with it.
     #[tokio::test]
     async fn the_default_trunk_is_the_local_branch_tracking_origin_head_with_its_upstream() {
@@ -1164,8 +1250,7 @@ mod tests {
     /// `origin` and `upstream`, both with a main; local `main` tracks `track`'s.
     fn fork_layout(r: &TestRepo, track: &str) {
         published_main(r);
-        let origin = r.root().join("origin.git");
-        r.git(&["remote", "add", "upstream", origin.to_str().unwrap()]);
+        r.git(&["remote", "add", "upstream", r.root().join("upstream.git").to_str().unwrap()]);
         r.git(&["update-ref", "refs/remotes/upstream/main", "HEAD"]);
         r.git(&["branch", "-q", "--set-upstream-to", &format!("{track}/main"), "main"]);
     }
@@ -1174,26 +1259,176 @@ mod tests {
     async fn without_forge_data_upstream_is_the_root_remote() {
         let r = TestRepo::new();
         fork_layout(&r, "upstream");
-        assert_eq!(pins(&r, BuildOptions::default()).await, ["refs/heads/main", "refs/remotes/upstream/main"]);
+        assert_eq!(pins(&r, BuildOptions::default()).await, ["refs/remotes/upstream/main", "refs/heads/main"]);
         // main tracks the fork (origin): still the pin, as upstream/main's local counterpart, and
-        // it pairs with what it tracks.
+        // it pairs with upstream/main, not with the fork's main it tracks.
         r.git(&["branch", "-q", "--set-upstream-to", "origin/main", "main"]);
+        assert_eq!(pins(&r, BuildOptions::default()).await, ["refs/remotes/upstream/main", "refs/heads/main"]);
+    }
+
+    /// The fork a build reports.
+    async fn fork(r: &TestRepo, opts: BuildOptions) -> Option<ForkPayload> {
+        build(r, opts).await.fork
+    }
+
+    fn fork_payload_of(fork: &str, original: &str, detected_by: ForkDetection, trunk: Option<&str>, fork_trunk: &str, trunk_branches: &[&str]) -> Option<ForkPayload> {
+        Some(ForkPayload {
+            fork: fork.into(),
+            original: original.into(),
+            host: None,
+            host_kind: HostKind::Generic,
+            detected_by,
+            trunk: trunk.map(Into::into),
+            fork_trunk: Some(fork_trunk.into()),
+            trunk_branches: trunk_branches.iter().map(|b| b.to_string()).collect(),
+        })
+    }
+
+    /// A fork by convention (`upstream` next to `origin`): the default pin is upstream's trunk
+    /// with the local main, whatever main tracks; origin/main is never pinned by default. The
+    /// payload names the trunk branches: the pinned local and those tracking origin/main.
+    #[tokio::test]
+    async fn in_a_fork_the_original_projects_trunk_is_pinned_not_the_forks() {
+        let r = TestRepo::new();
+        published_main(&r);
+        assert_eq!(fork(&r, BuildOptions::default()).await, None, "one remote: not a fork");
+        r.git(&["remote", "add", "upstream", r.root().join("upstream.git").to_str().unwrap()]);
+        // upstream not fetched yet: no trunk of its own to pin, so origin's as before.
         assert_eq!(pins(&r, BuildOptions::default()).await, ["refs/heads/main", "refs/remotes/origin/main"]);
+        let unfetched = fork_payload_of("origin", "upstream", ForkDetection::UpstreamRemote, None, "refs/remotes/origin/main", &["refs/heads/main"]);
+        assert_eq!(fork(&r, BuildOptions::default()).await, unfetched);
+
+        r.git(&["update-ref", "refs/remotes/upstream/main", "HEAD"]);
+        let upstream_pair = ["refs/remotes/upstream/main", "refs/heads/main"];
+        assert_eq!(pins(&r, BuildOptions::default()).await, upstream_pair, "main tracking origin/main pairs with upstream/main");
+        r.git(&["branch", "-q", "--track", "feature", "origin/main"]);
+        let expected = fork_payload_of("origin", "upstream", ForkDetection::UpstreamRemote, Some("refs/remotes/upstream/main"), "refs/remotes/origin/main", &["refs/heads/feature", "refs/heads/main"]);
+        assert_eq!(fork(&r, BuildOptions::default()).await, expected);
+        // Explicit pins are unchanged: origin/main pairs with main, which tracks it.
+        assert_eq!(pins(&r, pin("refs/remotes/origin/main")).await, ["refs/heads/main", "refs/remotes/origin/main"]);
+        assert_eq!(fork(&r, pin("refs/remotes/origin/main")).await, expected, "reported whatever the pin");
+
+        // main tracking upstream/main: the same pair; it's still a trunk branch, as upstream/main's counterpart.
+        r.git(&["branch", "-q", "--set-upstream-to", "upstream/main", "main"]);
+        assert_eq!(pins(&r, BuildOptions::default()).await, upstream_pair);
+        assert_eq!(fork(&r, BuildOptions::default()).await, expected);
+
+        // No local main: upstream/main alone (feature tracks the fork's main, not upstream's).
+        r.switch("feature");
+        r.git(&["branch", "-q", "-D", "main"]);
+        assert_eq!(pins(&r, BuildOptions::default()).await, ["refs/remotes/upstream/main"]);
+        let no_main = fork_payload_of("origin", "upstream", ForkDetection::UpstreamRemote, Some("refs/remotes/upstream/main"), "refs/remotes/origin/main", &["refs/heads/feature"]);
+        assert_eq!(fork(&r, BuildOptions::default()).await, no_main);
+    }
+
+    /// A fork the forge tells, whatever the remotes' names: origin's project forks `project`'s.
+    #[tokio::test]
+    async fn a_fork_by_the_forges_data_pins_the_parent_remotes_trunk() {
+        let r = TestRepo::new();
+        published_main(&r);
+        let origin = r.root().join("origin.git");
+        r.git(&["remote", "add", "project", origin.to_str().unwrap()]);
+        r.git(&["update-ref", "refs/remotes/project/main", "HEAD"]);
+        // No forge data, no `upstream`: not a fork, origin first by convention.
+        assert_eq!(pins(&r, BuildOptions::default()).await, ["refs/heads/main", "refs/remotes/origin/main"]);
+        assert_eq!(fork(&r, BuildOptions::default()).await, None);
+        let opts = || parents(&[("origin", "project")]);
+        assert_eq!(pins(&r, opts()).await, ["refs/remotes/project/main", "refs/heads/main"]);
+        assert_eq!(fork(&r, opts()).await, fork_payload_of("origin", "project", ForkDetection::Forge, Some("refs/remotes/project/main"), "refs/remotes/origin/main", &["refs/heads/main"]));
+    }
+
+    /// A maintainer's clone: origin is the project, `alice` a contributor's fork of it. The forge
+    /// says alice forks origin, but alice isn't yours: not a fork. A remote other than origin is
+    /// yours when the local trunk branch pushes to it or tracks it.
+    #[tokio::test]
+    async fn a_forking_remote_makes_a_fork_only_when_its_yours() {
+        let r = TestRepo::new();
+        published_main(&r);
+        r.git(&["remote", "add", "alice", r.root().join("alice.git").to_str().unwrap()]);
+        r.git(&["update-ref", "refs/remotes/alice/main", "HEAD"]);
+        let opts = || parents(&[("alice", "origin")]);
+        assert_eq!(fork(&r, opts()).await, None, "a contributor's fork as a remote");
+        assert_eq!(pins(&r, opts()).await, ["refs/heads/main", "refs/remotes/origin/main"]);
+        let alice = || async { fork(&r, opts()).await.map(|f| (f.fork, f.original, f.detected_by)) };
+        let yours = Some(("alice".to_string(), "origin".to_string(), ForkDetection::Forge));
+        r.git(&["config", "branch.main.pushRemote", "alice"]);
+        assert_eq!(alice().await, yours, "main pushes to alice");
+        r.git(&["config", "--unset", "branch.main.pushRemote"]);
+        r.git(&["config", "remote.pushDefault", "alice"]);
+        assert_eq!(alice().await, yours, "everything pushes to alice");
+        r.git(&["config", "--unset", "remote.pushDefault"]);
+        assert_eq!(alice().await, None);
+        r.git(&["branch", "-q", "--set-upstream-to", "alice/main", "main"]);
+        assert_eq!(alice().await, yours, "main, origin/main's counterpart by name, tracks alice/main");
+    }
+
+    /// In a fork, upstream/main leads the pair: diverged from the local main, its commits run
+    /// down lane 0 and main's own take lane 1; origin/main (main's upstream) isn't pinned.
+    #[tokio::test]
+    async fn in_a_fork_the_original_trunk_leads_lane_0_when_main_has_diverged() {
+        let r = TestRepo::new();
+        fork_layout(&r, "origin");
+        r.switch_new("tmp");
+        r.commit("U1");
+        r.commit("U2");
+        r.git(&["update-ref", "refs/remotes/upstream/main", "tmp"]);
+        r.switch("main");
+        r.git(&["branch", "-q", "-D", "tmp"]);
+        r.commit("L");
+        let g = build(&r, BuildOptions::default()).await;
+        assert_eq!(g.pinned_refs, ["refs/remotes/upstream/main", "refs/heads/main"]);
+        let lanes: Vec<(&str, u16)> = g.rows.iter().map(|x| (x.summary.as_str(), x.lane)).collect();
+        assert_eq!(lanes, [("L", 1), ("U2", 0), ("U1", 0), ("base", 0)]);
+    }
+
+    /// The `upstream` convention holds only where the forge can't say otherwise: not for an
+    /// upstream that is origin's own project (another URL for it), not once the forge knows
+    /// origin's project isn't a fork, and not at all on a host an account covers.
+    #[tokio::test]
+    async fn the_upstream_convention_yields_to_the_forge_and_to_the_same_project() {
+        let r = TestRepo::new();
+        fork_layout(&r, "origin");
+        let by_convention = || async { fork(&r, BuildOptions::default()).await.map(|f| f.detected_by) };
+        assert_eq!(by_convention().await, Some(ForkDetection::UpstreamRemote));
+        // The same project, spelled two ways.
+        r.git(&["remote", "set-url", "origin", "https://git.example.com/group/project.git"]);
+        r.git(&["remote", "set-url", "upstream", "git@git.example.com:Group/project"]);
+        assert_eq!(by_convention().await, None, "upstream is origin's own project");
+        r.git(&["remote", "set-url", "upstream", "https://gitlab.example.com/other/project.git"]);
+        assert_eq!(by_convention().await, Some(ForkDetection::UpstreamRemote));
+        // The original's host and forge (the notice's "merge request").
+        let f = fork(&r, BuildOptions::default()).await.unwrap();
+        assert_eq!((f.host.as_deref(), f.host_kind), (Some("gitlab.example.com"), HostKind::GitLab));
+        // A local path, the same one: also the same project.
+        let path = r.root().join("upstream.git");
+        r.git(&["remote", "set-url", "origin", path.to_str().unwrap()]);
+        r.git(&["remote", "set-url", "upstream", path.to_str().unwrap()]);
+        assert_eq!(by_convention().await, None);
+        r.git(&["remote", "set-url", "origin", r.root().join("origin.git").to_str().unwrap()]);
+        assert_eq!(by_convention().await, Some(ForkDetection::UpstreamRemote));
+        let facts = |f: ForkFacts| BuildOptions { forks: f, ..Default::default() };
+        let one = |r: &str| std::iter::once(r.to_string()).collect::<HashSet<_>>();
+        let known_root = facts(ForkFacts { roots: one("origin"), ..Default::default() });
+        assert_eq!(fork(&r, known_root).await, None, "the forge knows origin's project isn't a fork");
+        let covered = facts(ForkFacts { covered: one("origin"), ..Default::default() });
+        assert_eq!(fork(&r, covered).await, None, "an account covers origin's host: the forge's data only");
+        // A covered upstream alone doesn't stop the convention: origin's host is the one asked.
+        let upstream_covered = facts(ForkFacts { covered: one("upstream"), ..Default::default() });
+        assert_eq!(fork(&r, upstream_covered).await.map(|f| f.detected_by), Some(ForkDetection::UpstreamRemote));
     }
 
     #[tokio::test]
     async fn cached_fork_data_makes_the_parent_remote_the_root() {
         let r = TestRepo::new();
         fork_layout(&r, "origin");
-        // Reversed naming: upstream's project is a fork of origin's, so origin/main is T and
-        // main, tracking it, its counterpart.
-        let fork_parents = HashMap::from([("upstream".to_string(), "origin".to_string())]);
+        // Reversed naming: upstream's project is a fork of origin's, and yours (main pushes
+        // there), so origin/main is T and main, tracking it, its counterpart.
         r.git(&["branch", "-q", "--track", "up", "upstream/main"]);
-        assert_eq!(pins(&r, BuildOptions { fork_parents, ..Default::default() }).await, ["refs/heads/main", "refs/remotes/origin/main"]);
+        r.git(&["config", "branch.main.pushRemote", "upstream"]);
+        assert_eq!(pins(&r, parents(&[("upstream", "origin")])).await, ["refs/remotes/origin/main", "refs/heads/main"]);
         // A parent that isn't one of the remotes changes nothing: upstream is the root, and `up`
         // tracks upstream/main.
-        let elsewhere = HashMap::from([("upstream".to_string(), "someone-else".to_string())]);
-        assert_eq!(pins(&r, BuildOptions { fork_parents: elsewhere, ..Default::default() }).await, ["refs/heads/up", "refs/remotes/upstream/main"]);
+        assert_eq!(pins(&r, parents(&[("upstream", "someone-else")])).await, ["refs/remotes/upstream/main", "refs/heads/up"]);
     }
 
     #[tokio::test]
@@ -1636,7 +1871,7 @@ mod tests {
     }
 
     /// Real layouts for the UI's branch-membership tests (`ui/src/graph/membership.test.ts`,
-    /// feedback F7). Each case builds a repo and runs the actual `build_graph`, so `default_trunk`
+    /// feedback F7). Each case builds a repo and runs the actual `build_graph`, so `default_pair`
     /// pinning and `layout.rs` lane assignment are the real ones, then reduces the payload to rows
     /// keyed by commit summary, plus the labels. Pinned in `testdata/graph-membership.json`;
     /// regenerate with `GITBOLT_UPDATE_TESTDATA=1 cargo test -p gitbolt-core membership_vectors`.
@@ -1711,7 +1946,7 @@ mod tests {
                 with_origin(r);
                 r.commit("M");
                 publish_main(r);
-                r.git(&["remote", "add", "upstream", r.root().join("origin.git").to_str().unwrap()]);
+                r.git(&["remote", "add", "upstream", r.root().join("upstream.git").to_str().unwrap()]);
                 r.switch_new("tmp");
                 r.commit("U");
                 r.git(&["update-ref", "refs/remotes/upstream/main", "tmp"]);
@@ -1810,13 +2045,15 @@ mod tests {
             let r = TestRepo::new();
             make(&r);
             let g = build(&r, BuildOptions::default()).await;
-            // The local main (in the fork workflow, upstream/main's counterpart though it
-            // tracks origin) with the origin/main it tracks; alone without a remote; nothing
-            // where there's no trunk at all.
+            // The local main with the origin/main it tracks; in the fork workflow, upstream/main
+            // first, with main though it tracks origin; alone without a remote; nothing where
+            // there's no trunk at all.
             let pins: &[&str] = if name.starts_with("unpinned") {
                 &[]
             } else if name.starts_with("local-only") {
                 &["refs/heads/main"]
+            } else if name.contains("fork workflow") {
+                &["refs/remotes/upstream/main", "refs/heads/main"]
             } else {
                 &["refs/heads/main", "refs/remotes/origin/main"]
             };

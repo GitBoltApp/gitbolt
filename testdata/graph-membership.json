@@ -361,15 +361,15 @@
       ],
       "name": "upstream/main one commit ahead (fork workflow)",
       "pinnedRefs": [
-        "refs/heads/main",
-        "refs/remotes/origin/main"
+        "refs/remotes/upstream/main",
+        "refs/heads/main"
       ],
       "rows": [
         {
-          "color": 1,
+          "color": 0,
           "id": "U",
           "kind": "commit",
-          "lane": 1,
+          "lane": 0,
           "parents": [
             "M"
           ]
