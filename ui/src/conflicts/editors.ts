@@ -92,6 +92,49 @@ export function mergeEditorOptions(readOnly: boolean, stickyScroll: boolean, fon
   };
 }
 
+/** What the editors' scroll sync uses of a Monaco editor. */
+export interface ScrollSyncEditor {
+  onDidScrollChange(cb: (e: { scrollTopChanged: boolean; scrollLeftChanged: boolean }) => void): { dispose(): void };
+  getScrollTop(): number;
+  getScrollLeft(): number;
+  getScrollHeight(): number;
+  getLayoutInfo(): { height: number };
+  setScrollTop(top: number, type?: number): void;
+  setScrollLeft(left: number, type?: number): void;
+}
+
+/**
+ * The editors scroll together: down, to the same fraction of each one's scroll range (their texts
+ * differ in length); sideways (a horizontal wheel, Shift+wheel, a scrollbar), to the same px (the
+ * same font: columns line up). `quiet` runs `fn` without syncing (a reveal places each itself).
+ */
+export function syncScroll(editors: ScrollSyncEditor[]): { subs: { dispose(): void }[]; quiet(fn: () => void): void } {
+  let syncing = false;
+  const quiet = (fn: () => void) => {
+    syncing = true;
+    try {
+      fn();
+    } finally {
+      syncing = false;
+    }
+  };
+  const scrollRange = (ed: ScrollSyncEditor) => Math.max(0, ed.getScrollHeight() - ed.getLayoutInfo().height);
+  const subs = editors.map((ed) => ed.onDidScrollChange((e) => {
+    if (syncing) return;
+    const max = scrollRange(ed);
+    const f = max > 0 ? ed.getScrollTop() / max : 0;
+    const left = ed.getScrollLeft();
+    quiet(() => {
+      for (const o of editors) {
+        if (o === ed) continue;
+        if (e.scrollTopChanged) o.setScrollTop(f * scrollRange(o), SCROLL_IMMEDIATE);
+        if (e.scrollLeftChanged) o.setScrollLeft(left, SCROLL_IMMEDIATE);
+      }
+    });
+  }));
+  return { subs, quiet };
+}
+
 /** `text` with every line break as `eol` (what Monaco's model holds). */
 const normalized = (text: string, eol: string) => text.replace(/\r\n|\r|\n/g, eol);
 
@@ -409,41 +452,22 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
     paintOutput();
   };
 
-  // --- Sync scroll: the same fraction of each editor's scroll range ---
-  let syncing = false;
-  const scrollRange = (ed: Editor) => Math.max(0, ed.getScrollHeight() - ed.getLayoutInfo().height);
-  for (const ed of editors) {
-    subs.push(ed.onDidScrollChange((e) => {
-      if (syncing || !e.scrollTopChanged) return;
-      const max = scrollRange(ed);
-      const f = max > 0 ? ed.getScrollTop() / max : 0;
-      syncing = true;
-      try {
-        for (const o of editors) if (o !== ed) o.setScrollTop(f * scrollRange(o), SCROLL_IMMEDIATE);
-      } finally {
-        syncing = false;
-      }
-    }));
-  }
+  const sync = syncScroll(editors);
+  subs.push(...sync.subs);
 
-  const reveal = (id: number) => {
-    syncing = true;
-    try {
-      for (const side of ['current', 'incoming'] as const) {
-        const r = panes[side].regions.find((g) => g.id === id);
-        if (r) paneEd[side].revealLineInCenter(Math.max(1, r.start), SCROLL_IMMEDIATE);
-      }
-      const d = tracked.get(id);
-      const r = d ? outModel.getDecorationRange(d) : null;
-      if (r) {
-        out.setPosition(r.getStartPosition());
-        out.revealLineInCenter(r.startLineNumber, SCROLL_IMMEDIATE);
-        out.focus();
-      }
-    } finally {
-      syncing = false;
+  const reveal = (id: number) => sync.quiet(() => {
+    for (const side of ['current', 'incoming'] as const) {
+      const r = panes[side].regions.find((g) => g.id === id);
+      if (r) paneEd[side].revealLineInCenter(Math.max(1, r.start), SCROLL_IMMEDIATE);
     }
-  };
+    const d = tracked.get(id);
+    const r = d ? outModel.getDecorationRange(d) : null;
+    if (r) {
+      out.setPosition(r.getStartPosition());
+      out.revealLineInCenter(r.startLineNumber, SCROLL_IMMEDIATE);
+      out.focus();
+    }
+  });
 
   const cursors: Array<(line: number) => void> = [];
   subs.push(out.onDidChangeCursorPosition((e) => { for (const cb of cursors) cb(e.position.lineNumber); }));

@@ -56,6 +56,12 @@ function AuthForm({ prompt }: { prompt: AuthPrompt }) {
       answer(null);
       return 'handled';
     }
+    // Mod+Enter answers, as in the other dialogs (its own key claim stops the field's handlers).
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
+      e.preventDefault();
+      form.current?.requestSubmit();
+      return 'handled';
+    }
     if (e.key === 'Tab' && !e.ctrlKey && !e.altKey && !e.metaKey) {
       const els = [...(form.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])];
       if (els.length) {

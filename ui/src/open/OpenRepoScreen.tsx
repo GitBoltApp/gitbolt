@@ -9,6 +9,7 @@ import { useAppState } from '../app/state';
 import { removeRecent, togglePinRecent } from '../app/tabs';
 import { relativeTime } from '../format/relative';
 import { HoverTooltip } from '../ui/HoverTooltip';
+import { ClearableInput } from '../ui/ClearableInput';
 import { CloneForm } from './CloneForm';
 import { folderLabels, folderOf } from './folderLabels';
 import { useOpenUi } from './openUi';
@@ -146,7 +147,7 @@ function YourRepos({ folders, onOpen }: { folders: string[]; onOpen(path: string
           <button type="button" className={`open-icon-btn${folders.length > 1 ? '' : ' open-push'}`} aria-label={order === 'alpha' ? 'Sort by most recently changed' : 'Sort A–Z'} onClick={toggleOrder}>{order === 'alpha' ? <ArrowDownAZ size={14} /> : <Clock size={13} />}</button>
         </HoverTooltip>
       </h2>
-      {folders.length > 0 && <input className="open-filter" placeholder="Filter your repositories" aria-label="Filter your repositories" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />}
+      {folders.length > 0 && <ClearableInput className="open-filter" placeholder="Filter your repositories" aria-label="Filter your repositories" value={filter} onChange={(e) => setFilter(e.target.value)} onClear={() => setFilter('')} spellCheck={false} />}
       {!grouped && (
         <ul className="open-folders" aria-label="Scanned directories">
           {folders.map((f) => <li key={f} className="open-folder-chip">{chip(f)}</li>)}
@@ -218,7 +219,7 @@ export function OpenRepoScreen({ tab }: { tab: TabState }) {
       <div className="open-grid">
         <section className="open-section" aria-labelledby="open-recent">
           <h2 id="open-recent">Recent</h2>
-          <input className="open-filter" placeholder="Filter recent repositories" aria-label="Filter recent repositories" value={filter} onChange={(e) => setFilter(e.target.value)} spellCheck={false} />
+          <ClearableInput className="open-filter" placeholder="Filter recent repositories" aria-label="Filter recent repositories" value={filter} onChange={(e) => setFilter(e.target.value)} onClear={() => setFilter('')} spellCheck={false} />
           <div className="open-scroll">
           {shown.length === 0 ? <p className="dim">{recent.length === 0 ? 'Repositories you open appear here.' : 'No recent repository matches.'}</p> : (
             <ul className="open-list">

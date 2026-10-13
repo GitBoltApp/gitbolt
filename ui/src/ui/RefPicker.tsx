@@ -5,6 +5,7 @@ import { HoverTooltip } from './HoverTooltip';
 import { useKeys } from './keyRouter';
 import { pointInRect, swallowGestureClick } from './swallowClick';
 import './picker.css';
+import { ClearableInput } from './ClearableInput';
 
 export interface PickItem { id: string; label: string; detail?: string; icon?: LucideIcon; current?: boolean; tooltip?: string }
 
@@ -106,7 +107,7 @@ export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore,
   return createPortal(
     <div ref={ref} className="picker" style={{ left, top }}>
       <div className="picker-head">
-      <input
+      <ClearableInput
         ref={input}
         autoFocus
         className="picker-input"
@@ -125,6 +126,7 @@ export function RefPicker({ anchor, items, placeholder, onPick, onClose, ignore,
           setQ(e.target.value);
           setCursor(Math.max(0, next.findIndex((i) => i.current)));
         }}
+        onClear={() => { setQ(''); setCursor(Math.max(0, items.findIndex((i) => i.current))); }}
       />
       {toggle && (
         <HoverTooltip content={toggle.label}>

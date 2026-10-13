@@ -19,6 +19,7 @@ import { GROUP_LIST_DELAY_MS, useGroupUi } from './groupUi';
 import { HamburgerMenu } from './HamburgerMenu';
 import { NotificationsBell } from './NotificationsBell';
 import { ProfileSwitcher } from './ProfileSwitcher';
+import { useStripScroll } from './stripScroll';
 import { nextTabFocus } from './tabKeyboard';
 // The tab menu's contributions (`registerMenu`) register at import time.
 import { useTabUi, type TabBarEnv, type TabEnv, type TabTarget } from './tabMenu';
@@ -177,6 +178,7 @@ export function TabBar() {
   // A collapsed group's tabs stay laid out at no width, so collapsing and expanding animate.
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the strip depends on these three only
   const items = useMemo(() => stripItems(profile, true), [tabs, tabGroups, active]);
+  useStripScroll(tablistRef, active, tabGroups.map((g) => (g.collapsed ? '' : g.id)).join(), !!drag);
 
   /** Roving tabindex (spec §6.2): ArrowLeft/Right/Home/End move DOM focus among the tabs and the
    * group chips (wrapping), without changing which one is active; Enter/Space activates the

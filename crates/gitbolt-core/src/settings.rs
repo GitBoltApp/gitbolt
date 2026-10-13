@@ -21,7 +21,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use ts_rs::TS;
 
-pub const SETTINGS_VERSION: u32 = 1;
+/// 2: "Push tags with branches" is turned on once for files written before it defaulted to on.
+pub const SETTINGS_VERSION: u32 = 2;
 pub const PROFILE_VERSION: u32 = 1;
 pub const DEFAULT_PROFILE_ID: &str = "default";
 pub const MAX_CLOSED_TABS: usize = 20;
@@ -615,7 +616,14 @@ impl SettingsStore {
     pub fn open(root: impl Into<PathBuf>) -> Arc<Self> {
         let root = root.into();
         let mut inner = match load_json::<AppSettings>(&root.join("settings.json"), SETTINGS_VERSION) {
-            Loaded::Found(settings) => Inner { settings, ..Default::default() },
+            Loaded::Found(mut settings) => {
+                let migrate = settings.version < SETTINGS_VERSION;
+                if migrate {
+                    settings.push_follow_tags = true;
+                    settings.version = SETTINGS_VERSION;
+                }
+                Inner { settings, dirty_settings: migrate, ..Default::default() }
+            }
             Loaded::Absent => Inner { dirty_settings: true, ..Default::default() },
             Loaded::Unreadable => Inner { settings_locked: true, ..Default::default() },
         };
@@ -1024,7 +1032,7 @@ mod tests {
     /// K46: a settings file from before the window field loads with none, and writes none back.
     #[test]
     fn an_old_settings_file_without_the_window_loads() {
-        let old = r#"{"version":1,"activeProfile":"default","theme":"default-dark","editorFontSize":13,"fetchIntervalSecs":60,"prune":true,"commitLimit":2000,"dateFormat":"ymd12h","gravatar":true}"#;
+        let old = r#"{"version":2,"activeProfile":"default","theme":"default-dark","editorFontSize":13,"fetchIntervalSecs":60,"prune":true,"commitLimit":2000,"dateFormat":"ymd12h","gravatar":true}"#;
         let s: AppSettings = serde_json::from_str(old).unwrap();
         assert_eq!(s.window, None);
         assert_eq!(s, AppSettings::default());
@@ -1258,6 +1266,28 @@ mod tests {
         failures(MAX_SAVE_RETRIES + 1).await;
         tokio::time::sleep(Duration::from_secs(3600)).await;
         assert_eq!(store.save_failures(), MAX_SAVE_RETRIES + 1);
+    }
+
+    #[test]
+    fn old_settings_get_push_tags_turned_on_once_and_saved() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, br#"{"version": 1, "commitLimit": 500, "pushFollowTags": false}"#).unwrap();
+        let store = SettingsStore::open(dir.path());
+        let st = store.state();
+        assert!(st.settings.push_follow_tags);
+        assert_eq!(st.settings.commit_limit, 500);
+        store.flush_now().unwrap();
+        let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        assert_eq!(saved["version"], 2);
+        assert_eq!(saved["pushFollowTags"], true);
+    }
+
+    #[test]
+    fn current_version_keeps_push_tags_off() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("settings.json"), br#"{"version": 2, "pushFollowTags": false}"#).unwrap();
+        assert!(!SettingsStore::open(dir.path()).state().settings.push_follow_tags);
     }
 
     #[test]

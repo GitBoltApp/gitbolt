@@ -11,7 +11,7 @@
 .open-section h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; color: var(--text-selected); }
 .open-folder-path { font-weight: normal; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-filter, .clone-form input { width: 100%; box-sizing: border-box; font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; cursor: text; }
-.open-yours .open-filter { margin-bottom: 6px; }
+.open-yours .clearable { margin-bottom: 6px; }
 .open-filter:focus, .clone-form input:focus { outline: none; border-color: var(--blue); }
 .clone-form label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--text-secondary); }
 .open-list { list-style: none; margin: 8px 0 0; padding: 0; }

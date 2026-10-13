@@ -45,3 +45,38 @@ describe('useModalKeys: the dialog’s own keys', () => {
     expect(close).toHaveBeenCalledOnce();
   });
 });
+
+describe('useModalKeys: Mod+Enter submits the form the focus is in', () => {
+  function FormDialog({ close, onSubmit, onKey }: { close: () => void; onSubmit: () => void; onKey?: (e: KeyboardEvent) => boolean }) {
+    const ref = useModalKeys<HTMLDivElement>(true, close, undefined, onKey);
+    return (
+      <div ref={ref} role="dialog" aria-label="f">
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(); }}><textarea aria-label="body" /></form>
+        <input aria-label="loose" />
+      </div>
+    );
+  }
+
+  it('Ctrl+Enter and Cmd+Enter submit; plain Enter, Shift and a field outside a form do not; Esc closes', () => {
+    const close = vi.fn();
+    const onSubmit = vi.fn();
+    render(<FormDialog close={close} onSubmit={onSubmit} />);
+    const body = screen.getByLabelText('body');
+    expect(fireEvent.keyDown(body, { key: 'Enter', ctrlKey: true })).toBe(false);
+    fireEvent.keyDown(body, { key: 'Enter', metaKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    expect(fireEvent.keyDown(body, { key: 'Enter' })).toBe(true);
+    fireEvent.keyDown(body, { key: 'Enter', ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(screen.getByLabelText('loose'), { key: 'Enter', ctrlKey: true });
+    expect(onSubmit).toHaveBeenCalledTimes(2);
+    fireEvent.keyDown(body, { key: 'Escape' });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('a dialog’s own onKey takes Mod+Enter first', () => {
+    const onSubmit = vi.fn();
+    render(<FormDialog close={vi.fn()} onSubmit={onSubmit} onKey={(e) => e.key === 'Enter'} />);
+    fireEvent.keyDown(screen.getByLabelText('body'), { key: 'Enter', ctrlKey: true });
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+});

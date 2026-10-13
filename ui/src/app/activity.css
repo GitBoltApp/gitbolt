@@ -13,7 +13,8 @@
 .activity-tool[aria-pressed='true'] { background: var(--selected-row); color: var(--text-selected); border-color: var(--blue); }
 .activity-panel { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
 .debug-toolbar { display: flex; align-items: center; gap: 16px; min-height: 28px; user-select: none; }
-.modal .debug-toolbar input.debug-search { flex: 0 1 320px; min-width: 120px; padding: 3px 8px; }
+.modal .debug-toolbar .debug-search-box { flex: 0 1 320px; min-width: 120px; }
+.modal .debug-toolbar input.debug-search { flex: 1; min-width: 0; padding: 3px 8px; }
 .debug-count { flex: 1; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
 .activity-copy-all { font: inherit; padding: 4px 12px; border-radius: 4px; border: 1px solid var(--section-border); background: var(--panel-bg1); color: var(--text-selected); cursor: pointer; }
 .activity-copy-all:hover:not(:disabled) { background: var(--hover-row); }

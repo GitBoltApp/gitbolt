@@ -190,6 +190,55 @@ describe('TabBar: live drag reordering (spec §6.2)', () => {
     expect(screen.getByRole('tablist').classList.contains('reordering')).toBe(false);
   });
 
+  it('near the strip\'s edge the drag scrolls it, faster toward the edge; it stops out of the zone, at the end, and on release', () => {
+    vi.useFakeTimers();
+    setTabs(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'], 'a');
+    render(<TabBar />);
+    layout();
+    // 800 px of tabs in the 600 px strip, scrolled by a plain field (jsdom has no layout). The
+    // frames are the edge scroll's (and the group lines', which follow a drag every frame).
+    const strip = screen.getByRole('tablist');
+    let left = 0;
+    Object.defineProperty(strip, 'scrollWidth', { configurable: true, value: 800 });
+    Object.defineProperty(strip, 'clientWidth', { configurable: true, value: 600 });
+    Object.defineProperty(strip, 'scrollLeft', { configurable: true, get: () => left, set: (v: number) => { left = Math.max(0, Math.min(200, Math.round(v))); } });
+    const frames = new Map<number, FrameRequestCallback>();
+    let id = 0;
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation((cb) => { frames.set(++id, cb); return id; });
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation((n) => void frames.delete(n));
+    const frame = () => act(() => {
+      const due = [...frames.values()];
+      frames.clear();
+      for (const cb of due) cb(0);
+    });
+    const tabs = screen.getAllByRole('tab');
+    fireEvent.pointerDown(tabs[0], { button: 0, clientX: 50 });
+    moveTo(580); // 20 px into the right zone: half speed
+    frame();
+    expect(left).toBe(7);
+    frame();
+    expect(left).toBe(14);
+    // The dragged tab stays under the pointer as the strip scrolls under it.
+    expect(tabs[0].style.transform).toBe('translateX(544px)');
+    moveTo(600); // at the edge: full speed
+    frame();
+    expect(left).toBe(28);
+    moveTo(300); // out of the zone: stops
+    frame();
+    frame();
+    expect(left).toBe(28);
+    moveTo(650); // past the edge, up to the strip's end
+    for (let i = 0; i < 20; i++) frame();
+    expect(left).toBe(200);
+    moveTo(0); // back to the start edge, then released
+    frame();
+    expect(left).toBe(200 - 14);
+    release(0);
+    frame();
+    frame();
+    expect(left).toBe(200 - 14);
+  });
+
   it('a click (no movement past the threshold) still activates the tab', () => {
     setTabs(['a', 'b'], 'a');
     render(<TabBar />);

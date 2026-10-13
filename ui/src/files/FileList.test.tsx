@@ -694,16 +694,15 @@ describe('FileList', () => {
       expect(store.getState().diff).toBeNull(); // the second, with nothing to clear, is the app's Esc
     });
 
-    it('X clears the filter and re-centres the selected row; the clear and step buttons disable appropriately', async () => {
+    it('X clears the filter and re-centres the selected row; the clear button is there only with text, the step buttons disable appropriately', async () => {
       setupAllFiles();
       await screen.findByText('zzz.txt');
       const scrollTo = vi.spyOn(Element.prototype, 'scrollTo');
-      const clear = screen.getByRole('button', { name: 'Clear filter' });
-      expect(clear).toBeDisabled();
+      expect(screen.queryByRole('button', { name: 'Clear filter' })).toBeNull();
       fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'src/app.php')!);
       const filter = screen.getByLabelText('Filter files');
       fireEvent.change(filter, { target: { value: 'app' } });
-      expect(clear).not.toBeDisabled();
+      const clear = screen.getByRole('button', { name: 'Clear filter' });
       scrollTo.mockClear();
       fireEvent.click(clear);
       expect(filter).toHaveValue('');

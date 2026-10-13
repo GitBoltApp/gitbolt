@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { RequestLogEntry } from '../api/gen/RequestLogEntry';
 import { copyAndSay, relativeTime, seconds, useActivityUi } from '../app/activityLog';
 import { DebugCheck, DebugRow, type Pill } from './DebugRow';
+import { ClearableInput } from '../ui/ClearableInput';
 
 /** How often the open Requests tab re-reads the backend's ring, as the Commands tab does. */
 export const REQUEST_POLL_MS = 1000;
@@ -62,7 +63,7 @@ export function RequestLogView() {
   return (
     <>
       <div className="debug-toolbar">
-        <input type="search" className="debug-search" aria-label="Filter requests" placeholder="Filter: method, params, error" value={text} onChange={(e) => setText(e.target.value)} />
+        <ClearableInput type="search" className="debug-search" boxClassName="debug-search-box" aria-label="Filter requests" placeholder="Filter: method, params, error" value={text} onChange={(e) => setText(e.target.value)} onClear={() => setText('')} />
         <DebugCheck label="Slow only" checked={slowOnly} onChange={setSlowOnly} />
         <DebugCheck label="Failed only" checked={failedOnly} onChange={setFailedOnly} />
         <span className="debug-count">{entries ? `${shown.length} of ${entries.length}` : ''}</span>

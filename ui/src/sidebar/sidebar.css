@@ -3,6 +3,7 @@
 .sb-collapse, .sn-expand { all: unset; display: flex; align-items: center; justify-content: center; flex: none; width: 22px; height: 22px; border-radius: 50%; color: var(--text-secondary); background: var(--panel-bg1); cursor: pointer; }
 .sb-collapse:hover, .sn-expand:hover { color: var(--text-selected); background: var(--hover-row); }
 .sb-collapse:focus-visible, .sn-expand:focus-visible { outline: 1px solid var(--blue); }
+.sb-filter .clearable { flex: 1; }
 .sb-filter input { flex: 1; min-width: 0; box-sizing: border-box; font: inherit; padding: 4px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; }
 /* A flex column: panel heights are a basis CSS shrinks at once if they sum past the room (stale measure, fractional zoom), so the stack never overflows. */
 .sb-stack { flex: 1; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }

@@ -21,7 +21,9 @@ function fakeEditor(left: number) {
     scrollTop: 0,
     layoutZone: vi.fn(),
     render: vi.fn(),
+    scrollLeft: 0,
     setScrollTop: vi.fn((top: number) => { ed.scrollTop = top; }),
+    setScrollLeft: vi.fn((left: number) => { ed.scrollLeft = left; }),
     changeViewZones: (cb: (acc: { addZone(z: Zone): string; removeZone(id: string): void; layoutZone(id: string): void }) => void) => cb({
       addZone: (z) => { const id = `z${++n}`; ed.zones.set(id, z); return id; },
       removeZone: (id) => void ed.zones.delete(id),
@@ -44,6 +46,7 @@ function fakeEditor(left: number) {
     getWhitespaces: () => [...ed.own, ...[...ed.zones].map(([id, z]) => ({ id, afterLineNumber: z.afterLineNumber, ordinal: z.ordinal ?? 0, height: z.heightInPx }))]
       .sort((a, b) => a.afterLineNumber - b.afterLineNumber || a.ordinal - b.ordinal),
     getScrollTop: () => ed.scrollTop,
+    getScrollLeft: () => ed.scrollLeft,
     getOption: (o: number) => (o === 66 ? false : 19),
     updateOptions: vi.fn(),
   };
@@ -259,6 +262,20 @@ describe('ReviewZones', () => {
     area.dispatchEvent(inner);
     expect(inner.defaultPrevented).toBe(false);
     expect(modified.setScrollTop).toHaveBeenCalledTimes(1);
+  });
+
+  it('a horizontal wheel over a card (a thumb wheel, Shift+wheel) scrolls the diff sideways', () => {
+    const { zones, modified, placed, nodes } = setup();
+    zones.set({ path: 'a.rs', items: [item('t:1', 'modified', 4)], placed });
+    zones.shown('a.rs', 'inline');
+    const node = nodes().get('t:1')!;
+    const wheel = new WheelEvent('wheel', { deltaX: 120, bubbles: true, cancelable: true });
+    node.dispatchEvent(wheel);
+    expect(wheel.defaultPrevented).toBe(true);
+    expect(modified.setScrollLeft).toHaveBeenLastCalledWith(120);
+    expect(modified.setScrollTop).not.toHaveBeenCalled();
+    node.dispatchEvent(new WheelEvent('wheel', { deltaX: -2, deltaMode: 1, bubbles: true, cancelable: true }));
+    expect(modified.setScrollLeft).toHaveBeenLastCalledWith(120 - 2 * 19);
   });
 });
 

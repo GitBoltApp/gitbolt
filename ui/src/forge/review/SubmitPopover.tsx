@@ -15,16 +15,6 @@ import './review.css';
  * shows there). There's one popover at a time. */
 const sending = (): boolean => document.querySelector('.review-submit form[aria-busy="true"]') !== null;
 
-/** Mod+Enter in one of the popover's forms (the composer, a draft's edit) submits it: the dialog's
- * keys (`useModalKeys`) take every key before the page's own handlers see it. */
-const submitOnModEnter = (e: KeyboardEvent): boolean => {
-  if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false;
-  const form = e.target instanceof Element ? e.target.closest('form') : null;
-  if (!form) return false;
-  form.requestSubmit();
-  return true;
-};
-
 /**
  * Submit review… (spec 2026-10-08 §4): the MR/PR view's review composer, under the top bar's
  * chip (a real choice: Comment, Approve or Request changes). Above it, the pending comments on no
@@ -35,7 +25,7 @@ const submitOnModEnter = (e: KeyboardEvent): boolean => {
  */
 export default function SubmitPopover({ tabId, kind, number, anchor, onClose }: { tabId: string; kind: ForgeKind; number: number; anchor: DOMRect | null; onClose: () => void }) {
   // Mod+Alt+R, which opens it, closes it again.
-  const ref = useModalKeys<HTMLDivElement>(true, () => { if (!sending()) onClose(); }, 'Mod+Alt+R', submitOnModEnter);
+  const ref = useModalKeys<HTMLDivElement>(true, () => { if (!sending()) onClose(); }, 'Mod+Alt+R');
   const pos = usePopoverPlace(ref, anchor);
   const s = useReview(tabId);
   const placed = useReviewPlacements(tabId);

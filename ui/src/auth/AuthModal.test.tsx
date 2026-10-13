@@ -33,6 +33,15 @@ describe('AuthModal', () => {
     expect(authAnswer).toHaveBeenLastCalledWith(5, null);
   });
 
+  it('Ctrl+Enter in the field answers (its own registerKeys layer)', () => {
+    render(<AuthModal />);
+    ask(8, "Password for 'https://ada@h': ", true);
+    const input = screen.getByLabelText('Password');
+    fireEvent.change(input, { target: { value: 'pw' } });
+    fireEvent.keyDown(input, { key: 'Enter', ctrlKey: true });
+    expect(authAnswer).toHaveBeenLastCalledWith(8, 'pw');
+  });
+
   it('asks with a plain text field otherwise, focused; the next prompt starts empty', () => {
     render(<AuthModal />);
     ask(6, "Username for 'https://h': ", false);

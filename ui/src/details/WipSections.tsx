@@ -22,6 +22,7 @@ import { markResolved } from '../conflicts/resolve';
 // --- end 2D T15 ---
 // --- 2D T20 ---
 import { isMergeDirty, MERGE_SAVE_FIRST, useMergeDirty } from '../conflicts/mergeDrafts';
+import { ClearableInput } from '../ui/ClearableInput';
 // --- end 2D T20 ---
 
 type Which = 'conflicted' | 'unstaged' | 'staged';
@@ -198,7 +199,7 @@ export function WipSections({ sections }: { sections: FileSection[] }) {
       </div>
       {filter.open && tabId && (
         <div className="wip-filter-row">
-          <input
+          <ClearableInput
             className="wip-filter-input"
             autoFocus
             aria-label="Filter files"
@@ -206,6 +207,7 @@ export function WipSections({ sections }: { sections: FileSection[] }) {
             spellCheck={false}
             value={filter.text}
             onChange={(e) => setWipFilter(tabId, { text: e.target.value })}
+            onClear={() => setWipFilter(tabId, { text: '' })}
             onKeyDown={(e) => { e.stopPropagation(); if (e.key === 'Escape') { e.preventDefault(); setWipFilter(tabId, { open: false, text: '' }); } }}
           />
         </div>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { clampDx, dropAt, layoutOffsets, tabDragRange, tabDropAt, targetIndex, type DragBox, type StripGeometry } from './useTabDrag';
+import { clampDx, dropAt, EDGE_MAX_PX, EDGE_ZONE_PX, edgeScrollStep, layoutOffsets, tabDragRange, tabDropAt, targetIndex, type DragBox, type StripGeometry } from './useTabDrag';
 
 // Variable widths: 100, 200, 60, 140 starting at x=10 (midpoints 60, 210, 340, 440), in a strip
 // from 0 to 600.
@@ -210,5 +210,24 @@ describe('tabDropAt: where a dragged tab lands among tabs and groups', () => {
     expect(tabDropAt(items, 4, -178)).toEqual({ gap: 2, group: 'g1' }); // (c): 44 px
     expect(tabDropAt(items, 4, -218)).toEqual({ gap: 2, group: 'g1' });
     expect(tabDropAt(items, 4, -222)).toEqual({ gap: 1, group: 'g1' });
+  });
+});
+
+describe('edgeScrollStep: a drag near the strip\'s edge scrolls it', () => {
+  // A strip from 100 to 700 px.
+  const at = (x: number) => edgeScrollStep(x, 100, 700);
+  it('none outside the edge zones', () => {
+    expect(at(100 + EDGE_ZONE_PX)).toBe(0);
+    expect(at(400)).toBe(0);
+    expect(at(700 - EDGE_ZONE_PX)).toBe(0);
+  });
+  it('toward the edge, faster closer to it, full speed at it and past it', () => {
+    expect(at(700 - EDGE_ZONE_PX + 1)).toBe(1); // just in: at least a pixel
+    expect(at(700 - EDGE_ZONE_PX / 2)).toBe(EDGE_MAX_PX / 2);
+    expect(at(700)).toBe(EDGE_MAX_PX);
+    expect(at(900)).toBe(EDGE_MAX_PX);
+    expect(at(100 + EDGE_ZONE_PX / 2)).toBe(-EDGE_MAX_PX / 2);
+    expect(at(100)).toBe(-EDGE_MAX_PX);
+    expect(at(-50)).toBe(-EDGE_MAX_PX);
   });
 });

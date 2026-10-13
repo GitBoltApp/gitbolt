@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import type { CommandLogEntry } from '../api/gen/CommandLogEntry';
 import { copyAndSay, relativeTime, seconds } from '../app/activityLog';
 import { DebugCheck, DebugRow, type Pill } from './DebugRow';
+import { ClearableInput } from '../ui/ClearableInput';
 
 /** How often the open Commands tab re-reads the backend's ring (R10): no event, just a poll while shown. */
 export const COMMAND_POLL_MS = 1000;
@@ -115,7 +116,7 @@ export function CommandLogView({ focusId }: { focusId: number | null }) {
   return (
     <>
       <div className="debug-toolbar">
-        <input type="search" className="debug-search" aria-label="Filter commands" placeholder="Filter: args, dir, stderr" value={text} onChange={(e) => setText(e.target.value)} />
+        <ClearableInput type="search" className="debug-search" boxClassName="debug-search-box" aria-label="Filter commands" placeholder="Filter: args, dir, stderr" value={text} onChange={(e) => setText(e.target.value)} onClear={() => setText('')} />
         <DebugCheck label="Hide reads" checked={actionsOnly} onChange={setActionsOnly} />
         <DebugCheck label="Failed only" checked={failedOnly} onChange={setFailedOnly} />
         <span className="debug-count">{entries ? `${shown.length} of ${entries.length}` : ''}</span>

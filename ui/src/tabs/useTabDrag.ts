@@ -6,7 +6,7 @@ import { STRIP_MOTION, type SlotWindow } from './GroupLines';
 export interface StripGeometry {
   lefts: number[];
   widths: number[];
-  /** The strip's own client box: the dragged unit never leaves it. */
+  /** The strip's own client box (its scrolled content's): the dragged unit never leaves it. */
   stripLeft: number;
   stripRight: number;
 }
@@ -223,7 +223,8 @@ export function layoutOffsets(order: string[], lefts: Record<string, number>, wi
 }
 
 /** The strip when a drag starts: each item's box by its key (`data-strip-key`; client px,
- * untransformed), and the strip's own edges. */
+ * untransformed), and the strip's own edges: its scrolled content's, which a drag may scroll
+ * into view. */
 export interface StripMeasure {
   lefts: Record<string, number>;
   widths: Record<string, number>;
@@ -274,6 +275,21 @@ export function unitLocator(units: string[][], from: number, m: StripMeasure, pr
 }
 
 const THRESHOLD = 4;
+/** A drag this close to the strip's visible left or right edge scrolls it that way. */
+export const EDGE_ZONE_PX = 40;
+/** The scroll per frame at the edge itself (and past it). */
+export const EDGE_MAX_PX = 14;
+
+/**
+ * The strip's scroll per frame for a drag's pointer at `x` (client px), its visible edges `left`
+ * and `right`: none outside the edge zones, else toward that edge, faster the closer the pointer
+ * is (whole px, at least 1: a sub-pixel step wouldn't move a scroller).
+ */
+export function edgeScrollStep(x: number, left: number, right: number, zone = EDGE_ZONE_PX, max = EDGE_MAX_PX): number {
+  const depth = x < left + zone ? x - (left + zone) : x > right - zone ? x - (right - zone) : 0;
+  if (!depth) return 0;
+  return Math.sign(depth) * Math.max(1, Math.round(max * Math.min(1, Math.abs(depth) / zone)));
+}
 /** Matches `--tab-slide` in tabs.css (the strip's slides). */
 export const SLIDE_MS = 150;
 
@@ -370,12 +386,18 @@ export function useTabDrag() {
     const keys = Object.keys(lefts);
     if (!keys.length || !plan.moving.every((k) => k in lefts)) return;
     const sr = strip.getBoundingClientRect();
-    const loc = plan.locate({ lefts, widths, stripLeft: sr.left, stripRight: sr.right });
+    // Everything is measured in the strip's content as it lies now: a scroll during the drag (the
+    // edge zones) moves the pointer through it, not the measures.
+    const scroll0 = strip.scrollLeft;
+    const overflow = Math.max(0, strip.scrollWidth - strip.clientWidth);
+    const loc = plan.locate({ lefts, widths, stripLeft: sr.left - scroll0, stripRight: sr.right + overflow - scroll0 });
     if (!loc) return;
     const start = Math.min(...keys.map((k) => lefts[k]));
     const { moving } = plan;
     const rest = loc.at(0);
     const x0 = e.clientX;
+    let pointerX = x0;
+    let edgeFrame = 0;
     let active = false;
     let last = rest;
     let lastDx = 0;
@@ -396,10 +418,12 @@ export function useTabDrag() {
       const finals = moving.map((k) => lefts[k] + s.offsets[k]);
       const u0 = Math.min(...finals);
       const u1 = Math.max(...moving.map((k, i) => finals[i] + widths[k]));
+      // The window in client px as the strip lies now (the group lines measure items so).
+      const shift = strip.scrollLeft - scroll0;
       return moving.flatMap((k, i) => {
         const el = strip.querySelector<HTMLElement>(`[data-strip-key="${CSS.escape(k)}"]`);
         if (!el || typeof el.animate !== 'function' || Math.abs(lastDx - s.offsets[k]) < 0.5) return [];
-        windows.current.set(k, { span: [u0, u1] });
+        windows.current.set(k, { span: [u0 - shift, u1 - shift] });
         const now = lefts[k] + lastDx;
         const clip = (x: number) => `inset(-20px ${x + widths[k] - u1}px -20px ${u0 - x}px)`;
         return [el.animate(
@@ -420,6 +444,8 @@ export function useTabDrag() {
       slideFrom(strip, before);
     };
     const stop = () => {
+      cancelAnimationFrame(edgeFrame);
+      edgeFrame = 0;
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
       window.removeEventListener('pointercancel', cancel);
@@ -449,13 +475,31 @@ export function useTabDrag() {
       if (slides.length) void Promise.allSettled(slides.map((a) => a.finished)).then(finish);
       cleanup.current = () => { done = true; window.clearTimeout(timer); windows.current.clear(); }; // unmounted mid-slide: drop the move
     };
-    const move = (ev: PointerEvent) => {
-      const raw = ev.clientX - x0;
-      if (!active && Math.abs(raw) < THRESHOLD) return;
-      active = true;
-      lastDx = Math.min(Math.max(raw, loc.lo), loc.hi);
+    /** The unit under the pointer, in the strip's content (its scroll since the press added). */
+    const follow = () => {
+      lastDx = Math.min(Math.max(pointerX - x0 + strip.scrollLeft - scroll0, loc.lo), loc.hi);
       last = loc.at(lastDx);
       setDrag(state('drag', lastDx, last));
+    };
+    /** Near an edge, a frame's scroll that way; again next frame until the pointer leaves the
+     * zone, the strip's end is reached, or the drag ends (`stop`). */
+    const edgeScroll = () => {
+      edgeFrame = 0;
+      const r = strip.getBoundingClientRect();
+      const step = edgeScrollStep(pointerX, r.left, r.right);
+      if (!step) return;
+      const before = strip.scrollLeft;
+      strip.scrollLeft = before + step;
+      if (strip.scrollLeft === before) return;
+      follow();
+      edgeFrame = requestAnimationFrame(edgeScroll);
+    };
+    const move = (ev: PointerEvent) => {
+      pointerX = ev.clientX;
+      if (!active && Math.abs(pointerX - x0) < THRESHOLD) return;
+      active = true;
+      follow();
+      if (!edgeFrame) edgeFrame = requestAnimationFrame(edgeScroll);
     };
     const up = () => {
       if (!active) return stop();

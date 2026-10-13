@@ -1,6 +1,7 @@
 .modal.sc-modal { width: 640px; max-width: calc(100vw - 32px); height: 80vh; box-sizing: border-box; }
 .sc-head { display: flex; align-items: center; gap: 10px; }
 .sc-head h2 { flex: 1; min-width: 0; white-space: nowrap; }
+.sc-head .clearable { width: 220px; }
 .modal .sc-filter { width: 220px; }
 .sc-body { flex: 1; min-height: 0; overflow: auto; }
 .sc-body h3 { margin: 14px 0 4px; font-size: 12px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.04em; user-select: none; }

@@ -55,6 +55,14 @@ describe('tabs.css: tab groups', () => {
   });
 });
 
+describe('tabs.css: the strip scrolls', () => {
+  it('too many tabs scroll sideways (the wheel: stripScroll.ts), with no scrollbar', () => {
+    const strip = rule('.tabs');
+    expect(strip).toMatch(/overflow-x:\s*auto;\s*overflow-y:\s*hidden;\s*scrollbar-width:\s*none/);
+    expect(rule('.tabs::-webkit-scrollbar')).toMatch(/display:\s*none/);
+  });
+});
+
 describe('tabs.css (K64)', () => {
   it('the selected tab shares the action bar\'s background, so it reads as the tab of the bar below', () => {
     expect(rule('.tab[aria-selected="true"]')).toMatch(/background:\s*var\(--action-bar-bg\)/);

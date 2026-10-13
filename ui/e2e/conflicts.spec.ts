@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
 import { expect, test, confirmArmed, armedOverlay } from './test';
 import { fileRow } from './wip';
@@ -10,26 +12,11 @@ const stop = (repo: string, ...args: string[]) => {
   }
 };
 
+// The commit box's own rules at a stop (what each button says and when it waits, Abort's arming,
+// Skip's gate) are CommitBox.op.test.tsx; here, git's real stops.
 test.describe('conflicts (spec #2 §13.2)', () => {
-  test('a stopped merge shows in the commit panel; Commit and merge is disabled until resolved; Abort ends it', async ({ page }) => {
-    const repo = freshFixture('conflicts');
-    stop(repo, 'merge', '--no-edit', 'feature/x');
-    await page.goto(openUrl(repo));
-    // Ux round 1: no window-wide bar; the WIP is selected and its commit panel holds the merge.
-    const status = page.getByRole('region', { name: 'Merge in progress' });
-    await expect(status).toContainText('Merging feature/x into main');
-    await expect(status).toContainText('Resolve 3 conflicted files first');
-    const box = page.getByTestId('commit-box');
-    await expect(box.getByRole('button', { name: 'Commit and merge' })).toHaveAttribute('aria-disabled', 'true');
-    expect(git(repo, 'diff', '--name-only', '--diff-filter=U').split('\n')).toEqual(['a.txt', 'gone.txt', 'logo.bin']);
-    // Abort arms in place (spec §ui confirms, board D); the second click runs it.
-    await box.getByRole('button', { name: 'Abort merge' }).click();
-    await confirmArmed(armedOverlay(page, 'Click again to abort the merge'));
-    await expect(status).toBeHidden();
-    expect(git(repo, 'status', '--porcelain')).toBe('');
-  });
-
-  test('a rebase stopped by git: its message in the box, Continue rebase, Skip and Abort', async ({ page }) => {
+  // One repo and page for both (each was a test of its own, paying for a page load and a fixture).
+  test('a rebase stopped by git: its message in the box, Continue waits, Skip; Continue rebase commits the stopped pick with the message as edited', async ({ page }) => {
     const repo = freshFixture('conflicts');
     git(repo, 'switch', '-q', 'feature/x');
     stop(repo, 'rebase', 'main');
@@ -41,20 +28,7 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     await expect(box.getByRole('textbox', { name: 'Commit summary' })).toHaveValue('Feature edits');
     await expect(box.getByRole('button', { name: 'Continue rebase' })).toHaveAttribute('aria-disabled', 'true');
     await expect(box.getByRole('button', { name: 'Skip' })).toBeEnabled();
-    await box.getByRole('button', { name: 'Abort rebase' }).click();
-    await confirmArmed(armedOverlay(page, 'Click again to abort the rebase'));
-    await expect(status).toBeHidden();
-  });
-
-  test('Continue rebase commits the stopped pick with the message as edited', async ({ page }) => {
-    const repo = freshFixture('conflicts');
-    git(repo, 'switch', '-q', 'feature/x');
-    stop(repo, 'rebase', 'main');
-    await page.goto(openUrl(repo));
-    const box = page.getByTestId('commit-box');
-    await expect(box.getByRole('textbox', { name: 'Commit summary' })).toHaveValue('Feature edits');
     git(repo, 'add', '-A');
-    const status = page.getByRole('region', { name: 'Rebase in progress' });
     await expect(status).toContainText('No conflicted files left: it is paused. Continue to go on.');
     await box.getByRole('textbox', { name: 'Commit summary' }).fill('Feature edits, resolved');
     await box.getByRole('button', { name: 'Continue rebase' }).click();
@@ -63,10 +37,19 @@ test.describe('conflicts (spec #2 §13.2)', () => {
   });
 
   // --- 2D T20 ---
-  test('the merge tool resolves a text conflict by ticks and a hand edit; non-text ones by buttons', async ({ page }) => {
+  // One repo and page (the merge stop was a test of its own, paying for a page load and a
+  // fixture): the stop, the merge tool, then Abort, which ends the merge even once resolved.
+  test('a stopped merge shows in the commit panel, Commit and merge waits for its conflicts; the merge tool resolves a text conflict by ticks and a hand edit, non-text ones by buttons; Abort ends it', async ({ page }) => {
     const repo = freshFixture('conflicts');
     stop(repo, 'merge', '--no-edit', 'feature/x');
     await page.goto(openUrl(repo));
+    // Ux round 1: no window-wide bar; the WIP is selected and its commit panel holds the merge.
+    const status = page.getByRole('region', { name: 'Merge in progress' });
+    await expect(status).toContainText('Merging feature/x into main');
+    await expect(status).toContainText('Resolve 3 conflicted files first');
+    const box = page.getByTestId('commit-box');
+    await expect(box.getByRole('button', { name: 'Commit and merge' })).toHaveAttribute('aria-disabled', 'true');
+    expect(git(repo, 'diff', '--name-only', '--diff-filter=U').split('\n')).toEqual(['a.txt', 'gone.txt', 'logo.bin']);
     // A new stop selects the WIP and opens no file (H.1); open a.txt.
     const tool = page.getByRole('region', { name: 'Merge tool' });
     await expect(page.getByTestId('wip-header')).toBeVisible({ timeout: 15_000 });
@@ -129,7 +112,39 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     await tool.getByRole('button', { name: 'Take incoming' }).click();
     await expect.poll(() => git(repo, 'diff', '--name-only', '--diff-filter=U')).toBe('');
     await expect(tool).toBeHidden();
-    await expect(page.getByTestId('commit-box').getByRole('button', { name: 'Commit and merge' })).not.toHaveAttribute('aria-disabled', 'true');
+    await expect(box.getByRole('button', { name: 'Commit and merge' })).not.toHaveAttribute('aria-disabled', 'true');
+    // Abort arms in place (spec §ui confirms, board D), saying what it undoes (a.txt and logo.bin:
+    // gone.txt was resolved by deleting it); the second click runs it.
+    await box.getByRole('button', { name: 'Abort merge' }).click();
+    await confirmArmed(armedOverlay(page, 'Click again to abort: undoes 2 files resolved'));
+    await expect(status).toBeHidden();
+    expect(git(repo, 'status', '--porcelain')).toBe('');
+    // Monaco's layout needs a real browser: a thumb wheel (deltaX) scrolls the pane under it
+    // sideways, and the other editors follow, as they do down.
+    await test.step('a horizontal wheel scrolls the merge tool\'s editors sideways, together', async () => {
+      const wide = (tag: string) => `${tag} ${'wide '.repeat(120)}\n`.repeat(3);
+      git(repo, 'switch', '-q', 'feature/x');
+      writeFileSync(join(repo, 'wide.txt'), wide('incoming'));
+      git(repo, 'add', 'wide.txt');
+      git(repo, 'commit', '-qm', 'Wide incoming');
+      git(repo, 'switch', '-q', 'main');
+      writeFileSync(join(repo, 'wide.txt'), wide('current'));
+      git(repo, 'add', 'wide.txt');
+      git(repo, 'commit', '-qm', 'Wide current');
+      stop(repo, 'merge', '--no-edit', 'feature/x');
+      await fileRow(page, 'conflicted', 'wide.txt').click();
+      await expect(current.locator('.view-lines')).toContainText('current wide', { timeout: 15_000 });
+      await incoming.getByRole('checkbox', { name: 'Take conflict 1 from Incoming' }).click();
+      // Each editor's horizontal scroll: Monaco shifts its lines' box left by it.
+      const lefts = () => tool.locator('.lines-content').evaluateAll((els) => els.map((el) => -parseFloat((el as HTMLElement).style.left || '0')));
+      // Monaco measures its lines' widths a moment after it draws them: until then nothing
+      // scrolls sideways (its slider spans the whole track).
+      const slider = current.locator('.scrollbar.horizontal');
+      await expect.poll(() => slider.evaluate((el) => (el.querySelector<HTMLElement>('.slider')?.offsetWidth ?? 0) < (el as HTMLElement).offsetWidth)).toBe(true);
+      await current.locator('.overflow-guard').hover();
+      await page.mouse.wheel(300, 0);
+      await expect.poll(async () => { const [c, i, o] = await lefts(); return c > 0 && i === c && o === c; }).toBe(true);
+    });
   });
   // --- end 2D T20 ---
 });

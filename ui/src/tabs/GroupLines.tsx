@@ -168,7 +168,8 @@ export function GroupLines({ strip, specs, moving, slotWindow }: {
     };
     /** Places every line; true while a ghost is still easing. */
     const placeAll = (): boolean => {
-      const origin = root.getBoundingClientRect().left;
+      // The lines live in the strip's scrolled content: placed from its scroll origin.
+      const origin = root.getBoundingClientRect().left - root.scrollLeft;
       const now = performance.now();
       let easing = false;
       for (const spec of specs) {

@@ -7,6 +7,7 @@ import { registerKeys } from '../ui/keyRouter';
 import { filterSections, shortcutSections } from './catalog';
 import './shortcuts.css';
 import { chordKeycaps, displayChord, resolveChord } from '../ui/platformKeys';
+import { ClearableInput } from '../ui/ClearableInput';
 
 export const useShortcutsUi = create<{ open: boolean; setOpen: (o: boolean) => void }>((set) => ({ open: false, setOpen: (open) => set({ open }) }));
 const close = () => useShortcutsUi.getState().setOpen(false);
@@ -38,7 +39,7 @@ export function ShortcutsPanel() {
       <div ref={ref} className="modal sc-modal" role="dialog" aria-modal="true" aria-label="Keyboard Shortcuts" onPointerDown={(e) => e.stopPropagation()}>
         <div className="sc-head">
           <h2><Keyboard size={16} aria-hidden />Keyboard Shortcuts <Keys chord="Mod+/" /></h2>
-          <input ref={input} autoFocus type="search" className="sc-filter" placeholder={`Filter shortcuts (${displayChord('Mod+F')})`} aria-label="Filter shortcuts" value={q} onChange={(e) => setQ(e.target.value)} />
+          <ClearableInput ref={input} autoFocus type="search" className="sc-filter" placeholder={`Filter shortcuts (${displayChord('Mod+F')})`} aria-label="Filter shortcuts" value={q} onChange={(e) => setQ(e.target.value)} onClear={() => setQ('')} />
           <button type="button" className="icon-button" aria-label="Close shortcuts" onClick={close}><X size={14} /></button>
         </div>
         <div className="sc-body">

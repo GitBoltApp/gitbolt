@@ -1,0 +1,7 @@
+/* ClearableInput: the wrapper stands in for the input in its parent's layout. */
+.clearable { position: relative; display: flex; align-items: center; min-width: 0; }
+.clearable > input { flex: 1; min-width: 0; }
+/* type="search" boxes would show Chromium's own clear button beside ours. */
+.clearable > input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; display: none; }
+.clearable-clear { all: unset; position: absolute; right: 3px; top: 50%; transform: translateY(-50%); display: inline-flex; padding: 2px; border-radius: 3px; color: var(--text-secondary); cursor: pointer; }
+.clearable-clear:hover { color: var(--text-selected); background: var(--hover-row); }

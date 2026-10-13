@@ -1,7 +1,8 @@
-import { ArrowDown, ArrowUp, X } from 'lucide-react';
+import { ArrowDown, ArrowUp } from 'lucide-react';
 import type { KeyboardEvent } from 'react';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import './filesFilter.css';
+import { ClearableInput } from '../ui/ClearableInput';
 
 /**
  * "View all files"' filter row (feedback K18-K20): a compact path-substring filter, its clear
@@ -39,22 +40,17 @@ export function FilesFilter({
   };
   return (
     <div className="files-filter">
-      <div className="files-filter-box">
-        <input
-          type="text"
-          className="files-filter-input"
-          placeholder="Filter files"
-          aria-label="Filter files"
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-        />
-        <HoverTooltip content="Clear filter" disabled={!value}>
-          <button type="button" className="icon-button files-filter-clear" aria-label="Clear filter" disabled={!value} onClick={onClear}>
-            <X size={13} />
-          </button>
-        </HoverTooltip>
-      </div>
+      <ClearableInput
+        boxClassName="files-filter-box"
+        type="text"
+        className="files-filter-input"
+        placeholder="Filter files"
+        aria-label="Filter files"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        onClear={onClear}
+        onKeyDown={onKeyDown}
+      />
       <div className="files-filter-step" role="group" aria-label="Changed file navigation">
         <HoverTooltip content="Previous changed file" disabled={!canStep}>
           <button type="button" className="icon-button" aria-label="Previous changed file" disabled={!canStep} onClick={onPrev}>

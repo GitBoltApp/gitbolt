@@ -9,7 +9,9 @@
 
 /* The strip's slides (a drag's, a group collapsing or expanding): `SLIDE_MS` in useTabDrag.ts.
    Widths animate to and from `auto` (a tab's own). */
-.tabs { position: relative; display: flex; flex: 1; min-width: 0; overflow: hidden; interpolate-size: allow-keywords; --tab-slide: 150ms ease-out; }
+/* Too many tabs scroll sideways, under the wheel (stripScroll.ts), with no scrollbar. */
+.tabs { position: relative; display: flex; flex: 1; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; interpolate-size: allow-keywords; --tab-slide: 150ms ease-out; }
+.tabs::-webkit-scrollbar { display: none; }
 @media (prefers-reduced-motion: reduce) { .tabs { --tab-slide: 0s; } }
 /* Clipped: a tab collapsing to no width keeps its content in. */
 .tab { position: relative; display: flex; align-items: center; gap: 6px; max-width: 220px; min-width: 90px; padding: 0 6px 0 12px; border-right: 1px solid var(--section-border); overflow: clip; color: var(--text-secondary); cursor: pointer; transition: background-color var(--motion-fast), color var(--motion-fast), width var(--tab-slide), min-width var(--tab-slide), padding var(--tab-slide), border-right-width var(--tab-slide), opacity var(--tab-slide); }

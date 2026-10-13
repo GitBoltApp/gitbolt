@@ -512,13 +512,15 @@ export class ReviewZones {
   }
 
   /** The layer is outside Monaco's element, so its wheel would scroll nothing: it scrolls the
-   * diff, unless the card's own field or preview under the pointer scrolls. */
+   * diff, both ways (a horizontal wheel, Shift+wheel: the other side follows, Monaco syncs it),
+   * unless the card's own field or preview under the pointer scrolls. */
   private wheel(e: WheelEvent): void {
     const own = e.target instanceof Element ? e.target.closest<HTMLElement>('textarea, .md-field-preview') : null;
     if (own && own.scrollHeight > own.clientHeight) return;
     const m = this.diff.getModifiedEditor();
     const unit = e.deltaMode === 1 ? m.getOption(monaco.editor.EditorOption.lineHeight) : e.deltaMode === 2 ? m.getLayoutInfo().height : 1;
     e.preventDefault();
-    m.setScrollTop(m.getScrollTop() + e.deltaY * unit);
+    if (e.deltaY) m.setScrollTop(m.getScrollTop() + e.deltaY * unit);
+    if (e.deltaX) m.setScrollLeft(m.getScrollLeft() + e.deltaX * (e.deltaMode === 2 ? m.getLayoutInfo().contentWidth : unit));
   }
 }

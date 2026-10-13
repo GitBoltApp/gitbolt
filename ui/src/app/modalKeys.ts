@@ -30,6 +30,20 @@ export const escOwners = new Set<(e: KeyboardEvent) => boolean>();
 export const isTopModal = (token: object): boolean => stack[stack.length - 1] === token;
 
 /**
+ * Mod+Enter in a form inside a dialog submits that form (its field's own handlers never see the
+ * key: the dialog's claim stops it first). A dialog with its own Mod+Enter says so through
+ * `onKey`, which is offered the key before this.
+ */
+function submitOnModEnter(e: KeyboardEvent): boolean {
+  if (e.key !== 'Enter' || !(e.ctrlKey || e.metaKey) || e.shiftKey || e.altKey) return false;
+  const form = e.target instanceof Element ? e.target.closest('form') : null;
+  if (!form) return false;
+  e.preventDefault();
+  form.requestSubmit();
+  return true;
+}
+
+/**
  * A modal dialog (About, the profile dialog) claims every key while it's open, in the key
  * router's `menu` layer (ruling R6, preflight T12): registering there means no lower layer
  * (tooltip/overlay/app) ever sees the key, so no app shortcut (Ctrl+W, Ctrl+Tab, …) acts on the
@@ -70,6 +84,7 @@ export function useModalKeys<T extends HTMLElement>(open: boolean, close: () => 
         e.preventDefault();
         return 'handled';
       }
+      if (submitOnModEnter(e)) return 'handled';
       if (e.key === 'Escape' && [...escOwners].some((own) => own(e))) {
         e.preventDefault();
         return 'handled';

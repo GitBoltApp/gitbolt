@@ -1,3 +1,4 @@
+
 import { ChevronLeft } from 'lucide-react';
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
 import { useRepoContext } from '../app/repoContext';
@@ -9,6 +10,7 @@ import { leaveFileView, useCenterViewSidebar } from '../repo/centerView';
 import { mrSection, refreshMrList, withMrSection } from '../forge/mrSection';
 import { forgeOf, patchForge, useTabForgeField } from '../forge/mrStore';
 // --- end 4B T11 ---
+import { ClearableInput } from '../ui/ClearableInput';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { onResetDoubleClick } from '../ui/resetHandle';
 import { dividerTargets, layoutPanels } from './layout';
@@ -163,12 +165,13 @@ export function Sidebar() {
         <HoverTooltip content={`Collapse sidebar (${displayChord('Mod+B')})`}>
           <button type="button" className="sb-collapse" aria-label="Collapse sidebar" onClick={() => updateProfile((p) => ({ ...p, sidebarNarrow: true }))}><ChevronLeft size={14} /></button>
         </HoverTooltip>
-        <input
+        <ClearableInput
           ref={filterRef}
           placeholder={`Filter (${displayChord('Mod+Alt+F')})`}
           aria-label="Filter branches"
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
+          onClear={() => setFilter('')}
           onKeyDown={(e) => {
             if (e.key === 'Escape') { setFilter(''); focusFirstBody(); }
             if (e.key === 'ArrowDown') { focusFirstBody(); e.preventDefault(); }
