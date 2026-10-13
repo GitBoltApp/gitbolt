@@ -318,6 +318,11 @@ pub struct RepoSettings {
     // --- end 4B T11 ---
     /// The remote whose forge project the repo's MRs/PRs target; `None` picks automatically.
     pub forge_target_remote: Option<String>,
+    /// How the merge panel last brought an MR's branch up to date (its split button's default);
+    /// `None`: the forge's default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub branch_update: Option<crate::forge::BranchUpdate>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, TS)]
@@ -1065,7 +1070,8 @@ mod tests {
         let mut p = store.active_profile();
         p.repos_folder = Some("/home/u/repos".into());
         p.right_panel_width = Some(420);
-        p.repos.insert("/r".into(), RepoSettings { columns: Some(ColumnPrefsDto { labels: 200, graph: None, author: 160, date: 170, sha: 90, message: Some(333) }), ..Default::default() });
+        p.repos.insert("/r".into(), RepoSettings { columns: Some(ColumnPrefsDto { labels: 200, graph: None, author: 160, date: 170, sha: 90, message: Some(333) }), branch_update: Some(crate::forge::BranchUpdate::Merge), ..Default::default() });
+        p.repos.insert("/s".into(), RepoSettings::default());
         store.save_profile(p).unwrap();
         store.flush_now().unwrap();
         let settings = read(&dir.path().join("settings.json"));
@@ -1076,11 +1082,14 @@ mod tests {
         assert_eq!(profile["reposFolder"], "/home/u/repos");
         assert_eq!(profile["repos"]["/r"]["columns"]["sha"], 90);
         assert_eq!(profile["repos"]["/r"]["columns"]["message"], 333);
+        assert_eq!(profile["repos"]["/r"]["branchUpdate"], "merge");
+        assert_eq!(profile["repos"]["/s"].get("branchUpdate"), None, "none chosen: not written");
         let again = SettingsStore::open(dir.path()).state();
         assert_eq!(again.settings.commit_limit, 500);
         assert_eq!(again.profile.repos_folder.as_deref(), Some("/home/u/repos"));
         assert_eq!(again.profile.right_panel_width, Some(420));
         assert_eq!(again.profile.repos["/r"].columns.as_ref().unwrap().sha, 90, "a saved SHA width survives a reload");
+        assert_eq!(again.profile.repos["/r"].branch_update, Some(crate::forge::BranchUpdate::Merge), "the merge panel's last update way survives a reload");
     }
 
     #[test]

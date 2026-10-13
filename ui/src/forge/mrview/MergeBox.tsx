@@ -1,7 +1,9 @@
-import { Check, ChevronDown, Clock, LoaderCircle, X, type LucideIcon } from 'lucide-react';
-import { useRef, useState, type ReactNode } from 'react';
+import { Check, ChevronDown, Clock, GitMerge, GitPullRequestArrow, LoaderCircle, X, type LucideIcon } from 'lucide-react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { api } from '../../api/client';
 import { useLend } from '../../app/lent';
+import { useRuntime } from '../../app/runtime';
+import { useAppState } from '../../app/state';
 import type { BranchUpdate } from '../../api/gen/BranchUpdate';
 import type { ForgeKind } from '../../api/gen/ForgeKind';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
@@ -19,6 +21,7 @@ import { forgeName, mrRef } from '../labels';
 import { useForge } from '../mrStore';
 import { branchesText, pipelineText } from '../mrText';
 import { refreshMr } from '../poll';
+import { branchBehind, defaultUpdate, useLocalBehind } from './branchUpdate';
 import { useProjectSettings } from './projectSettings';
 import { forgeWrite, putMr } from './writes';
 
@@ -26,7 +29,7 @@ export const METHOD_LABELS: Record<MergeMethod, string> = { merge: 'Merge commit
 /** The primary button's tooltip: how it merges (the method is no line of its own). */
 const METHOD_TIPS: Record<MergeMethod, string> = { merge: 'Merges with a merge commit', squash: 'Squashes the commits into one, then merges', rebase: 'Rebases the commits onto the target, then merges', semiLinear: 'Merges with a merge commit, keeping the history semi-linear', fastForward: 'Merges by fast-forwarding' };
 
-/** The source branch's update, as each forge's merge box names it: its button and, while it runs, the label it takes. */
+/** The source branch's update, as each forge's merge box names it: its button or menu row and, while it runs, the label it takes. */
 export const UPDATE_LABELS: Record<ForgeKind, Partial<Record<BranchUpdate, { label: (target: string) => string; busy: string; tip: string }>>> = {
   gitlab: {
     rebase: { label: () => 'Rebase', busy: 'Rebasing…', tip: 'GitLab rebases the source branch onto the target, then runs its pipeline' },
@@ -78,6 +81,7 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
   const [updateBusy, setUpdateBusy] = useState<BranchUpdate | null>(null);
   const [updateError, setUpdateError] = useState<string | null>(null);
   const chevron = useRef<HTMLButtonElement>(null);
+  const updateChevron = useRef<HTMLButtonElement>(null);
   // Ctrl+Shift+M (`keyActions.ts`), while the primary button would take a click; set below.
   const keyMerge = useRef<() => void>(() => {});
   const live = mr.state === 'open' || mr.state === 'draft';
@@ -91,13 +95,30 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
   const mode: Mode = !live ? 'none' : auto ? 'cancel' : offerAuto ? 'auto' : 'merge';
   const blocked = mode === 'auto' ? autoBlock : mode === 'cancel' ? null : blockedRaw;
   const offer = live ? detail?.update ?? null : null;
-  const kinds = offer ? offer.kinds.filter((k) => UPDATE_LABELS[kind][k]) : [];
+  // Behind its target: from the commits when the repository has them, else the forge's word.
+  const localBehind = useLocalBehind(tabId, remote, mr.targetBranch, offer ? mr.headSha : null);
+  const repoPath = useRuntime((s) => s.tabs[tabId]?.repo?.path);
+  const savedUpdate = useAppState((s) => (repoPath ? s.profile.repos[repoPath]?.branchUpdate : undefined));
+  const offered = offer ? offer.kinds.filter((k) => UPDATE_LABELS[kind][k]) : [];
+  const main = defaultUpdate(kind, offered, savedUpdate, settings?.mergeMethods ?? []);
+  // The main way is settled: GitHub's default waits for the repository's merge settings.
+  const settled = kind !== 'github' || settings !== null || (!!savedUpdate && offered.includes(savedUpdate));
   // Updating: ours, or one the forge says it's doing (started elsewhere, or still going when ours stopped waiting).
-  const updating = updateBusy ?? (offer?.inProgress ? kinds[0] ?? null : null);
+  const updating = updateBusy ?? (offer?.inProgress ? main : null);
+  const behindNow = offer !== null && branchBehind(localBehind === 'pending' ? null : localBehind, offer);
+  // Shown while behind, while it runs, and with its failure (no row vanishing under the reason);
+  // its space kept while the commits are still being asked.
+  const kinds = offer && main && (behindNow || updating !== null || updateError !== null) ? offered : [];
+  const rowKept = kinds.length === 0 && offer !== null && main !== null && localBehind === 'pending';
+  // A failure's reason goes with the detail that says it's no longer behind (a poll, a refresh).
+  useEffect(() => {
+    if (!behindNow && updateBusy === null) setUpdateError(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- on each new detail only
+  }, [detail]);
   const ready = mode !== 'none' && busy === null && updating === null && blocked === null && (mode === 'cancel' || settings !== null);
   const keyUpdate = useRef<() => void>(() => {});
   useLend('mr.merge', tabId, ready && mode !== 'cancel' ? () => keyMerge.current() : null);
-  useLend('mr.updateBranch', tabId, kinds.length > 0 && updating === null && busy === null ? () => keyUpdate.current() : null);
+  useLend('mr.updateBranch', tabId, settled && kinds.length > 0 && updating === null && busy === null ? () => keyUpdate.current() : null);
   if (!live && mr.state !== 'merging') return null;
 
   const ref = mrRef(kind, mr.number);
@@ -151,8 +172,10 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
   keyMerge.current = () => void run();
 
   // Not destructive (the forge keeps the old head in the MR's versions): no arming. The busy
-  // state lasts until the view has the MR as the forge has it after.
+  // state lasts until the view has the MR as the forge has it after. The way clicked becomes the
+  // repository's main way (once it's settled: not a default the merge settings may still change).
   const update = async (how: BranchUpdate) => {
+    if (repoPath && settled && how !== savedUpdate) useAppState.getState().updateRepo(repoPath, (r) => ({ ...r, branchUpdate: how }));
     setUpdateError(null);
     setUpdateBusy(how);
     const what = kind === 'gitlab' ? `Couldn't rebase ${ref}` : (how === 'rebase' ? `Couldn't rebase ${ref}` : `Couldn't merge ${mr.targetBranch} into ${ref}`);
@@ -164,7 +187,7 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
     }
     setUpdateBusy(null);
   };
-  keyUpdate.current = () => { if (kinds[0]) void update(kinds[0]); };
+  keyUpdate.current = () => { if (main) void update(main); };
 
   const failedText = kind === 'gitlab' ? 'The pipeline failed' : 'Some checks were not successful';
   const st = statusOf({ kind, mr, mode, blocked, detail, loaded: settings !== null || settingsError !== null, failedText });
@@ -177,6 +200,11 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
     kind: 'action', id: `merge.method.${m}`, label: METHOD_LABELS[m], icon: m === chosen ? Check : Blank, tooltip: METHOD_TIPS[m],
     run: () => setMethod(m),
   }));
+  const others = offered.filter((k) => k !== main);
+  const updateRows = (): MenuRow[] => others.map((k) => {
+    const l = UPDATE_LABELS[kind][k]!;
+    return { kind: 'action', id: `merge.update.${k}`, label: l.label(mr.targetBranch), icon: k === 'merge' ? GitMerge : GitPullRequestArrow, tooltip: l.tip, run: () => void update(k) };
+  });
   const go = (
     <button type="button" className={`mr-button mr-merge-go ${mode === 'cancel' ? 'cancel' : 'merge'}${pick ? ' split' : ''}`} disabled={disabled} onClick={() => void run()}>
       {label}
@@ -206,30 +234,41 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
           )}
         </div>
       </div>
-      {kinds.length > 0 && offer && (
-        <div className="mr-merge-update">
+      {(kinds.length > 0 || rowKept) && offer && (
+        <div className="mr-merge-update" {...reserved(kinds.length === 0)}>
           {/* One line: why (how far behind), what's running, or why it failed; the same height for each. */}
           <span className={`mr-merge-update-note${updateError && !updating ? ' bad' : ''}`} role="status">
             {updating ? (
               <><LoaderCircle size={12} className="spin" aria-hidden /> {kind === 'gitlab' ? `GitLab is rebasing the source branch onto ${mr.targetBranch}` : (updating === 'rebase' ? `GitHub is rebasing the branch onto ${mr.targetBranch}` : `GitHub is merging ${mr.targetBranch} into the branch`)}</>
             ) : (updateError ?? behindText(kind, offer.behind, mr.targetBranch))}
           </span>
-          <div className="mr-merge-update-act">
-            {kinds.map((k, i) => {
-              const l = UPDATE_LABELS[kind][k]!;
-              return (
-                <HoverTooltip key={k} content={l.tip} disabled={updating !== null}>
-                  <button type="button" className={`mr-button${i === 0 ? ' primary' : ''}`} disabled={updating !== null || busy !== null} onClick={() => void update(k)}>
-                    {/* Both labels in one cell: the button is as wide as the wider, busy or not. */}
-                    <span className="mr-merge-update-label">
-                      <span {...reserved(updating === k)}>{l.label(mr.targetBranch)}</span>
-                      <span {...reserved(updating !== k)}>{l.busy}</span>
-                    </span>
-                  </button>
-                </HoverTooltip>
-              );
-            })}
-          </div>
+          {main && (
+            <div className="mr-merge-update-act">
+              <HoverTooltip content={UPDATE_LABELS[kind][main]!.tip} disabled={updating !== null}>
+                <button type="button" className={`mr-button primary${others.length > 0 ? ' split' : ''}`} disabled={updating !== null || busy !== null} onClick={() => void update(main)}>
+                  {/* Every way's label and the busy one in one cell: the button is as wide as the
+                      widest, whichever is shown. */}
+                  <span className="mr-merge-update-label">
+                    {offered.map((k) => <span key={k} {...reserved(updating !== null || k !== main)}>{UPDATE_LABELS[kind][k]!.label(mr.targetBranch)}</span>)}
+                    <span {...reserved(updating === null)}>{UPDATE_LABELS[kind][updating ?? main]!.busy}</span>
+                  </span>
+                </button>
+              </HoverTooltip>
+              {others.length > 0 && (
+                <button
+                  ref={updateChevron}
+                  type="button"
+                  className="mr-button primary mr-merge-pick"
+                  aria-label="Other ways to update the branch"
+                  aria-haspopup="menu"
+                  disabled={updating !== null || busy !== null}
+                  onClick={() => { if (updateChevron.current) openMenuAt(updateChevron.current, updateRows(), undefined, updateRows, 'Update the branch'); }}
+                >
+                  <ChevronDown size={14} aria-hidden />
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
       {/* The rows are reserved while the options load (hidden, not removed), so nothing shifts. */}

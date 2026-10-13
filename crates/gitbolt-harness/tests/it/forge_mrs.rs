@@ -114,7 +114,7 @@ async fn a_gitlab_mr_behind_its_target_is_rebased_through_the_api() {
     let id = open(&h.api, &r).await;
 
     let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 12}})).await.unwrap();
-    assert_eq!(detail["value"]["update"], json!({"behind": 3, "kinds": ["rebase", "rebaseSkipCi"], "inProgress": false}));
+    assert_eq!(detail["value"]["update"], json!({"behind": 3, "forgeBehind": true, "kinds": ["rebase", "rebaseSkipCi"], "inProgress": false}));
     let head = detail["value"]["mr"]["headSha"].clone();
     let out = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 12, "how": "rebaseSkipCi", "expectedSha": head}})).await.unwrap();
     assert_ne!(out["headSha"], head, "the rebased head");
@@ -124,7 +124,7 @@ async fn a_gitlab_mr_behind_its_target_is_rebased_through_the_api() {
     let m = h.forge.current_seed().gitlab.merge_requests.into_iter().find(|m| m.iid == 12).unwrap();
     assert_eq!((m.rebases, m.rebase_skipped_ci, m.pipeline), (1, true, None), "without pipeline");
     let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 12}})).await.unwrap();
-    assert_eq!(detail["value"].get("update"), None, "up to date");
+    assert_eq!(detail["value"]["update"]["forgeBehind"], false, "up to date");
     assert_eq!(detail["value"]["mergeStatus"]["kind"], "mergeable");
 
     // A rebase GitLab can't do: its merge_error, and nothing moved.
@@ -155,7 +155,7 @@ async fn a_github_pr_behind_its_base_is_updated_by_merge_or_rebase_through_the_a
     let id = open(&h.api, &r).await;
 
     let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 3}})).await.unwrap();
-    assert_eq!(detail["value"]["update"], json!({"behind": null, "kinds": ["merge", "rebase"], "inProgress": false}));
+    assert_eq!(detail["value"]["update"], json!({"behind": null, "forgeBehind": true, "kinds": ["merge", "rebase"], "inProgress": false}));
     let head = detail["value"]["mr"]["headSha"].clone();
     // A head that moved since: refused, in plain words.
     let e = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "merge", "expectedSha": "f".repeat(40)}})).await.unwrap_err();
@@ -165,11 +165,25 @@ async fn a_github_pr_behind_its_base_is_updated_by_merge_or_rebase_through_the_a
     let pull = |h: &Harness| h.forge.current_seed().github.pulls.into_iter().find(|p| p.number == 3).unwrap();
     assert_eq!(pull(&h).updated_with, "merge");
     let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 3}})).await.unwrap();
-    assert_eq!(detail["value"].get("update"), None, "up to date");
+    assert_eq!(detail["value"]["update"]["forgeBehind"], false, "up to date");
 
     behind(&h);
     let out = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "rebase", "expectedSha": null}})).await.unwrap();
     assert_eq!((pull(&h).updated_with.as_str(), out["headSha"].as_str()), ("rebase", Some(pull(&h).head_sha.as_str())));
+
+    // Behind, though GitHub doesn't say so (no up-to-date rule on the base): still offered (the
+    // view tells from the commits), and GitHub takes it.
+    let mut seed = h.forge.current_seed();
+    seed.github.pulls.iter_mut().find(|p| p.number == 3).unwrap().base_ahead = true;
+    h.forge.seed(seed);
+    let detail = call(&h.api, json!({"method": "forgeMrDetail", "params": {"repo": id, "number": 3}})).await.unwrap();
+    assert_eq!(detail["value"]["update"]["forgeBehind"], false);
+    let head = detail["value"]["mr"]["headSha"].clone();
+    let out = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "merge", "expectedSha": head}})).await.unwrap();
+    assert_ne!(out["headSha"], head);
+    assert!(!pull(&h).base_ahead, "up to date after");
+    let e = call(&h.api, json!({"method": "forgeUpdateBranch", "params": {"repo": id, "number": 3, "how": "merge", "expectedSha": null}})).await.unwrap_err();
+    assert!(e.message.contains("no new commits"), "{}", e.message);
     assert!(!serde_json::to_string(&h.forge.requests()).unwrap().contains(GITHUB_TOKEN));
 }
 // --- end branch update ---

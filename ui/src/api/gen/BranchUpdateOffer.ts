@@ -11,6 +11,12 @@ export type BranchUpdateOffer = {
  */
 behind: number | null, 
 /**
+ * The forge itself says the branch is behind (GitLab's count or `need_rebase`, GitHub's
+ * `mergeable_state: behind`, which it reports only when the base requires up-to-date
+ * branches). The view's fallback when the repository lacks the commits to tell.
+ */
+forgeBehind: boolean, 
+/**
  * The kinds this forge offers, the primary first.
  */
 kinds: Array<BranchUpdate>, 

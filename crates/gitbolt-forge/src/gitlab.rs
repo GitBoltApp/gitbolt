@@ -357,23 +357,22 @@ pub mod json {
     }
 
     // --- branch update ---
-    /// Rebase, offered while it's open and its source branch is behind the target
-    /// (`diverged_commits_count`, asked with `include_diverged_commits_count`; or `need_rebase`),
-    /// and while GitLab rebases it (`rebase_in_progress`). A fork's branch only when the token's
-    /// user (`me`) may push to it: its author, or anyone when it allows collaboration. The MR's
-    /// own project, or `me` unknown: offered, and GitLab's 403 says why not.
+    /// Rebase, offered while it's open, with whether GitLab says the source branch is behind the
+    /// target (`diverged_commits_count`, asked with `include_diverged_commits_count`; or
+    /// `need_rebase`) and whether it rebases it now (`rebase_in_progress`): the view also tells
+    /// from the commits. A fork's branch only when the token's user (`me`) may push to it: its
+    /// author, or anyone when it allows collaboration. The MR's own project, or `me` unknown:
+    /// offered, and GitLab's 403 says why not.
     pub fn update_offer(v: &Value, me: Option<u64>) -> Option<BranchUpdateOffer> {
         if v["state"].as_str() != Some("opened") {
             return None;
         }
         let behind = v["diverged_commits_count"].as_u64().filter(|n| *n > 0).map(|n| n as u32);
         let in_progress = v["rebase_in_progress"].as_bool() == Some(true);
-        if behind.is_none() && v["detailed_merge_status"].as_str() != Some("need_rebase") && !in_progress {
-            return None;
-        }
+        let forge_behind = behind.is_some() || v["detailed_merge_status"].as_str() == Some("need_rebase");
         let fork = v["source_project_id"].as_u64() != v["target_project_id"].as_u64();
         let may_push = !fork || v["allow_collaboration"].as_bool() == Some(true) || me.is_none_or(|me| v["author"]["id"].as_u64() == Some(me));
-        may_push.then(|| BranchUpdateOffer { behind, kinds: vec![BranchUpdate::Rebase, BranchUpdate::RebaseSkipCi], in_progress })
+        may_push.then(|| BranchUpdateOffer { behind, forge_behind, kinds: vec![BranchUpdate::Rebase, BranchUpdate::RebaseSkipCi], in_progress })
     }
     // --- end branch update ---
 
@@ -2473,14 +2472,15 @@ mod tests {
     }
 
     #[test]
-    fn a_rebase_is_offered_while_open_and_behind_and_pushable() {
+    fn a_rebase_is_offered_while_open_and_pushable_with_gitlabs_behind() {
         let rebase = vec![BranchUpdate::Rebase, BranchUpdate::RebaseSkipCi];
         let offer = |extra, me| json::update_offer(&mr_json(extra), me);
-        assert_eq!(offer(json!({"diverged_commits_count": 3}), None), Some(BranchUpdateOffer { behind: Some(3), kinds: rebase.clone(), in_progress: false }));
+        assert_eq!(offer(json!({"diverged_commits_count": 3}), None), Some(BranchUpdateOffer { behind: Some(3), forge_behind: true, kinds: rebase.clone(), in_progress: false }));
         // A fast-forward project says so without a count (an older GitLab has none).
-        assert_eq!(offer(json!({"detailed_merge_status": "need_rebase"}), None).map(|o| o.behind), Some(None));
+        assert_eq!(offer(json!({"detailed_merge_status": "need_rebase"}), None).map(|o| (o.behind, o.forge_behind)), Some((None, true)));
         assert_eq!(offer(json!({"diverged_commits_count": 3, "rebase_in_progress": true}), None).map(|o| o.in_progress), Some(true));
-        assert_eq!(offer(json!({"diverged_commits_count": 0}), None), None, "up to date");
+        // Up to date as GitLab says: still offered (the view tells from the commits too).
+        assert_eq!(offer(json!({"diverged_commits_count": 0}), None), Some(BranchUpdateOffer { behind: None, forge_behind: false, kinds: rebase.clone(), in_progress: false }));
         assert_eq!(offer(json!({"diverged_commits_count": 3, "state": "merged"}), None), None);
         // A fork's branch: its author pushes to it, others only when it allows collaboration.
         let fork = |extra: serde_json::Value| { let mut e = json!({"diverged_commits_count": 2, "source_project_id": 5}); e.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone()); e };

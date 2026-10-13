@@ -5,8 +5,8 @@ import { isTypingTarget } from '../../ui/keys';
 
 /**
  * The open MR/PR view's main actions from the keyboard: Approve (Ctrl+Shift+A), Merge
- * (Ctrl+Shift+M), Open in browser (Ctrl+Shift+O) and the merge box's first branch update
- * (Ctrl+Alt+U: GitLab's Rebase, GitHub's Update branch). The view lends them while they apply
+ * (Ctrl+Shift+M), Open in browser (Ctrl+Shift+O) and the merge box's branch update (its split
+ * button's main way, Ctrl+Alt+U). The view lends them while they apply
  * (`useMrActions`, `MergeBox`, `MrView`); Approve and Merge still ask first (a popover, as for
  * any confirm started from the keyboard); an update doesn't (nothing is lost: the forge keeps the
  * old head). Not while typing a comment.

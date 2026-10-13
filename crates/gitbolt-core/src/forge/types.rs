@@ -414,8 +414,9 @@ pub struct ForgeMrDetail {
     pub body_html: Option<String>,
     // --- end 5A T1 ---
     // --- branch update ---
-    /// The source branch is behind its target and the forge can bring it up to date (GitLab's
-    /// Rebase, GitHub's Update branch); `None`: no update offered.
+    /// The forge can bring the source branch up to date with its target (GitLab's Rebase,
+    /// GitHub's Update branch): offered for an open MR the user may push to, behind or not (the
+    /// view decides, from the commits when it has them); `None`: no update offered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub update: Option<BranchUpdateOffer>,
@@ -445,6 +446,10 @@ pub struct BranchUpdateOffer {
     /// Commits the target has that the source branch doesn't (GitLab's
     /// `diverged_commits_count`); `None`: the forge didn't count them (GitHub says only "behind").
     pub behind: Option<u32>,
+    /// The forge itself says the branch is behind (GitLab's count or `need_rebase`, GitHub's
+    /// `mergeable_state: behind`, which it reports only when the base requires up-to-date
+    /// branches). The view's fallback when the repository lacks the commits to tell.
+    pub forge_behind: bool,
     /// The kinds this forge offers, the primary first.
     pub kinds: Vec<BranchUpdate>,
     /// The forge is updating it now (GitLab's `rebase_in_progress`).

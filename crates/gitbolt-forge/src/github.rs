@@ -63,6 +63,8 @@ pub struct GitHubProvider {
       /// The token's user, once asked (Mine, Review requested).
       me: Mutex<Option<ForgeUser>>,
       // --- end 4B T4 ---
+    /// When asking who the user is last failed (`me_soft`: not asked again for `ME_RETRY`).
+    me_failed: Mutex<Option<std::time::Instant>>,
     /// The list's checks by head commit (`pipelines`): asked only for new or running heads.
     checks: crate::pipelines::PipelineCache,
     // --- GitHub commit-author avatars ---
@@ -111,7 +113,7 @@ impl GitHubProvider {
         let http = HttpClient::new(ClientConfig { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), token: Some(token), headers: GITHUB_HEADERS.to_vec(), timeout: crate::http::REQUEST_TIMEOUT });
         let avatars_base = endpoints.avatars.clone().unwrap_or_else(|| "https://avatars.githubusercontent.com".into()).trim_end_matches('/').to_string();
         let image_bases = crate::images::default_github_image_bases(&endpoints.web, &avatars_base);
-        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), names: KnownNames::default(), image_bases, subscriptions: Mutex::default(), reaction_lists: Mutex::default(), thread_ids: Mutex::default() }
+        Self { host: host.into(), api_base: endpoints.api.trim_end_matches('/').into(), avatars_base, http, cache, learned: Mutex::default(), me: Mutex::new(None), me_failed: Mutex::new(None), checks: Default::default(), authors_asked: Mutex::default(), author_turn: tokio::sync::Mutex::new(()), names: KnownNames::default(), image_bases, subscriptions: Mutex::default(), reaction_lists: Mutex::default(), thread_ids: Mutex::default() }
     }
 
     // --- 5A T2 ---
@@ -463,19 +465,21 @@ pub mod json {
     }
 
     // --- branch update ---
-    /// Update branch (with a merge commit, or a rebase), offered while it's open and GitHub says
-    /// it's behind its base (`mergeable_state: behind`, which GitHub sets when the base's
-    /// protection requires branches to be up to date). A fork's head only when the token's user
-    /// (`me`) may push to it: its author, or anyone when it allows edits from maintainers
-    /// (`maintainer_can_modify`). The base repository's own branch, or `me` unknown: offered, and
-    /// GitHub's 403 says why not.
+    /// Update branch (with a merge commit, or a rebase), offered while it's open and without
+    /// conflicts (`dirty`: GitHub would refuse), with whether GitHub says it's behind its base
+    /// (`mergeable_state: behind`, which GitHub sets only when the base's protection requires
+    /// branches to be up to date: the view also tells from the commits). A fork's head only when
+    /// the token's user (`me`) may push to it: its author, or anyone when it allows edits from
+    /// maintainers (`maintainer_can_modify`). The base repository's own branch, or `me` unknown:
+    /// offered, and GitHub's 403 says why not.
     pub fn update_offer(v: &Value, me: Option<u64>) -> Option<BranchUpdateOffer> {
-        if v["state"].as_str() != Some("open") || v["merged"].as_bool() == Some(true) || v["mergeable_state"].as_str() != Some("behind") {
+        if v["state"].as_str() != Some("open") || v["merged"].as_bool() == Some(true) || v["mergeable_state"].as_str() == Some("dirty") {
             return None;
         }
+        let forge_behind = v["mergeable_state"].as_str() == Some("behind");
         let fork = v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"];
         let may_push = !fork || v["maintainer_can_modify"].as_bool() == Some(true) || me.is_none_or(|me| v["user"]["id"].as_u64() == Some(me));
-        may_push.then(|| BranchUpdateOffer { behind: None, kinds: vec![BranchUpdate::Merge, BranchUpdate::Rebase], in_progress: false })
+        may_push.then(|| BranchUpdateOffer { behind: None, forge_behind, kinds: vec![BranchUpdate::Merge, BranchUpdate::Rebase], in_progress: false })
     }
     // --- end branch update ---
 
@@ -1008,9 +1012,9 @@ impl ForgeProvider for GitHubProvider {
             }
             mr.review = json::review(&reviews, &v["requested_reviewers"]);
             let reviewers = mr.review.reviews.iter().map(|x| x.user.clone()).collect();
-            // --- branch update: a fork's head is pushed to by its author (asked only then) ---
+            // --- branch update: a fork's head is pushed to by its author (who the user is: asked once) ---
             let fork = v["head"]["repo"]["full_name"] != v["base"]["repo"]["full_name"];
-            let me = if fork && v["mergeable_state"].as_str() == Some("behind") { self.me().await.ok().map(|u| u.id) } else { None };
+            let me = if fork { self.me_soft().await } else { None };
             let detail = ForgeMrDetail {
                 description: v["body"].as_str().unwrap_or_default().to_string(),
                 reviewers,
@@ -1492,6 +1496,8 @@ impl ForgeProvider for GitHubProvider {
 
 // --- 4B T4: pull requests (reads) ---
 pub const PR_PER_PAGE: u32 = 100;
+/// How long a failed ask of who the user is stands before it's asked again (`me_soft`).
+pub const ME_RETRY: std::time::Duration = std::time::Duration::from_secs(600);
 /// The badges' open list reads at most this many pages.
 pub const OPEN_PAGES: usize = 5;
 /// Without GraphQL, the open PRs whose checks are read per list (two requests each).
@@ -1560,6 +1566,22 @@ impl GitHubProvider {
         let u = self.current_user().await?;
         *self.me.lock().expect("me poisoned") = Some(u.clone());
         Ok(u)
+    }
+
+    /// The token's user's id, for what does without it (a fork's update offer): `None` when it
+    /// can't be asked, and a failed ask (a token that can't read `/user`) isn't repeated on every
+    /// poll, only after `ME_RETRY`.
+    async fn me_soft(&self) -> Option<u64> {
+        if self.me_failed.lock().expect("me poisoned").is_some_and(|t| t.elapsed() < ME_RETRY) {
+            return None;
+        }
+        match self.me().await {
+            Ok(u) => Some(u.id),
+            Err(_) => {
+                *self.me_failed.lock().expect("me poisoned") = Some(std::time::Instant::now());
+                None
+            }
+        }
     }
 
     // --- comment actions ---
@@ -2377,6 +2399,20 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn a_failed_ask_of_who_the_user_is_isnt_repeated_on_every_poll() {
+        use crate::test_server::{Canned, TestServer};
+        let s = TestServer::start(|_, _| Canned::json(403, r#"{"message": "Resource not accessible by personal access token"}"#));
+        let ep = crate::endpoints::HostEndpoints { api: s.base.clone(), web: s.base.clone(), avatars: None };
+        let p = super::GitHubProvider::new("github.com", &ep, gitbolt_core::redact::Secret::new("ghp_FAKE-test-token"), None);
+        assert_eq!(p.me_soft().await, None);
+        assert_eq!(p.me_soft().await, None);
+        assert_eq!(lines(&s), ["get /user"], "asked once");
+        *p.me_failed.lock().unwrap() = Some(std::time::Instant::now() - super::ME_RETRY);
+        assert_eq!(p.me_soft().await, None);
+        assert_eq!(lines(&s).len(), 2, "asked again after ME_RETRY");
+    }
+
+    #[tokio::test]
     async fn a_comment_is_edited_with_patch_and_deleted_on_its_own_url() {
         let (s, p, project) = served();
         let note = NoteRef { discussion: "issue-41".into(), note: "41".into() };
@@ -2618,11 +2654,13 @@ mod tests {
     }
 
     #[test]
-    fn update_branch_is_offered_while_open_and_behind_and_pushable() {
-        let both = Some(BranchUpdateOffer { behind: None, kinds: vec![BranchUpdate::Merge, BranchUpdate::Rebase], in_progress: false });
+    fn update_branch_is_offered_while_open_and_pushable_with_githubs_behind() {
+        let both = Some(BranchUpdateOffer { behind: None, forge_behind: true, kinds: vec![BranchUpdate::Merge, BranchUpdate::Rebase], in_progress: false });
         assert_eq!(json::update_offer(&pr_json(json!({})), None), both);
-        assert_eq!(json::update_offer(&pr_json(json!({"mergeable_state": "clean"})), None), None);
+        // GitHub says behind only when the base requires up-to-date branches: offered either way.
+        assert_eq!(json::update_offer(&pr_json(json!({"mergeable_state": "clean"})), None).map(|o| o.forge_behind), Some(false));
         assert_eq!(json::update_offer(&pr_json(json!({"state": "closed"})), None), None);
+        assert_eq!(json::update_offer(&pr_json(json!({"mergeable_state": "dirty"})), None), None, "conflicts: GitHub would refuse");
         let fork = |extra: Value| { let mut v = pr_json(extra); v["head"]["repo"]["full_name"] = json!("monalisa/widget"); v };
         assert_eq!(json::update_offer(&fork(json!({})), Some(1)), None, "someone else's fork");
         assert_eq!(json::update_offer(&fork(json!({})), Some(2)), both, "the author's own fork");

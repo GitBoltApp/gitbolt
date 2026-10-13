@@ -148,6 +148,9 @@ pub struct FakePull {
     pub maintainer_can_modify: bool,
     /// How the last Update branch went in (`merge`, `rebase`); empty: none.
     pub updated_with: String,
+    /// The base has commits the head lacks, though `mergeable_state` needn't say `behind` (it
+    /// does only when the base requires up-to-date branches): Update branch takes it.
+    pub base_ahead: bool,
     // --- end branch update ---
 }
 
@@ -372,8 +375,8 @@ pub fn pull_json(st: &ForgeState, p: &FakePull, base: &str, single: bool) -> Val
 }
 
 // --- branch update ---
-/// Update branch (REST's merge, GraphQL's `MERGE` / `REBASE`): only an open PR behind its base,
-/// while its head is `expected` (when said). The head gets a new SHA and it's up to date (`clean`).
+/// Update branch (REST's merge, GraphQL's `MERGE` / `REBASE`): only an open PR behind its base
+/// (`mergeable_state: behind`, or `base_ahead`), while its head is `expected` (when said). The head gets a new SHA and it's up to date (`clean`).
 /// The refusal in GitHub's words otherwise.
 fn update_branch(p: &mut FakePull, expected: Option<&str>, method: &str) -> Result<(), &'static str> {
     if p.state != "open" {
@@ -382,9 +385,10 @@ fn update_branch(p: &mut FakePull, expected: Option<&str>, method: &str) -> Resu
     if expected.is_some_and(|sha| sha != p.head_sha) {
         return Err("expected head sha didn't match current head ref.");
     }
-    if p.mergeable_state != "behind" {
+    if p.mergeable_state != "behind" && !p.base_ahead {
         return Err("There are no new commits on the base branch.");
     }
+    p.base_ahead = false;
     p.head_sha = format!("{:0>40x}", 0xc0000 + p.number * 0x100 + u64::from(method == "rebase"));
     p.mergeable_state = "clean".into();
     p.updated_with = method.into();

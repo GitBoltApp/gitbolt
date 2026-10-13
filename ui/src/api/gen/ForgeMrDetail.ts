@@ -26,7 +26,8 @@ subscribed?: boolean,
  */
 bodyHtml?: string, 
 /**
- * The source branch is behind its target and the forge can bring it up to date (GitLab's
- * Rebase, GitHub's Update branch); `None`: no update offered.
+ * The forge can bring the source branch up to date with its target (GitLab's Rebase,
+ * GitHub's Update branch): offered for an open MR the user may push to, behind or not (the
+ * view decides, from the commits when it has them); `None`: no update offered.
  */
 update?: BranchUpdateOffer, };

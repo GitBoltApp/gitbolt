@@ -1,9 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { BranchUpdateOffer } from '../../api/gen/BranchUpdateOffer';
 import type { ForgeMr } from '../../api/gen/ForgeMr';
 import type { ForgeProjectSettings } from '../../api/gen/ForgeProjectSettings';
 
-const api = vi.hoisted(() => ({ forgeMerge: vi.fn(), forgeSetAutoMerge: vi.fn(), forgeCancelAutoMerge: vi.fn(), forgeProjectSettings: vi.fn(), forgeUpdateBranch: vi.fn() }));
+const api = vi.hoisted(() => ({ forgeMerge: vi.fn(), forgeSetAutoMerge: vi.fn(), forgeCancelAutoMerge: vi.fn(), forgeProjectSettings: vi.fn(), forgeUpdateBranch: vi.fn(), mergeBase: vi.fn(), saveProfile: vi.fn(async () => {}) }));
 vi.mock('../../api/client', () => ({ api, errorMessage: (e: unknown) => String((e as { message?: string })?.message ?? e) }));
 vi.mock('../usePolling', () => ({ notifyForgeWrite: vi.fn() }));
 const poll = vi.hoisted(() => ({ refreshMr: vi.fn(async () => {}) }));
@@ -18,6 +19,9 @@ const { useRuntime } = await import('../../app/runtime');
 const { useToast } = await import('../../ui/toastStore');
 const { useMenu } = await import('../../menu/menuStore');
 const { detailOf, mrOf, user } = await import('../testMrs');
+const { EMPTY_PROFILE, useAppState } = await import('../../app/state');
+const { lentHandler } = await import('../../app/lent');
+const { clearLocalBehind } = await import('./branchUpdate');
 
 const mr = mrOf(12, { title: 'Dev work' });
 const settings = (over: Partial<ForgeProjectSettings> = {}): ForgeProjectSettings => ({ mergeMethods: ['merge'], squash: 'defaultOn', deleteSourceBranch: true, ...over });
@@ -34,7 +38,10 @@ beforeEach(() => {
   resetProjectSettings();
   useForge.setState({ byTab: {} });
   patchForge('t', { kind: 'gitlab', remote: 'origin', details: { 12: { value: detailOf(mr), at: 1 } } });
-  useRuntime.setState({ tabs: { t: { repo: { id: 4 } } as never } });
+  useRuntime.setState({ tabs: { t: { repo: { id: 4, path: '/r' } } as never } });
+  useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
+  clearLocalBehind();
+  api.mergeBase.mockResolvedValue(null);
   useToast.getState().dismiss();
   api.forgeProjectSettings.mockResolvedValue(settings());
   api.forgeMerge.mockResolvedValue(mrOf(12, { state: 'merged' }));
@@ -214,7 +221,7 @@ describe('auto-merge (merge when all checks pass)', () => {
   it('while the checks run, the button is Set to auto-merge: it arms, then sets it with the options', async () => {
     show('gitlab', detailOf(running(), { mergeStatus: { kind: 'blocked', reason: 'The pipeline is still running' } }));
     await loaded();
-    expect(screen.getByRole('note')).toHaveTextContent('Merge when all checks pass');
+    await waitFor(() => expect(screen.getByRole('note')).toHaveTextContent('Merge when all checks pass'));
     expect(screen.queryByRole('button', { name: 'Merge' })).toBeNull();
     const set = screen.getByRole('button', { name: 'Set to auto-merge' });
     fireEvent.mouseEnter(set);
@@ -280,55 +287,105 @@ describe('auto-merge (merge when all checks pass)', () => {
   });
 });
 
-describe("the source branch's update: GitLab's Rebase, GitHub's Update branch", () => {
-  const behind = (kind: 'gitlab' | 'github', over: { behind?: number | null; inProgress?: boolean } = {}) =>
-    detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'Rebase the source branch first' }, update: { behind: kind === 'gitlab' ? 3 : null, kinds: kind === 'gitlab' ? ['rebase', 'rebaseSkipCi'] : ['merge', 'rebase'], inProgress: false, ...over } });
+describe("the source branch's update: one split button, GitLab's Rebase, GitHub's Update branch", () => {
+  type Over = { behind?: number | null; forgeBehind?: boolean; inProgress?: boolean };
+  const offer = (kind: 'gitlab' | 'github', over: Over = {}): BranchUpdateOffer =>
+    ({ behind: kind === 'gitlab' ? 3 : null, forgeBehind: true, kinds: kind === 'gitlab' ? ['rebase', 'rebaseSkipCi'] : ['merge', 'rebase'], inProgress: false, ...over });
+  const behind = (kind: 'gitlab' | 'github', over: Over = {}) => detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'Rebase the source branch first' }, update: offer(kind, over) });
   const note = () => document.querySelector('.mr-merge-update-note');
   const row = () => document.querySelector('.mr-merge-update');
+  /** The main part's shown label. */
+  const mainLabel = () => row()!.querySelector('button')!.querySelector('span > span:not([aria-hidden])')?.textContent;
+  const chevron = () => screen.getByRole('button', { name: 'Other ways to update the branch' });
+  const menuLabels = () => (useMenu.getState().rows ?? []).map((r) => ('label' in r ? r.label : r.kind));
+  const runRow = (i: number) => act(() => { const r = useMenu.getState().rows?.[i]; if (r?.kind === 'action') r.run(); });
+  const saved = () => useAppState.getState().profile.repos['/r']?.branchUpdate;
 
-  it('GitLab: offered with how far behind, Rebase first and Rebase without pipeline; not offered when up to date', async () => {
+  it('GitLab: offered with how far behind; Rebase is the main part, Rebase without pipeline in its menu; not offered when up to date', async () => {
     const { unmount } = show('gitlab', behind('gitlab'));
     await loaded();
     expect(note()).toHaveTextContent('The source branch is 3 commits behind main');
-    const buttons = [...row()!.querySelectorAll('button')];
-    expect(buttons.map((b) => b.textContent)).toEqual(['RebaseRebasing…', 'Rebase without pipelineRebasing…']);
-    expect(screen.getByRole('button', { name: 'Rebase' })).toHaveClass('primary');
-    expect(screen.getByRole('button', { name: 'Rebase without pipeline' })).not.toHaveClass('primary');
+    expect(row()!.querySelectorAll('button')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: 'Rebase' })).toHaveClass('primary', 'split');
+    // Every way's label in one cell (all but one hidden): its width doesn't change with the default.
+    expect(row()!.querySelector('button')!.textContent).toBe('RebaseRebase without pipelineRebasing…');
+    fireEvent.click(chevron());
+    expect(menuLabels()).toEqual(['Rebase without pipeline']);
+    act(() => useMenu.getState().close());
     unmount();
     const second = show('gitlab', behind('gitlab', { behind: null }));
     expect(note()).toHaveTextContent('The source branch is behind main');
     second.unmount();
-    show('gitlab', detailOf(mr));
+    show('gitlab', detailOf(mr, { update: offer('gitlab', { behind: null, forgeBehind: false }) }));
+    await loaded();
     expect(row()).toBeNull();
   });
 
-  it('GitHub: Update branch, then Update with rebase, with its out-of-date line', async () => {
-    show('github', behind('github'));
+  it('GitHub: rebase first when the repository allows rebase merges, else merge; the other one in the menu, with its out-of-date line', async () => {
+    api.forgeProjectSettings.mockResolvedValue(settings({ mergeMethods: ['merge', 'squash', 'rebase'] }));
+    const { unmount } = show('github', behind('github'));
     await loaded();
     expect(note()).toHaveTextContent('This branch is out of date with main');
-    expect([...row()!.querySelectorAll('button')].map((b) => b.querySelector('span > span:not([aria-hidden])')?.textContent)).toEqual(['Merge main in', 'Rebase onto main']);
+    expect(mainLabel()).toBe('Rebase onto main');
+    fireEvent.click(chevron());
+    expect(menuLabels()).toEqual(['Merge main in']);
+    act(() => useMenu.getState().close());
+    unmount();
+    resetProjectSettings();
+    api.forgeProjectSettings.mockResolvedValue(settings({ mergeMethods: ['merge', 'squash'] }));
+    show('github', behind('github'));
+    await loaded();
+    expect(mainLabel()).toBe('Merge main in');
   });
 
-  it('runs without arming: Rebasing… in the clicked button (as wide as before), the reason line says so, Merge waits; then the MR is read again', async () => {
+  it('the way picked from the menu runs, and becomes the main part for the repository (kept in its settings)', async () => {
+    api.forgeProjectSettings.mockResolvedValue(settings({ mergeMethods: ['merge', 'rebase'] }));
+    api.forgeUpdateBranch.mockResolvedValue(mrOf(12));
+    const { unmount } = show('github', behind('github'));
+    await loaded();
+    expect(mainLabel()).toBe('Rebase onto main');
+    fireEvent.click(chevron());
+    runRow(0);
+    expect(api.forgeUpdateBranch).toHaveBeenCalledWith(4, 12, 'merge', mr.headSha);
+    expect(saved()).toBe('merge');
+    await waitFor(() => expect(useToast.getState().message).toBe('Merged main into #12'));
+    expect(mainLabel()).toBe('Merge main in');
+    unmount();
+    // Shown again: the remembered way first.
+    show('github', behind('github'));
+    await loaded();
+    expect(mainLabel()).toBe('Merge main in');
+    fireEvent.click(chevron());
+    expect(menuLabels()).toEqual(['Rebase onto main']);
+  });
+
+  it("a remembered way the forge doesn't offer falls back to the forge's default", async () => {
+    useAppState.getState().updateRepo('/r', (r) => ({ ...r, branchUpdate: 'merge' }));
+    show('gitlab', behind('gitlab'));
+    await loaded();
+    expect(mainLabel()).toBe('Rebase');
+  });
+
+  it('runs without arming: the busy label in the main part (as wide as before), the menu and Merge wait; then the MR is read again', async () => {
     let finish: (v: unknown) => void = () => {};
     api.forgeUpdateBranch.mockImplementation(() => new Promise((r) => { finish = r; }));
     show('gitlab', behind('gitlab'));
     await loaded();
-    fireEvent.click(screen.getByRole('button', { name: 'Rebase without pipeline' }));
+    fireEvent.click(chevron());
+    runRow(0);
     expect(confirm.confirmAction).not.toHaveBeenCalled();
     expect(api.forgeUpdateBranch).toHaveBeenCalledWith(4, 12, 'rebaseSkipCi', mr.headSha);
     expect(note()).toHaveTextContent('GitLab is rebasing the source branch onto main');
     const busy = screen.getByRole('button', { name: 'Rebasing…' });
     expect(busy).toBeDisabled();
-    // Both labels stay in the button (one hidden): its width doesn't change.
-    expect(busy.textContent).toBe('Rebase without pipelineRebasing…');
-    expect(screen.getByRole('button', { name: 'Rebase' })).toBeDisabled();
+    expect(busy.textContent).toBe('RebaseRebase without pipelineRebasing…');
+    expect(chevron()).toBeDisabled();
     expect(primary()).toBeDisabled();
     await act(async () => finish(mrOf(12, { headSha: 'b'.repeat(40) })));
     await waitFor(() => expect(useToast.getState().message).toBe('Rebased !12 onto main'));
     expect(poll.refreshMr).toHaveBeenCalledWith('t', 12);
     expect(forgeOf('t').details[12]?.value.mr.headSha).toBe('b'.repeat(40));
-    expect(screen.getByRole('button', { name: 'Rebase' })).toBeEnabled();
+    expect(screen.getByRole('button', { name: 'Rebase without pipeline' })).toBeEnabled();
   });
 
   it("a failure says the forge's reason in place, not in a toast, and it can be tried again", async () => {
@@ -347,17 +404,113 @@ describe("the source branch's update: GitLab's Rebase, GitHub's Update branch", 
     await loaded();
     expect(note()).toHaveTextContent('GitLab is rebasing the source branch onto main');
     expect(screen.getByRole('button', { name: 'Rebasing…' })).toBeDisabled();
-    expect(screen.getByRole('button', { name: 'Rebase without pipeline' })).toBeDisabled();
+    expect(chevron()).toBeDisabled();
   });
 
-  it('Ctrl+Alt+U runs the first: Rebase on GitLab', async () => {
-    const { EMPTY_PROFILE, useAppState } = await import('../../app/state');
-    const { lentHandler } = await import('../../app/lent');
-    useAppState.setState({ loaded: true, profile: { ...EMPTY_PROFILE, id: 'default', tabs: [{ id: 't', kind: 'repo', path: '/r', alias: null }], activeTab: 't' } });
+  it('Ctrl+Alt+U runs the main part: Rebase on GitLab, the remembered way on GitHub', async () => {
     api.forgeUpdateBranch.mockResolvedValue(mrOf(12));
-    show('gitlab', behind('gitlab'));
+    const { unmount } = show('gitlab', behind('gitlab'));
     await loaded();
     act(() => lentHandler('mr.updateBranch')?.());
-    expect(api.forgeUpdateBranch).toHaveBeenCalledWith(4, 12, 'rebase', mr.headSha);
+    expect(api.forgeUpdateBranch).toHaveBeenLastCalledWith(4, 12, 'rebase', mr.headSha);
+    await waitFor(() => expect(useToast.getState().message).toBe('Rebased !12 onto main'));
+    unmount();
+    useAppState.getState().updateRepo('/r', (r) => ({ ...r, branchUpdate: 'merge' }));
+    show('github', behind('github'));
+    await loaded();
+    act(() => lentHandler('mr.updateBranch')?.());
+    expect(api.forgeUpdateBranch).toHaveBeenLastCalledWith(4, 12, 'merge', mr.headSha);
+  });
+
+  it("GitHub: until the repository's merge settings load, the way isn't remembered and Ctrl+Alt+U waits", async () => {
+    api.forgeProjectSettings.mockReturnValue(new Promise(() => {}));
+    api.forgeUpdateBranch.mockResolvedValue(mrOf(12));
+    show('github', behind('github'));
+    expect(mainLabel()).toBe('Merge main in');
+    expect(lentHandler('mr.updateBranch')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Merge main in' }));
+    expect(api.forgeUpdateBranch).toHaveBeenCalledWith(4, 12, 'merge', mr.headSha);
+    expect(saved()).toBeUndefined();
+    await waitFor(() => expect(useToast.getState().message).toBe('Merged main into #12'));
+  });
+
+  it("a failure's reason goes once the refreshed MR is no longer behind", async () => {
+    api.forgeUpdateBranch.mockRejectedValueOnce({ message: "GitLab couldn't rebase !12: Rebase failed. Please rebase locally" });
+    const { rerender } = show('gitlab', behind('gitlab'));
+    await loaded();
+    fireEvent.click(screen.getByRole('button', { name: 'Rebase' }));
+    await waitFor(() => expect(note()).toHaveTextContent("GitLab couldn't rebase !12"));
+    // A poll: still behind, the reason stays.
+    const still = behind('gitlab');
+    rerender(<MergeBox tabId="t" kind="gitlab" mr={still.mr} detail={still} />);
+    expect(note()).toHaveTextContent("GitLab couldn't rebase !12");
+    // Rebased elsewhere: the row goes with it.
+    const done = detailOf(mr, { update: offer('gitlab', { behind: null, forgeBehind: false }) });
+    rerender(<MergeBox tabId="t" kind="gitlab" mr={done.mr} detail={done} />);
+    expect(row()).toBeNull();
+  });
+
+  describe('behind, from the commits when the repository has them (no forge request)', () => {
+    const tip = 'c'.repeat(40);
+    const withTarget = () => useRuntime.setState({ tabs: { t: { repo: { id: 4, path: '/r' }, sidebar: { remotes: [{ name: 'origin', branches: [{ name: 'main', target: tip }] }] } } as never } });
+    const upToDate = () => detailOf(mr, { update: offer('github', { forgeBehind: false }) });
+
+    it("offered when the target's tip isn't in the head's history, though GitHub doesn't say behind", async () => {
+      withTarget();
+      api.mergeBase.mockResolvedValue('d'.repeat(40));
+      show('github', upToDate());
+      await waitFor(() => expect(note()).toHaveTextContent('This branch is out of date with main'));
+      expect(api.mergeBase).toHaveBeenCalledWith(4, tip, mr.headSha);
+      expect(row()).not.toHaveAttribute('aria-hidden');
+    });
+
+    it("not offered when the head has the target's tip; its space kept (hidden) until the answer lands", async () => {
+      withTarget();
+      let answer: (v: string | null) => void = () => {};
+      api.mergeBase.mockReturnValue(new Promise((r) => { answer = r; }));
+      show('github', upToDate());
+      await loaded();
+      expect(row()).toHaveAttribute('aria-hidden', 'true');
+      expect(row()).toHaveStyle({ visibility: 'hidden' });
+      await act(async () => answer(tip));
+      expect(row()).toBeNull();
+    });
+
+    it('an answer is kept: shown again, the view asks nothing and starts with it', async () => {
+      withTarget();
+      api.mergeBase.mockResolvedValue('d'.repeat(40));
+      const { unmount } = show('github', upToDate());
+      await waitFor(() => expect(note()).toHaveTextContent('out of date'));
+      unmount();
+      show('github', upToDate());
+      expect(row()).not.toHaveAttribute('aria-hidden');
+      await loaded();
+      expect(api.mergeBase).toHaveBeenCalledTimes(1);
+    });
+
+    it("the forge's word when the commits aren't here (the head not fetched), asked again after a fetch", async () => {
+      withTarget();
+      const { unmount } = show('github', behind('github'));
+      await waitFor(() => expect(api.mergeBase).toHaveBeenCalled());
+      expect(row()).not.toBeNull();
+      unmount();
+      show('github', upToDate());
+      await waitFor(() => expect(row()).toBeNull());
+      expect(api.mergeBase).toHaveBeenCalledTimes(2);
+      // A fetch brings the head (the sidebar reloads): asked again, and it's behind.
+      api.mergeBase.mockResolvedValue('d'.repeat(40));
+      act(() => withTarget());
+      await waitFor(() => expect(note()).toHaveTextContent('This branch is out of date with main'));
+      expect(api.mergeBase).toHaveBeenCalledTimes(3);
+    });
+
+    it('behind when the forge says so, though a stale remote-tracking target says not', async () => {
+      withTarget();
+      api.mergeBase.mockResolvedValue(tip);
+      show('gitlab', behind('gitlab'));
+      await waitFor(() => expect(api.mergeBase).toHaveBeenCalled());
+      await loaded();
+      expect(row()).not.toBeNull();
+    });
   });
 });
