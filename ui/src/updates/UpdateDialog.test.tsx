@@ -24,7 +24,7 @@ const { useAppState, DEFAULT_SETTINGS } = await import('../app/state');
 const release: UpdateRelease = { version: '0.3.0', name: 'GitBolt 0.3.0', notes: '## Added\n\n- **Updates** from GitHub', url: 'https://github.example/GitBoltApp/gitbolt/releases/tag/v0.3.0', prerelease: false, publishedAt: null, asset: { name: 'GitBolt_0.3.0_amd64.deb', size: 98 * 1024 * 1024 } };
 
 function open(kind: InstallKind, state: UpdateState) {
-  useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: kind } });
+  useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: kind, home: null } });
   render(<UpdateDialog />);
   act(() => { useUpdates.getState().setState(state); useUpdates.getState().openDialog(); });
   return screen.getByRole('dialog', { name: 'Update to GitBolt 0.3.0' });

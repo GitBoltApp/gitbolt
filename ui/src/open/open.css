@@ -1,6 +1,6 @@
 .open-screen { height: 100%; display: flex; flex-direction: column; overflow: hidden; padding: 20px 28px; box-sizing: border-box; user-select: none; }
-.open-banner { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; padding: 10px 14px; border-radius: 6px; background: var(--panel-bg1); border: 1px solid var(--section-border); }
-.open-grid { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
+.open-banner { box-sizing: border-box; width: 100%; max-width: 1440px; margin-left: auto; margin-right: auto; display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; padding: 10px 14px; border-radius: 6px; background: var(--panel-bg1); border: 1px solid var(--section-border); }
+.open-grid { flex: 1; min-height: 0; width: 100%; max-width: 1440px; margin: 0 auto; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 20px; align-items: stretch; }
 .open-col { display: flex; flex-direction: column; gap: 20px; min-height: 0; overflow: auto; }
 .open-section { display: flex; flex-direction: column; min-height: 0; }
 .open-scroll { flex: 1; min-height: 0; overflow: auto; }
@@ -11,6 +11,7 @@
 .open-section h2 { display: flex; align-items: center; gap: 8px; margin: 0 0 8px; font-size: 13px; color: var(--text-selected); }
 .open-folder-path { font-weight: normal; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .open-filter, .clone-form input { width: 100%; box-sizing: border-box; font: inherit; padding: 5px 8px; color: var(--text-selected); background: var(--app-bg0); border: 1px solid var(--section-border); border-radius: 4px; user-select: text; cursor: text; }
+.open-yours .open-filter { margin-bottom: 6px; }
 .open-filter:focus, .clone-form input:focus { outline: none; border-color: var(--blue); }
 .clone-form label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; color: var(--text-secondary); }
 .open-list { list-style: none; margin: 8px 0 0; padding: 0; }
@@ -18,9 +19,24 @@
 .open-row { all: unset; box-sizing: border-box; display: flex; flex: 1; align-items: baseline; gap: 10px; min-width: 0; width: 100%; padding: 5px 8px; border-radius: 4px; cursor: pointer; }
 .open-row:hover, .open-row:focus-visible { background: var(--hover-row); }
 .open-name { color: var(--text-selected); flex: none; }
-.open-path, .open-when, .open-branch { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+.open-path, .open-when, .open-branch, .open-from { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
 .open-when { margin-left: auto; flex: none; }
+.open-wt-icon { margin-right: 5px; vertical-align: -1px; color: var(--text-secondary); }
+.open-from { flex: 0 1 auto; min-width: 2em; padding: 0 5px; border-radius: 3px; background: var(--panel-bg1); }
 .open-icon-btn { all: unset; display: inline-flex; padding: 4px; border-radius: 3px; color: var(--text-secondary); cursor: pointer; }
+/* The first of the heading's right-hand controls. */
+.open-push { margin-left: auto; }
+/* Grouped: every directory stays in view, each with an even share of the height and its own
+   scrolling list. One that needs less (header plus its rows) takes just that, and the others share
+   what it leaves; a short window squeezes them all evenly, down to the header and one row, past
+   which the column scrolls. Rows and headers have fixed heights so --rows gives the exact fit. */
+.open-grouped { display: flex; flex-direction: column; overflow: hidden; }
+.open-groups { list-style: none; margin: 0; padding: 0; flex: 1 1 auto; min-height: 0; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.open-group { --row: calc(1lh + 10px); flex: 1 1 0; display: flex; flex-direction: column; min-height: calc(24px + var(--row)); max-height: calc(24px + var(--rows) * var(--row)); }
+.open-group .open-folder-chip { flex: none; box-sizing: border-box; height: 22px; }
+.open-group .open-list { margin-top: 2px; flex: 0 1 auto; min-height: 0; overflow: auto; }
+.open-group .open-row { height: var(--row); }
+.open-group-empty { margin: 0; padding: 5px 8px; }
 .open-icon-btn:hover, .open-icon-btn:focus-visible { color: var(--text-selected); background: var(--hover-row); }
 .open-error { color: var(--stats-deleted-bright); margin: 6px 0; user-select: text; }
 .clone-progress { display: flex; align-items: center; gap: 8px; margin: 6px 0; }

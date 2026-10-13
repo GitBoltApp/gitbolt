@@ -191,6 +191,8 @@ pub struct AppInfoPayload {
     pub git_version: String,
     /// How this GitBolt was installed: what the update dialog offers.
     pub install_kind: crate::updates::install::InstallKind,
+    /// The user's home folder, so paths under it can read `~/…`.
+    pub home: Option<String>,
 }
 
 /// Commits reachable from the ref `theirs` but not from `ours_oid`, counted in process.
@@ -703,7 +705,7 @@ pub async fn repo_info(repo: &gix::ThreadSafeRepository, workdir: &Path) -> Resu
 }
 
 /// `AppInfoPayload` for a git version already known (e.g. `Api`'s cached `check_version`).
-pub fn app_info_payload(git_version: (u32, u32, u32), app_version: &str, install_kind: crate::updates::install::InstallKind) -> AppInfoPayload {
+pub fn app_info_payload(git_version: (u32, u32, u32), app_version: &str, install_kind: crate::updates::install::InstallKind, home: Option<&std::path::Path>) -> AppInfoPayload {
     let (a, b, c) = git_version;
     let parsed = crate::updates::version::Version::parse(app_version);
     AppInfoPayload {
@@ -711,6 +713,7 @@ pub fn app_info_payload(git_version: (u32, u32, u32), app_version: &str, install
         build: parsed.as_ref().and_then(|v| v.build().map(str::to_string)),
         git_version: format!("{a}.{b}.{c}"),
         install_kind,
+        home: home.map(|h| h.display().to_string()),
     }
 }
 
@@ -718,7 +721,7 @@ pub fn app_info_payload(git_version: (u32, u32, u32), app_version: &str, install
 /// callers that already cache the version (as `Api` does, for the process lifetime) should build
 /// the payload from that cache with `app_info_payload` instead of calling this every time.
 pub async fn app_info(cli: &GitCli) -> Result<AppInfoPayload, GbError> {
-    Ok(app_info_payload(cli.check_version().await?, env!("CARGO_PKG_VERSION"), crate::updates::install::InstallKind::Unpackaged))
+    Ok(app_info_payload(cli.check_version().await?, env!("CARGO_PKG_VERSION"), crate::updates::install::InstallKind::Unpackaged, crate::paths::home_dir().as_deref()))
 }
 
 #[cfg(test)]
@@ -1050,10 +1053,10 @@ mod tests {
         assert_eq!(info.app_version, env!("CARGO_PKG_VERSION"));
         assert!(info.git_version.starts_with('2'));
         use crate::updates::install::InstallKind;
-        let p = app_info_payload((2, 40, 1), "0.2.0", InstallKind::Deb);
-        assert_eq!((p.git_version.as_str(), p.app_version.as_str(), p.build, p.install_kind), ("2.40.1", "0.2.0", None, InstallKind::Deb));
+        let p = app_info_payload((2, 40, 1), "0.2.0", InstallKind::Deb, Some(std::path::Path::new("/home/u")));
+        assert_eq!((p.git_version.as_str(), p.app_version.as_str(), p.build, p.install_kind, p.home.as_deref()), ("2.40.1", "0.2.0", None, InstallKind::Deb, Some("/home/u")));
         // A local package build: the version, and its stamp apart.
-        let p = app_info_payload((2, 40, 1), "0.2.0+202610072046.d1d4d7d", InstallKind::Unpackaged);
+        let p = app_info_payload((2, 40, 1), "0.2.0+202610072046.d1d4d7d", InstallKind::Unpackaged, None);
         assert_eq!((p.app_version.as_str(), p.build.as_deref()), ("0.2.0", Some("202610072046.d1d4d7d")));
     }
 }

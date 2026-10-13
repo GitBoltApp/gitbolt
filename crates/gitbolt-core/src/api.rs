@@ -2916,7 +2916,7 @@ impl Api {
                 let h = self.handle(repo)?;
                 to_json(blocking(move || crate::shelldata::last_push(&h.repo, &remote_ref)).await?)
             }
-            Request::AppInfo => to_json(crate::shelldata::app_info_payload(self.git_version().await?, &self.app_version, self.install_kind)),
+            Request::AppInfo => to_json(crate::shelldata::app_info_payload(self.git_version().await?, &self.app_version, self.install_kind, self.home.as_deref())),
             Request::UpdateStatus => to_json(self.updates.as_ref().map_or(crate::updates::UpdateState::Idle, |u| u.state())),
             Request::UpdateCheck => {
                 let include_pre = self.store.state().settings.update_prereleases;

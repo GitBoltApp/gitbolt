@@ -33,3 +33,13 @@ export function examplePath(rel: string, os: OsKind = osKind()): string {
   if (os === 'windows') return `C:\\Users\\you\\${rel.replace(/\//g, '\\')}`;
   return os === 'macos' ? `/Users/you/${rel}` : `/home/you/${rel}`;
 }
+
+/** `p` with the home folder written `~` (`/home/u/repos` reads `~/repos`), as a shell shows it.
+ *  Windows paths stay whole: `~` isn't how Explorer or cmd write them. */
+export function tildePath(p: string, home: string | null | undefined): string {
+  if (!home || isWin(p)) return p;
+  const h = home.replace(/\/+$/, '');
+  if (!h) return p;
+  if (p === h || p === `${h}/`) return '~';
+  return p.startsWith(`${h}/`) ? `~${p.slice(h.length)}` : p;
+}

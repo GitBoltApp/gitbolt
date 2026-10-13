@@ -18,7 +18,7 @@ test.describe('open repository screen', () => {
       await page.goto('/');
       await expect(page.getByRole('tab').first()).toHaveText('Open repository');
       const banner = page.getByRole('region', { name: 'Default repos directory' });
-      await banner.getByRole('button', { name: /^Use .*\/home\/repos$/ }).click();
+      await banner.getByRole('button', { name: 'Use ~/repos' }).click();
       await expect(banner).toBeHidden();
       const yours = page.locator('section[aria-labelledby="open-yours"]');
       await expect(yours.getByText('repo', { exact: true })).toBeVisible();
@@ -28,7 +28,7 @@ test.describe('open repository screen', () => {
       const yours = page.locator('section[aria-labelledby="open-yours"]');
       const folders = yours.getByRole('list', { name: 'Scanned directories' });
       // The profile migrates to <home>/repos on its first load.
-      const repos = (await folders.getByRole('listitem').first().getAttribute('title'))!;
+      const repos = (await folders.getByRole('listitem').first().getByRole('button').getAttribute('aria-label'))!.replace('Remove directory ', '');
       await expect(yours.getByText('repo', { exact: true })).toBeVisible();
       await pick(request, join(dirname(repos), 'more'));
       await yours.getByRole('button', { name: 'Add directory' }).click();
@@ -41,6 +41,19 @@ test.describe('open repository screen', () => {
       await box.evaluate((e) => { e.scrollTop = e.scrollHeight; });
       expect(await box.evaluate((e) => e.scrollTop)).toBeGreaterThan(0);
       expect(await page.evaluate(() => document.scrollingElement!.scrollTop)).toBe(0);
+      // Grouped by directory: both stay in view, the short one whole, the long one scrolling in its own list.
+      await yours.getByRole('button', { name: 'Group by directory' }).click();
+      const groups = yours.locator('.open-group');
+      await expect(groups).toHaveCount(2);
+      const column = yours.locator('.open-groups');
+      expect(await column.evaluate((g) => g.scrollHeight <= g.clientHeight + 1)).toBe(true);
+      await expect(groups.first().getByText('repo', { exact: true })).toBeInViewport();
+      // The one-repository directory takes just its row, exactly (no scrollbar); the long one the rest.
+      expect(await groups.first().locator('.open-list').evaluate((e) => e.scrollHeight <= e.clientHeight)).toBe(true);
+      expect(await groups.nth(1).locator('.open-list').evaluate((e) => e.scrollHeight > e.clientHeight + 100)).toBe(true);
+      const [short, long] = [await groups.first().boundingBox(), await groups.nth(1).boundingBox()];
+      expect(long!.height).toBeGreaterThan(short!.height * 3);
+      await yours.getByRole('button', { name: 'Show as one list' }).click();
       // Remove the added folder: its repos go, the other folder's stay.
       await folders.getByRole('button', { name: /Remove directory .*\/more$/ }).click();
       await expect(folders.getByRole('listitem')).toHaveCount(1);

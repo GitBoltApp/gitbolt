@@ -8,6 +8,7 @@ import type { SideItem } from './model';
 import { TagTip } from '../tags/TagTip';
 // --- 4B T10 ---
 import { useRepoContext } from '../app/repoContext';
+import { useTilde } from '../app/appInfo';
 import { BranchMrBlock } from '../forge/MrBadge';
 // --- end 4B T10 ---
 // --- 4B T11 ---
@@ -37,6 +38,7 @@ export function CardShell({ label, top, left, children }: { label: string; top: 
  */
 export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId: number; top: number; left: number }) {
   const { tabId } = useRepoContext(); // 4B T10
+  const tilde = useTilde();
   const [push, setPush] = useState<LastPushPayload | null | undefined>(undefined);
   const remoteRef = item.kind === 'local' ? item.branch.upstream : item.kind === 'remote' ? item.branch.fullName : null;
   useEffect(() => {
@@ -70,7 +72,7 @@ export function HoverCard({ item, repoId, top, left }: { item: SideItem; repoId:
     return (
       <CardShell label={`${item.name} details`} top={top} left={left}>
         <div className="hc-name">{w.name}</div>
-        <div className="hc-summary" style={{ wordBreak: 'break-all' }}>{w.path}</div>
+        <div className="hc-summary" style={{ wordBreak: 'break-all' }}>{tilde(w.path)}</div>
         <div className="hc-meta">{w.branch ? `Branch: ${w.branch}` : `Detached${w.head ? ` at ${shortSha(w.head)}` : ''}`}</div>
         {w.head && w.branch && <div className="hc-meta">HEAD {shortSha(w.head)}</div>}
         <div className="hc-meta">{[w.isMain ? 'Main checkout' : 'Linked worktree', w.isCurrent ? 'current' : ''].filter(Boolean).join(' · ')}</div>

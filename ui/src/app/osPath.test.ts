@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { basename, dirname, examplePath, joinPath, osKind } from './osPath';
+import { basename, dirname, examplePath, joinPath, osKind, tildePath } from './osPath';
 
 describe('osPath', () => {
   it('basename', () => {
@@ -39,5 +39,15 @@ describe('osPath', () => {
     ua.mockReturnValue('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36');
     expect(osKind()).toBe('linux');
     ua.mockRestore();
+  });
+
+  it('tildePath writes the home folder as ~, whole segments only, and leaves Windows paths alone', () => {
+    expect(tildePath('/home/u/repos/app', '/home/u')).toBe('~/repos/app');
+    expect(tildePath('/home/u', '/home/u/')).toBe('~');
+    expect(tildePath('/home/user2/x', '/home/u')).toBe('/home/user2/x');
+    expect(tildePath('/srv/x', '/home/u')).toBe('/srv/x');
+    expect(tildePath('/home/u/x', null)).toBe('/home/u/x');
+    expect(tildePath('/x', '/')).toBe('/x');
+    expect(tildePath('C:\\Users\\u\\repos', 'C:\\Users\\u')).toBe('C:\\Users\\u\\repos');
   });
 });

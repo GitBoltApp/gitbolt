@@ -22,7 +22,7 @@ describe('UpdatePill', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetUpdatesForTest();
-    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'deb' } });
+    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'deb', home: null } });
     useAppState.setState({ settings: { ...DEFAULT_SETTINGS } });
   });
 
@@ -45,13 +45,13 @@ describe('UpdatePill', () => {
   });
 
   it('a build from source, or an AUR install, opens the dialog instead', () => {
-    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'none' } });
+    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'none', home: null } });
     render(<UpdatePill />);
     set({ state: 'available', release: { ...release, asset: null } });
     fireEvent.click(pill()!);
     expect(useUpdates.getState().dialogOpen).toBe(true);
     act(() => useUpdates.getState().closeDialog());
-    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'arch' } });
+    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'arch', home: null } });
     act(() => useAppState.setState({ settings: { ...DEFAULT_SETTINGS, updateArchMethod: 'aur' } }));
     set({ state: 'available', release });
     fireEvent.click(pill()!);

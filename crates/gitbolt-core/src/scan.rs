@@ -15,6 +15,10 @@ pub struct ScannedRepo {
     pub branch: Option<String>,
     #[ts(type = "number")]
     pub modified: i64,
+    /// A linked worktree: the name of the repository it belongs to (its main checkout's folder).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub worktree_of: Option<String>,
 }
 
 /// `.git` directory, or the directory a `.git` file (`gitdir: …`) points to (a linked worktree or
@@ -29,6 +33,18 @@ fn git_dir(dir: &Path) -> Option<PathBuf> {
     Some(if target.is_absolute() { target } else { dir.join(target) })
 }
 
+/// For a linked worktree's git dir (`<repo>/.git/worktrees/<name>`, which has a `commondir`; a
+/// submodule's doesn't), the name of the repository: its main checkout's folder, or a bare
+/// repository's own name without `.git`.
+fn worktree_of(gd: &Path) -> Option<String> {
+    let common = std::fs::read_to_string(gd.join("commondir")).ok()?;
+    let common = gd.join(common.trim());
+    let common = std::fs::canonicalize(&common).unwrap_or(common);
+    let repo = if common.file_name()? == ".git" { common.parent()? } else { &common };
+    let name = repo.file_name()?.to_string_lossy();
+    Some(name.strip_suffix(".git").unwrap_or(&name).to_string())
+}
+
 fn mtime(p: &Path) -> i64 {
     std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(UNIX_EPOCH).ok()).map(|d| d.as_secs() as i64).unwrap_or(0)
 }
@@ -36,7 +52,7 @@ fn mtime(p: &Path) -> i64 {
 fn describe(dir: &Path, gd: &Path) -> ScannedRepo {
     let branch = std::fs::read_to_string(gd.join("HEAD")).ok().and_then(|h| h.trim().strip_prefix("ref: refs/heads/").map(String::from));
     let modified = ["index", "HEAD", "logs/HEAD"].iter().map(|f| mtime(&gd.join(f))).max().unwrap_or(0);
-    ScannedRepo { path: dir.display().to_string(), name: dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), branch, modified }
+    ScannedRepo { path: dir.display().to_string(), name: dir.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default(), branch, modified, worktree_of: worktree_of(gd) }
 }
 
 /// Non-hidden subdirectories of `dir`, in no particular order. A directory that can't be read
@@ -133,6 +149,26 @@ mod tests {
         let found = scan_repos(root.path());
         assert_eq!(found.len(), 1);
         assert!(Path::new(&found[0].path).ends_with("alpha/repo"), "{found:?}");
+    }
+
+    #[test]
+    fn a_linked_worktree_names_its_repository_and_a_submodule_doesnt() {
+        let root = tempfile::tempdir().unwrap();
+        let a = TestRepo::init_at(&root.path().join("shop")); // root/shop/repo
+        a.commit("a");
+        a.git(&["branch", "feature"]);
+        a.add_worktree("feature", "feature"); // root/shop/wt-feature
+        // A submodule checkout's `.git` file points into the parent's `.git/modules`: no commondir.
+        let sub = root.path().join("shop/vendored");
+        std::fs::create_dir_all(a.path().join(".git/modules/vendored")).unwrap();
+        std::fs::write(a.path().join(".git/modules/vendored/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::create_dir_all(&sub).unwrap();
+        std::fs::write(sub.join(".git"), format!("gitdir: {}\n", a.path().join(".git/modules/vendored").display())).unwrap();
+        let found = scan_repos(root.path());
+        let of = |end: &str| found.iter().find(|r| Path::new(&r.path).ends_with(end)).unwrap_or_else(|| panic!("{end}: {found:?}")).worktree_of.clone();
+        assert_eq!(of("shop/wt-feature"), Some("repo".into()));
+        assert_eq!(of("shop/repo"), None);
+        assert_eq!(of("shop/vendored"), None);
     }
 
     #[test]

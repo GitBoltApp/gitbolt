@@ -13,4 +13,8 @@ build: string | null, gitVersion: string,
 /**
  * How this GitBolt was installed: what the update dialog offers.
  */
-installKind: InstallKind, };
+installKind: InstallKind, 
+/**
+ * The user's home folder, so paths under it can read `~/…`.
+ */
+home: string | null, };
