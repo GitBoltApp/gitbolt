@@ -137,13 +137,18 @@ untrusted text (`ui/src/markdown/`).
     through Chromium's font sanitizer (OTS) like any web font;
   - `connect-src 'self' ipc: http://ipc.localhost`: the app's own IPC only;
   - `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'none'`.
+
+  Web Workers (Monaco's, the Markdown parser's) run under the same policy. A worker takes its
+  policy from its own script's response, and Tauri sends one only with the page, so the app adds
+  the policy to every other response of its bundle (`crates/gitbolt-app/src/csp.rs`): `eval` is
+  blocked in a worker as in the page.
 - **The page may read the clipboard's text** (the clipboard plugin's `read-text` permission,
   `crates/gitbolt-app/capabilities/default.json`), for Ctrl+V's "Go to what's on the
   clipboard"; the UI reads it only then. It goes through the plugin because Chromium's own
   `navigator.clipboard.readText()` asks for a permission in the app, and that prompt never
   answers. Like the rest of the IPC, it is reachable only by the bundle's own scripts (the CSP above).
-- The end-to-end tests run the UI under the same policy (sent by `vite preview`,
-  `ui/vite.config.ts`), and fail on any violation (`ui/e2e/test.ts`). `ui/e2e/csp.spec.ts` checks
+- The end-to-end tests run the UI under the same policy (sent by `vite preview` with every
+  file, worker scripts included, `ui/vite.config.ts`), and fail on any violation (`ui/e2e/test.ts`). `ui/e2e/csp.spec.ts` checks
   that a script injected into rendered Markdown never runs.
 
 ### Rendered HTML files

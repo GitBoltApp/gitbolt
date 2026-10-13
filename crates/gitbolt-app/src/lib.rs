@@ -21,6 +21,7 @@ use tauri::{Emitter, Manager, WebviewWindowBuilder};
 use tauri_runtime_cef::Cef;
 use tokio::sync::broadcast::error::RecvError;
 
+mod csp;
 mod desktop;
 mod menu;
 mod window_state;
@@ -440,6 +441,10 @@ pub fn run() {
             let (screens, primary) = window_state::screens(&available, primary.as_ref());
             let place = saved.as_ref().and_then(|g| window_state::placement(g, &screens, primary, can_position));
             let mut builder = WebviewWindowBuilder::from_config(app.handle(), &cfg)?;
+            // Workers get the page's Content Security Policy too (csp.rs).
+            if let Some(policy) = csp::policy(app.config()) {
+                builder = builder.on_web_resource_request(move |_, response| csp::add_policy(&policy, response));
+            }
             if let Some(p) = &place {
                 builder = builder.inner_size(p.size.0, p.size.1);
                 if let Some((x, y)) = p.position {
