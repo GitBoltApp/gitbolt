@@ -1,15 +1,21 @@
 import { useMemo } from 'react';
 import { create } from 'zustand';
 import { textKey } from '../util/textHash';
+import type { ViewPref } from './diffPrefs';
 
 /** Spec #5 §3.3: the extensions File View can show rendered. */
 export const MARKDOWN_EXTENSIONS = ['md', 'markdown', 'mdx'] as const;
 
-/** Whether File View offers `Source | Rendered` for `path` (its file name has a Markdown extension). */
-export function isMarkdownPath(path: string): boolean {
+/** Whether `path`'s file name ends in one of `list`'s extensions (any case). */
+const extensionIn = (path: string, list: readonly string[]) => {
   const name = path.slice(path.lastIndexOf('/') + 1);
   const dot = name.lastIndexOf('.');
-  return dot > 0 && (MARKDOWN_EXTENSIONS as readonly string[]).includes(name.slice(dot + 1).toLowerCase());
+  return dot > 0 && list.includes(name.slice(dot + 1).toLowerCase());
+};
+
+/** Whether File View offers `Source | Rendered` for `path` (its file name has a Markdown extension). */
+export function isMarkdownPath(path: string): boolean {
+  return extensionIn(path, MARKDOWN_EXTENSIONS);
 }
 
 /** Whether a diff of `t` is a Markdown diff: either side's path is Markdown, so a rename to or
@@ -17,6 +23,50 @@ export function isMarkdownPath(path: string): boolean {
 export function isMarkdownTarget(t: { path: string; oldPath: string | null }): boolean {
   return isMarkdownPath(t.path) || (t.oldPath !== null && isMarkdownPath(t.oldPath));
 }
+
+/** The extensions shown as a page (`HtmlPage.tsx`), with the same `Source | Rendered` toggle. */
+export const HTML_EXTENSIONS = ['html', 'htm', 'xhtml'] as const;
+
+/** Whether `path` is an HTML file, shown rendered as a static page. */
+export const isHtmlPath = (path: string): boolean => extensionIn(path, HTML_EXTENSIONS);
+
+/** Whether a diff of `t` is an HTML diff (either side's path, as `isMarkdownTarget`). */
+export const isHtmlTarget = (t: { path: string; oldPath: string | null }): boolean => isHtmlPath(t.path) || (t.oldPath !== null && isHtmlPath(t.oldPath));
+
+/** Whether `path` has a rendered view (Markdown or HTML): the `Source | Rendered` toggle, its
+ * app-wide pick (`markdownView`, or HTML's own `htmlView`) and a just-created file's Source apply to both. */
+export const isRenderedPath = (path: string): boolean => isMarkdownPath(path) || isHtmlPath(path);
+
+/** Whether a diff of `t` has a rendered view. */
+export const isRenderedTarget = (t: { path: string; oldPath: string | null }): boolean => isMarkdownTarget(t) || isHtmlTarget(t);
+
+/** Which rendered view a file (or a diff of it) has: its new path's, else its old path's. */
+export function renderedKindOf(t: { path: string; oldPath: string | null }): 'markdown' | 'html' | null {
+  for (const p of [t.path, t.oldPath]) {
+    if (p !== null && isMarkdownPath(p)) return 'markdown';
+    if (p !== null && isHtmlPath(p)) return 'html';
+  }
+  return null;
+}
+
+/** The extensions shown as a table (`ui/src/table/`), with `Source | Table`. */
+export const TABLE_EXTENSIONS = ['csv', 'tsv'] as const;
+
+/** The kinds of file with a view beside their source, each with its own app-wide pick: Markdown
+ * and HTML rendered, CSV and TSV as a table. */
+export type ViewKind = 'markdown' | 'html' | 'table';
+export const VIEW_PREFS: Record<ViewKind, ViewPref> = { markdown: 'markdownView', html: 'htmlView', table: 'tableView' };
+
+/** Which view `path` has beside its source, by its extension; null for none. */
+export function viewKindOf(path: string): ViewKind | null {
+  if (isMarkdownPath(path)) return 'markdown';
+  if (isHtmlPath(path)) return 'html';
+  return extensionIn(path, TABLE_EXTENSIONS) ? 'table' : null;
+}
+
+/** Which view a diff of `t` has: its new path's, else its old path's (a rename to or from one). */
+export const viewKindOfTarget = (t: { path: string; oldPath: string | null }): ViewKind | null =>
+  viewKindOf(t.path) ?? (t.oldPath !== null ? viewKindOf(t.oldPath) : null);
 
 /** Spec #5 §3.1: File View renders Markdown up to this many UTF-8 bytes; above, Source. */
 export const RENDER_MAX_BYTES = 5 * 1024 * 1024;

@@ -1,5 +1,5 @@
 import {
-  AppWindow, ArrowRightToLine, Check, CircleAlert, Flag, Code, Columns3, Copy, Download, ExternalLink, Eye, EyeOff, FileCode, FileDiff, FileText, FolderGit2, FolderOpen, FolderPlus, CopyPlus,
+  AppWindow, ArrowRightToLine, Check, CircleAlert, Flag, Code, Columns3, Copy, Download, ExternalLink, Eye, EyeOff, FileCode, FileDiff, FileText, FolderGit2, FolderOpen, FolderPlus, CopyPlus, Globe, MousePointerClick,
   GitBranch, GitCommitHorizontal, GitCompare, GitGraph, GitPullRequest, Hash, LoaderCircle, MessageSquare, Pencil, RotateCcw, Settings, SquareArrowOutUpRight, SquareX, Tag, X,
 } from 'lucide-react';
 
@@ -28,6 +28,10 @@ export const ICONS = {
   reveal: FolderOpen,
   /** The system's "Open With" chooser ("Other…"). */
   openWith: AppWindow,
+  /** "Open in default app": what a double click on the file does. */
+  defaultApp: MousePointerClick,
+  /** The same for an HTML file: "Open in browser". */
+  webPage: Globe,
   diff: FileDiff,
   file: FileText,
   rename: Pencil,

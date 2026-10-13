@@ -9,7 +9,8 @@
 //!
 //! Detection (feedback H32) is per OS behind `detect_system`: on Linux, every XDG desktop entry
 //! that is a text editor or IDE (`desktop.rs`), supplemented by JetBrains Toolbox scripts and
-//! `PATH`, plus the file manager; "Other…" is the system's Open With chooser (`chooser.rs`). On
+//! `PATH`, plus the file manager; "Other…" is the system's Open With chooser (`chooser.rs`), and
+//! "Open in default app" the file's own handler (`default_app.rs`, every OS). On
 //! Windows, launchers on `PATH` (with `PATHEXT`) and in their install folders, the JetBrains
 //! Toolbox, and File Explorer (`win_detect.rs`); the shell's own dialogs and URL handler are in
 //! `win32.rs`. On macOS, launchers on `PATH` and inside app bundles, the Toolbox, and Finder
@@ -25,6 +26,7 @@ use std::sync::Arc;
 use ts_rs::TS;
 
 pub mod chooser;
+pub mod default_app;
 #[cfg(unix)]
 mod desktop;
 pub mod folder_picker;
@@ -44,10 +46,15 @@ pub enum OpenerKind {
     FileManager,
     /// "Other…": the system's Open With chooser.
     Chooser,
+    /// The file's default application ("Open in browser" for an HTML file; `default_app.rs`).
+    DefaultApp,
 }
 
 /// The id of the "Other…" entry, listed when the API has a `Chooser`.
 pub const CHOOSER_ID: &str = "other";
+
+/// The id of "Open in default app", listed when the API has a `DefaultApp`.
+pub const DEFAULT_APP_ID: &str = "default-app";
 
 /// The opener id that means "the custom editor command" (R5: the profile's, or the repo's own,
 /// `EditorChoice::Custom`), built per open by `template_opener`. Never a detected opener's id.

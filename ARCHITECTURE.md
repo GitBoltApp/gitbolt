@@ -265,8 +265,23 @@ marked.
    the result renders inline or side by side. Very long blocks aren't word-diffed, and an
    alignment that takes too long falls back to the source diff.
 
+**CSV and TSV** files (`ui/src/table/`) show as a table, Markdown's `Source | Rendered` control
+labelled Table with its own pick: GitBolt's own RFC 4180 parser (`csv.ts`), a grid that renders
+only the rows in view (`@tanstack/react-virtual`), and in Diff View a row diff (`rowDiff.ts`: rows
+lined up with `jsdiff`, a changed row's cells marked). Parsing is on the main thread, so the limits
+(`limits.ts`) show the source instead: over 8 MB, over 500 columns, more rows than a grid can lay
+out, or, for a diff, over 50,000 rows a side. The body publishes which it shows (`tableStatus.ts`),
+and the toolbar goes by that.
+
 Remote images in Markdown are fetched by the core, not the webview: a forge's own image hosts
 through that account's provider, any other host only when the user chooses to load it.
+
+**Rendered HTML** (`.html`, `.htm`, `.xhtml`; `ui/src/diff/pageDoc.ts`, `HtmlPage.tsx`) has
+Markdown's `Source | Rendered` toggle with a pick of its own, Source by default. The page shows as a static document in an
+`<iframe sandbox>` with no permissions, through `srcdoc`, with its scripts and handlers taken out
+and a stricter Content Security Policy added first. Its relative images and stylesheets are read
+from the repository and inlined; anything on http(s) doesn't load, and a bar names those hosts
+with an Open in browser action. A diff shows the old and new pages side by side.
 
 ## Forge layer
 

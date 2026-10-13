@@ -18,22 +18,22 @@ describe('diff prefs', () => {
   it('defaults to Inline with both toggles off and saves every change through the seam', async () => {
     const { DEFAULT_DIFF_PREFS, diffPrefsPersistence, useDiffPrefs } = await fresh();
     expect(useDiffPrefs.getState().prefs).toEqual(DEFAULT_DIFF_PREFS);
-    expect(DEFAULT_DIFF_PREFS).toEqual({ mode: 'inline', ignoreWhitespace: false, wordWrap: false, markdownView: 'rendered', historyView: 'file' });
+    expect(DEFAULT_DIFF_PREFS).toEqual({ mode: 'inline', ignoreWhitespace: false, wordWrap: false, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
     const save = vi.spyOn(diffPrefsPersistence, 'save');
     useDiffPrefs.getState().set({ mode: 'split' });
     useDiffPrefs.getState().set({ wordWrap: true });
-    expect(useDiffPrefs.getState().prefs).toEqual({ mode: 'split', ignoreWhitespace: false, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
-    expect(save).toHaveBeenLastCalledWith({ mode: 'split', ignoreWhitespace: false, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
+    expect(useDiffPrefs.getState().prefs).toEqual({ mode: 'split', ignoreWhitespace: false, wordWrap: true, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
+    expect(save).toHaveBeenLastCalledWith({ mode: 'split', ignoreWhitespace: false, wordWrap: true, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
   });
 
   it('remembers the last mode and toggles app-wide under one versioned key', async () => {
     const first = await fresh();
     first.useDiffPrefs.getState().set({ mode: 'split', ignoreWhitespace: true });
-    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: false, markdownView: 'rendered', historyView: 'file' });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: false, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
     expect(Object.keys(localStorage)).toEqual([KEY]);
 
     const second = await fresh();
-    expect(second.useDiffPrefs.getState().prefs).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: false, markdownView: 'rendered', historyView: 'file' });
+    expect(second.useDiffPrefs.getState().prefs).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: false, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
   });
 
   it('falls back to the defaults for corrupt or invalid stored data', async () => {
@@ -45,7 +45,7 @@ describe('diff prefs', () => {
     // Field by field: a valid field survives, an invalid one takes its default, extras are dropped.
     localStorage.setItem(KEY, JSON.stringify({ mode: 'sideways', ignoreWhitespace: 'yes', wordWrap: true, extra: 1 }));
     const { useDiffPrefs } = await fresh();
-    expect(useDiffPrefs.getState().prefs).toEqual({ mode: 'inline', ignoreWhitespace: false, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
+    expect(useDiffPrefs.getState().prefs).toEqual({ mode: 'inline', ignoreWhitespace: false, wordWrap: true, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
   });
 
   it('markdownView (spec #5 §3.3): Rendered by default, kept app-wide; anything else stored reads as the default', async () => {
@@ -57,6 +57,25 @@ describe('diff prefs', () => {
     expect(JSON.parse(localStorage.getItem(KEY)!)).toMatchObject({ markdownView: 'source' });
     // A restart reads it back.
     expect((await fresh()).useDiffPrefs.getState().prefs.markdownView).toBe('source');
+  });
+
+  it("tableView: a CSV or TSV file's own pick, Table (rendered) by default, apart from Markdown's", async () => {
+    const { parseDiffPrefs, useDiffPrefs } = await fresh();
+    expect(parseDiffPrefs({ tableView: 'source' })?.tableView).toBe('source');
+    expect(parseDiffPrefs({ tableView: 'grid' })?.tableView).toBe('rendered');
+    expect(parseDiffPrefs({ markdownView: 'source' })?.tableView).toBe('rendered');
+    useDiffPrefs.getState().set({ tableView: 'source' });
+    expect(useDiffPrefs.getState().prefs.markdownView).toBe('rendered');
+    expect((await fresh()).useDiffPrefs.getState().prefs.tableView).toBe('source');
+  });
+
+  it("htmlView: HTML's own pick, Source by default; anything else stored reads as the default", async () => {
+    const { parseDiffPrefs, useDiffPrefs } = await fresh();
+    expect(parseDiffPrefs({ markdownView: 'rendered' })?.htmlView).toBe('source');
+    expect(parseDiffPrefs({ htmlView: 'rendered' })?.htmlView).toBe('rendered');
+    expect(parseDiffPrefs({ htmlView: 'live' })?.htmlView).toBe('source');
+    useDiffPrefs.getState().set({ htmlView: 'rendered' });
+    expect((await fresh()).useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'rendered', markdownView: 'rendered' });
   });
 
   it('historyView: File by default (File History\'s first behaviour), kept app-wide; anything else stored reads as the default', async () => {

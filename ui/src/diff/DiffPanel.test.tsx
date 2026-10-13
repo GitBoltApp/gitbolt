@@ -510,8 +510,8 @@ describe('DiffPanel', () => {
     fireEvent.click(button('Word wrap'));
     expect(button(/Ignore whitespace/)).toHaveAttribute('aria-pressed', 'true');
     expect(button('Word wrap')).toHaveAttribute('aria-pressed', 'true');
-    expect(host.setDiffPrefs).toHaveBeenLastCalledWith({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
-    expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered', historyView: 'file' });
+    expect(host.setDiffPrefs).toHaveBeenLastCalledWith({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
+    expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toEqual({ mode: 'split', ignoreWhitespace: true, wordWrap: true, markdownView: 'rendered', htmlView: 'source', tableView: 'rendered', historyView: 'file' });
     fireEvent.click(button('Hunk'));
     expect(useDiffPrefs.getState().prefs.mode).toBe('hunk');
     // No placeholder UI (plan 1B global constraints); Blame | History are #3's real buttons.
@@ -768,6 +768,61 @@ describe('DiffPanel', () => {
       renderPanel(fileViewTarget('gone.png', spec.id, spec), async () => contents(png(90), null, { image: true }));
       await waitFor(() => expect(layers()).toEqual(['before']));
       expect(screen.getByTestId('image-meta')).not.toHaveTextContent(/—|→|added|deleted/);
+    });
+  });
+
+  describe('media', () => {
+    const saved = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    let urls = 0;
+    beforeEach(() => {
+      urls = 0;
+      URL.createObjectURL = vi.fn(() => `blob:media-${++urls}`);
+      URL.revokeObjectURL = vi.fn();
+      vi.spyOn(HTMLMediaElement.prototype, 'canPlayType').mockReturnValue('maybe');
+    });
+    afterEach(() => {
+      URL.createObjectURL = saved.create;
+      URL.revokeObjectURL = saved.revoke;
+      vi.restoreAllMocks();
+    });
+    const bytes = (size: number): BlobPayload => sized({ binary: true, encoding: '', text: null, base64: 'AAEC', size });
+
+    it('audio plays on each side instead of a hex dump, with no text tools; its Hex toggle shows the hex diff with the diff controls', async () => {
+      hexDump.mockResolvedValueOnce({ old: { size: 90, shown: 90, dump: 'old\n' }, new: { size: 100, shown: 100, dump: 'new\n' }, cap: 262144 });
+      renderPanel(targetFor(change('sounds/bell.ogg'), spec), async () => contents(bytes(90), bytes(100), { media: true }));
+      expect(await screen.findByRole('toolbar', { name: 'Media options' })).toBeInTheDocument();
+      expect([...document.querySelectorAll('audio')].map((a) => a.getAttribute('aria-label'))).toEqual(['Old audio', 'New audio']);
+      expect(screen.getByTestId('media-meta')).toHaveTextContent('90 B → 100 B');
+      expect(screen.queryByTestId('binary-summary')).toBeNull();
+      expect(host.hexShow).not.toHaveBeenCalled();
+      for (const name of ['Previous change', 'Next change', 'Hunk', 'Ignore whitespace']) expect(screen.queryByRole('button', { name })).toBeNull();
+      fireEvent.click(button('Hex'));
+      await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith(expect.objectContaining({ path: 'sounds/bell.ogg', file: false })));
+      expect(button('Next change')).toBeInTheDocument();
+    });
+
+    it('File View plays the revision shown: one player, unlabelled', async () => {
+      renderPanel(fileViewTarget('clips/intro.webm', spec.id, spec), async () => contents(bytes(90), bytes(100), { media: true }));
+      await waitFor(() => expect(document.querySelectorAll('video')).toHaveLength(1));
+      expect(document.querySelector('video')!.getAttribute('aria-label')).toBe('Video');
+      expect(screen.getByTestId('media-meta')).toHaveTextContent(/^100 B$/);
+    });
+
+    it('a video past the 64 MB ceiling shows its capped hex dump, saying it is too large to play', async () => {
+      // What the core sends: not `tooLarge` (binary past the ceiling), no bytes, its dumps capped.
+      const size = 70 * 1024 * 1024;
+      const hex = { old: null, new: { size, shown: 262144, dump: '00000000  00 00\n' }, cap: 262144 };
+      renderPanel(targetFor({ ...change('clips/long.mp4', 'A'), old: { kind: 'absent' } }, spec), async () => ({ ...contents(null, sized({ binary: true, encoding: '', text: null, size }), { media: true }), hex }));
+      expect(await screen.findByTestId('hex-capped')).toHaveTextContent('Too large to play; showing the first 256 KB as hex');
+      await waitFor(() => expect(host.hexShow).toHaveBeenCalledWith(expect.objectContaining({ path: 'clips/long.mp4', new: hex.new })));
+      expect(document.querySelector('video')).toBeNull();
+    });
+
+    it('a Git LFS pointer side (text) leaves the file to the hex view', async () => {
+      const pointer = sized({ text: 'version https://git-lfs.example/spec/v1\n' });
+      renderPanel(targetFor(change('song.mp3'), spec), async () => contents(bytes(90), pointer, { media: true }));
+      expect(await screen.findByTestId('binary-summary')).toBeInTheDocument();
+      expect(document.querySelector('audio')).toBeNull();
     });
   });
 

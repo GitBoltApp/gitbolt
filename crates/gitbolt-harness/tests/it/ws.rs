@@ -231,7 +231,7 @@ async fn open_in_is_recorded_not_launched() {
     let mut ws = connect(addr).await;
     let list = call(&mut ws, 1, json!({"method": "listOpeners"})).await;
     let ids: Vec<&str> = list["ok"].as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap()).collect();
-    assert_eq!(ids, ["vscode", "jetbrains-phpstorm", "text-editor", "file-manager", "other"]);
+    assert_eq!(ids, ["vscode", "jetbrains-phpstorm", "text-editor", "default-app", "file-manager", "other"]);
     let repo = call(&mut ws, 2, json!({"method": "openRepo", "params": {"path": r.path()}})).await["ok"]["id"].clone();
     let wt = gitbolt_core::platform::fs::canonicalize(r.path()).unwrap();
     let reply = call(&mut ws, 3, json!({"method": "openIn", "params": {"repo": repo, "worktree": wt, "path": "src/app.php", "line": 4, "opener": "vscode"}})).await;
@@ -239,11 +239,15 @@ async fn open_in_is_recorded_not_launched() {
     // "Other…" is recorded too, as the chooser it would have shown.
     let reply = call(&mut ws, 4, json!({"method": "openIn", "params": {"repo": repo, "worktree": wt, "path": "src/app.php", "line": 4, "opener": "other"}})).await;
     assert!(reply["ok"].is_null(), "{reply}");
+    // And "Open in default app", as the file it would have handed the OS.
+    let reply = call(&mut ws, 40, json!({"method": "openIn", "params": {"repo": repo, "worktree": wt, "path": "src/app.php", "line": 4, "opener": "default-app"}})).await;
+    assert!(reply["ok"].is_null(), "{reply}");
     let file = wt.join("src").join("app.php").display().to_string(); // native separators
     let got: Value = serde_json::from_str(&http_get(addr, "/launches").await).unwrap();
     assert_eq!(got, json!([
         {"program": "/fake/bin/code", "args": ["-g", format!("{file}:4")]},
         {"program": gitbolt_harness::CHOOSER_PROGRAM, "args": [file]},
+        {"program": gitbolt_harness::DEFAULT_APP_PROGRAM, "args": [file]},
     ]));
     // `/test/reset` forgets them, along with every setting and profile.
     let made = call(&mut ws, 5, json!({"method": "createProfile", "params": {"name": "Temp", "color": "#123"}})).await;

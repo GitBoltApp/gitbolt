@@ -27,6 +27,8 @@ vi.mock('../diff/hex', async (orig) => ({
   HexView: ({ path, file, side }: { path: string; file: boolean; side?: { dump: string } | null }) => <pre data-testid="hex-view" data-path={path} data-mode={file ? 'file' : 'diff'}>{side?.dump}</pre>,
   HexBody: ({ target }: { target: { path: string; view: string } }) => <pre data-testid="hex-body" data-path={target.path} data-mode={target.view} />,
 }));
+// A PDF's pages (pdf/PdfView.tsx), as a stub that says which side it was given.
+vi.mock('../pdf/PdfView', () => ({ PdfView: ({ new: neu }: { new: { size: number } | null }) => <div data-testid="pdf-view" data-size={neu?.size} /> }));
 const { FileHistory } = await import('./FileHistory');
 
 const graph = { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: true }, truncated: false, worktrees: [] } as unknown as GraphPayload;
@@ -36,6 +38,8 @@ const contents = new Loader(async (k: string) => {
   const { path, new: side } = JSON.parse(k) as { path: string; new: { commit: string } };
   // A binary (its hex dumps load with it, hexContents.ts), and an image (they don't).
   if (path.endsWith('.bin')) return { old: null, new: binarySide, tooLarge: false, eolOnly: false, image: false, hex: { old: null, new: { dump: `${path} hex at ${side.commit}`, size: 4, cap: null } } } as unknown as DiffContentsPayload;
+  // A PDF in plain ASCII: text, but shown as pages.
+  if (path.endsWith('.pdf')) return { old: null, new: { ...binarySide, binary: false, size: 9, text: '%PDF-1.4\n', base64: btoa('%PDF-1.4\n') }, tooLarge: false, eolOnly: false, image: false, pdf: true } as unknown as DiffContentsPayload;
   if (path.endsWith('.png')) return { old: null, new: binarySide, tooLarge: false, eolOnly: false, image: true } as unknown as DiffContentsPayload;
   return text(`${path} at ${side.commit}`);
 }, new Lru(10));
@@ -217,6 +221,15 @@ describe('File History (spec #3 §4.2)', () => {
     expect(await screen.findByTestId('file-view')).toBeInTheDocument();
     expect(await screen.findByRole('button', { name: 'Blame' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByTestId('blame-stub')).toBeInTheDocument();
+  });
+
+  it('a PDF shows its pages at the commit, even one in plain text, with Blame disabled', async () => {
+    fileHistory.mockResolvedValue({ rows: [row('a1', 'M', 'docs/survey.pdf'), row('c3', 'A')], more: false });
+    const store = createRepoViewStore(1, '/r', graph, fakeServices({ contents }));
+    render(<RepoViewContext value={store}><FileHistory tabId="t1" props={{ ...args, path: 'docs/survey.pdf' }} close={vi.fn()} /></RepoViewContext>);
+    expect(await screen.findByTestId('pdf-view')).toHaveAttribute('data-size', '9');
+    expect(screen.queryByTestId('file-view')).toBeNull();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Blame' })).toHaveAttribute('aria-disabled', 'true'));
   });
 
   it('clicking a short hash copies the full one without selecting the row; resizing persists the list width', async () => {

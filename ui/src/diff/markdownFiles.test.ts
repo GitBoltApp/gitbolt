@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { diffRenderKey, isMarkdownPath, isMarkdownTarget, overRenderLimit, RENDER_MAX_BYTES } from './markdownFiles';
+import { diffRenderKey, isMarkdownPath, isMarkdownTarget, overRenderLimit, RENDER_MAX_BYTES, VIEW_PREFS, viewKindOf, viewKindOfTarget } from './markdownFiles';
+import { viewPrefOf } from './markdownOverride';
 
 describe('isMarkdownPath (spec #5 §3.3)', () => {
   it.each([
@@ -31,5 +32,22 @@ describe('diffRenderKey (5C, R14)', () => {
     expect(diffRenderKey('k', '# Old\n', 'Run it once.\n')).toBe(diffRenderKey('k', '# Old\n', 'Run it once.\n'));
     expect(diffRenderKey('k', '# Old\n', 'Run it once.\n')).not.toBe(diffRenderKey('k', '# Old\n', 'Run it ONCE.\n'));
     expect(diffRenderKey('k', '# Old\n', 'x')).not.toBe(diffRenderKey('j', '# Old\n', 'x'));
+  });
+});
+
+describe('viewKindOf: which view a file has beside its source, and the pick it follows', () => {
+  it('Markdown and HTML render, CSV and TSV are tables, by extension in any case; anything else has none', () => {
+    expect(['README.md', 'site/index.HTML', 'data/a.csv', 'data/b.TSV', 'notes.txt', 'csv'].map(viewKindOf)).toEqual(['markdown', 'html', 'table', 'table', null, null]);
+  });
+
+  it("each kind has its own pick; a file with none follows Markdown's", () => {
+    expect(['README.md', 'index.htm', 'a.tsv', 'notes.txt', null].map(viewPrefOf)).toEqual(['markdownView', 'htmlView', 'tableView', 'markdownView', 'markdownView']);
+    expect(VIEW_PREFS).toEqual({ markdown: 'markdownView', html: 'htmlView', table: 'tableView' });
+  });
+
+  it("a diff's is its new path's, else its old path's", () => {
+    expect(viewKindOfTarget({ path: 'a.txt', oldPath: 'a.csv' })).toBe('table');
+    expect(viewKindOfTarget({ path: 'a.html', oldPath: 'a.csv' })).toBe('html');
+    expect(viewKindOfTarget({ path: 'a.txt', oldPath: null })).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from 'react';
 import type { OpenerPayload } from '../api/gen/OpenerPayload';
 import { openMenuAt, refreshMenuOn, useMenu } from '../menu/menuStore';
 import { openWorktree, useRepoView, type DiffTarget } from '../repo/store';
-import { openerIcon, openerRowId, openInSubmenuRows } from './openerRows';
+import { isSubmodule, openerIcon, openerRowId, openInSubmenuRows } from './openerRows';
 import { defaultOpener, listWorktree, openerLabel, openersSnapshot, openVersion, refreshOpeners, subscribeOpeners, useOpenIn, useOpeners, worktreeOf } from './openers';
 import './openIn.css';
 
@@ -14,9 +14,10 @@ import './openIn.css';
 const offOpeners = refreshMenuOn(subscribeOpeners);
 import.meta.hot?.dispose(() => offOpeners());
 
-/** An opener's icon: the same one the file menu's Open in ▸ submenu shows (`openerIcon`). */
-export function OpenerIcon({ opener, size = 14 }: { opener: OpenerPayload; size?: number }) {
-  const Icon = openerIcon(opener);
+/** An opener's icon: the same one the file menu's Open in ▸ submenu shows (`openerIcon`), for
+ * the file at `path`. */
+export function OpenerIcon({ opener, path, size = 14 }: { opener: OpenerPayload; path?: string; size?: number }) {
+  const Icon = openerIcon(opener, path);
   return <Icon size={size} aria-hidden />;
 }
 
@@ -51,7 +52,7 @@ export function OpenInButton({ target, line = null, worktree: given }: { target:
   const worktree = given ?? listWorktree(target.key) ?? worktreeOf(target);
   const t = { worktree: worktree ?? openTree, path: target.path, line, ...openVersion(target, worktree) };
   const copy = t.source.kind === 'object' || t.source.kind === 'atCommit';
-  const build = () => openInSubmenuRows(openersSnapshot().list, openersSnapshot().error, (o) => open(o, t), { copy });
+  const build = () => openInSubmenuRows(openersSnapshot().list, openersSnapshot().error, (o) => open(o, t), { copy, submodule: isSubmodule(target), path: t.path });
   const show = () => {
     refreshOpeners().catch(() => {});
     // From the toggle's own rect, not the whole group: `placeMenu`'s flip-above (no room below)
@@ -61,8 +62,8 @@ export function OpenInButton({ target, line = null, worktree: given }: { target:
   return (
     <span ref={group} className="open-in-button" role="group" aria-label="Open in">
       <button type="button" className="open-in-main" data-opener={current.id} onClick={() => open(current, t)}>
-        <OpenerIcon opener={current} />
-        <span>{openerLabel(current)}</span>
+        <OpenerIcon opener={current} path={t.path} />
+        <span>{openerLabel(current, t.path)}</span>
       </button>
       <button
         ref={toggle}

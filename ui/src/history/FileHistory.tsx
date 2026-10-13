@@ -17,6 +17,8 @@ import { FileView } from '../diff/FileView';
 import { fileSideOf, HexBody, HexView } from '../diff/hex';
 import { hexOf } from '../diff/hexContents';
 import { highlightLanguage } from '../diff/language';
+import { isPdf } from '../pdf/kind';
+import { PdfBody } from '../pdf/PdfBody';
 import { relativeTime } from '../format/relative';
 import { shortSha } from '../format/sha';
 import { useCenterViewEditorFile, type CenterViewProps } from '../repo/centerView';
@@ -214,7 +216,7 @@ const rowTarget = (path: string, sha: string): DiffTarget => fileViewTarget(path
 
 /** The file at `row`'s commit, at that commit's path (a rename's old name below it). `children`
  * is laid over a shown text file (3A T5's blame gutter). A binary shows File View's hex panes
- * instead (lane K's), with no `children`: blame has no lines there. `onBinary`: whether the shown
+ * instead (lane K's), and a PDF its pages, with no `children`: blame has no lines there. `onBinary`: whether the shown
  * file is one, once its contents are in (false again when none is shown). */
 export function FileAtCommit({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean) => void }) {
   if (row.status === 'D') return <div className="diff-message"><p>{row.path} was deleted in this commit</p></div>;
@@ -228,8 +230,9 @@ function FileText({ row, children, onBinary }: { row: FileHistoryRow; children?:
   const contents = useContents(services, target, forced === target.key);
   const text = contents.status === 'ready' ? contents.data.new?.text ?? null : null;
   const language = useMemo(() => (text === null ? 'plaintext' : highlightLanguage(row.path, text)), [row.path, text]);
-  // Reported once the contents are in, so stepping between two binaries keeps the toggle away.
-  const binary = contents.status === 'ready' && !contents.data.tooLarge ? text === null : null;
+  // Reported once the contents are in, so stepping between two binaries keeps the toggle away. A
+  // PDF is one, even written in plain text: it shows as pages.
+  const binary = contents.status === 'ready' && !contents.data.tooLarge ? text === null || isPdf(contents.data) : null;
   const report = useRef(onBinary);
   report.current = onBinary;
   useEffect(() => { if (binary !== null) report.current?.(binary); }, [binary]);
@@ -244,6 +247,7 @@ function FileText({ row, children, onBinary }: { row: FileHistoryRow; children?:
       </div>
     );
   }
+  if (isPdf(contents.data)) return <PdfBody target={target} contents={contents.data} />;
   if (text === null) {
     // A binary (an image too): its hex at this commit. A non-image's dumps come with its contents
     // (hexContents.ts); an image's load here.

@@ -7,6 +7,7 @@ use gitbolt_core::git::GitCli;
 use gitbolt_core::instance::{self, Claim};
 use gitbolt_core::log::CommandLog;
 use gitbolt_core::openers::chooser::system_chooser;
+use gitbolt_core::openers::default_app::system_default_app;
 use gitbolt_core::openers::folder_picker::system_folder_picker;
 use gitbolt_core::open_copy;
 use gitbolt_core::paths;
@@ -40,8 +41,8 @@ const _: () = assert!(cfg!(debug_assertions) || !gitbolt_core::TESTING, "gitbolt
 /// disk cache in `~/.cache/gitbolt/avatars` (none when there's no cache directory). Old versions
 /// opened in an editor are copied under `~/.cache/gitbolt/open` (spec §14.5).
 ///
-/// `child_env` adjusts every child it starts: git, each opener launch, the chooser's `xdg-open`
-/// fallback and the URL opener (`desktop::restore_child_env` in the app). An opener launch also
+/// `child_env` adjusts every child it starts: git, each opener launch, the chooser's and the
+/// default app's `xdg-open` fallback (macOS: `open`) and the URL opener (`desktop::restore_child_env` in the app). An opener launch also
 /// gets the login shell's environment, when `cli` has one captured (spec §5.3).
 /// This build's version: a `just package` build's stamped one (`GITBOLT_BUILD_VERSION`,
 /// `0.2.0+202610072046.d1d4d7d`), else Cargo.toml's.
@@ -93,6 +94,10 @@ fn build_api(cli: GitCli, launch: Option<String>, child_env: ChildEnvHook, quit:
         .with_data_dir(paths::data_dir())
         .with_url_opener(url_opener)
         .with_openers(Arc::new(detect_system), launcher(child_env.clone(), shell_env));
+    let api = match system_default_app(child_env.clone()) {
+        Some(default_app) => api.with_default_app(default_app),
+        None => api,
+    };
     let api = match system_chooser(child_env) {
         Some(chooser) => api.with_chooser(chooser),
         None => api,

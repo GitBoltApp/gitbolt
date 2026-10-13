@@ -12,9 +12,10 @@ use crate::git::GitCli;
 use crate::links::{validate_web_url, UrlOpener};
 use crate::log::CommandLog;
 use crate::openers::chooser::Chooser;
+use crate::openers::default_app::DefaultApp;
 use crate::openers::folder_picker::FolderPicker;
 use crate::ops::{OpId, OpRegistry};
-use crate::openers::{template_opener, DetectEnv, Launcher, Opener, OpenerKind, OpenerPayload, CHOOSER_ID, CUSTOM_ID};
+use crate::openers::{template_opener, DetectEnv, Launcher, Opener, OpenerKind, OpenerPayload, CHOOSER_ID, CUSTOM_ID, DEFAULT_APP_ID};
 use crate::payload::{BlobSource, RepoSummary};
 use crate::scan::ScannedRepo;
 use crate::settings::{AppSettings, EditorChoice, PinSetting, Profile, SettingsStore};
@@ -160,7 +161,8 @@ pub enum Request {
     /// when the template would open, else the error.
     ValidateEditorTemplate { template: String },
     /// Opens `path` (relative to `worktree`, one of this repo's worktrees) in the opener `id`d by
-    /// `opener` (or `"other"`, the Open With chooser), at `line` when it supports one. `source` is
+    /// `opener` (or `"other"`, the Open With chooser, or `"default-app"`, the file's default
+    /// application, which a folder never opens in), at `line` when it supports one. `source` is
     /// the version shown: the working-tree file (`worktree`, or none), or a stored one (`object`,
     /// `atCommit`), which opens as a read-only copy (spec §14.5). The file manager shows the
     /// working-tree folder (its nearest existing parent if it's gone). Returns `null`.
@@ -1387,6 +1389,8 @@ pub struct Api {
     pub(crate) openers: Option<Arc<OpenerSource>>,
     /// "Other…" (H32): the system's Open With chooser; listed only when set.
     pub(crate) chooser: Option<Chooser>,
+    /// "Open in default app": the file's own handler; listed only when set.
+    pub(crate) default_app: Option<DefaultApp>,
     /// How long a detection answers `listOpeners` before the next one re-detects (the menu asks
     /// each time it opens, so a newly installed editor shows up without a restart).
     pub(crate) opener_refresh: Duration,
@@ -1608,6 +1612,7 @@ impl Api {
             url_opener: None,
             openers: None,
             chooser: None,
+            default_app: None,
             opener_refresh: OPENER_REFRESH,
             open_cache: None,
             bus: EventBus::new(),
@@ -1990,6 +1995,11 @@ impl Api {
             let at = list.iter().position(|o| o.kind != OpenerKind::Editor).unwrap_or(list.len());
             list.insert(at, OpenerPayload { id: CUSTOM_ID.into(), name: "Custom".into(), kind: OpenerKind::Editor });
         }
+        if self.default_app.is_some() {
+            // After the editors, before the file manager: it opens the file, not its folder.
+            let at = list.iter().position(|o| o.kind != OpenerKind::Editor).unwrap_or(list.len());
+            list.insert(at, OpenerPayload { id: DEFAULT_APP_ID.into(), name: "Default app".into(), kind: OpenerKind::DefaultApp });
+        }
         if self.chooser.is_some() {
             list.push(OpenerPayload { id: CHOOSER_ID.into(), name: "Other…".into(), kind: OpenerKind::Chooser });
         }
@@ -2093,6 +2103,11 @@ impl Api {
 
     pub fn with_chooser(mut self, chooser: Chooser) -> Self {
         self.chooser = Some(chooser);
+        self
+    }
+
+    pub fn with_default_app(mut self, default_app: DefaultApp) -> Self {
+        self.default_app = Some(default_app);
         self
     }
 
@@ -2468,6 +2483,23 @@ impl Api {
                     blocking(move || chooser(&target)).await?;
                     return to_json(());
                 }
+                if opener == DEFAULT_APP_ID {
+                    let default_app = self.default_app.clone().ok_or_else(unavailable)?;
+                    let root = self.worktree_dir(&h, &worktree).await?;
+                    let target = self.open_in_file(&h, &root, &path, source, fallback).await?;
+                    // A folder's own handler is the file manager, which "Show in" already is.
+                    if target.is_dir() {
+                        return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path} is a folder")));
+                    }
+                    // Never a file the OS would run (SECURITY.md), by its shown name and by what
+                    // it resolves to; an old version's copy by the name it's shown under.
+                    blocking(move || {
+                        crate::openers::default_app::check_not_a_program(Path::new(&path), &target)?;
+                        default_app(&target)
+                    })
+                    .await?;
+                    return to_json(());
+                }
                 let launcher = self.openers.as_ref().ok_or_else(unavailable)?.launcher.clone();
                 let root = self.worktree_dir(&h, &worktree).await?;
                 let o = if opener == CUSTOM_ID {
@@ -2485,7 +2517,7 @@ impl Api {
                 let reveal = (o.kind == OpenerKind::FileManager).then(|| worktree_file(&root, &path).ok().filter(|f| f.is_file()).and_then(|f| o.reveal_command(&f))).flatten();
                 let target = match o.kind {
                     OpenerKind::FileManager => folder_target(&root, &path)?,
-                    OpenerKind::Editor | OpenerKind::Chooser => self.open_in_file(&h, &root, &path, source, fallback).await?,
+                    OpenerKind::Editor | OpenerKind::Chooser | OpenerKind::DefaultApp => self.open_in_file(&h, &root, &path, source, fallback).await?,
                 };
                 if o.kind == OpenerKind::Editor {
                     // Spec §5.3: editors start with the login shell's environment, which the
@@ -3096,12 +3128,22 @@ impl Api {
                 (Err(e), Some(stored @ (BlobSource::Object { .. } | BlobSource::AtCommit { .. }))) if e.kind == GbErrorKind::NotFound => self.stored_copy(h, path, stored).await,
                 (found, _) => found,
             },
-            Some(stored) => self.stored_copy(h, path, stored).await,
+            // The working-tree file itself when it's the same bytes as that version (it usually
+            // is): beside its own folder, so a page's stylesheets and images still load.
+            Some(stored) => match worktree_file(root, path) {
+                Ok(file) => self.stored_or_same(h, path, stored, Some(file)).await,
+                Err(_) => self.stored_copy(h, path, stored).await,
+            },
         }
     }
 
     /// A read-only copy of `path`'s stored version `source` (spec §14.5).
     async fn stored_copy(&self, h: &Arc<RepoHandle>, path: &str, source: BlobSource) -> Result<PathBuf, GbError> {
+        self.stored_or_same(h, path, source, None).await
+    }
+
+    /// `same` (a working-tree file) when its bytes are that version's, else the stored copy.
+    async fn stored_or_same(&self, h: &Arc<RepoHandle>, path: &str, source: BlobSource, same: Option<PathBuf>) -> Result<PathBuf, GbError> {
         let (side, oid) = match source {
             BlobSource::Worktree { .. } => return Err(GbError::new(GbErrorKind::InvalidInput, "not a stored version")),
             BlobSource::Object { oid } => {
@@ -3119,6 +3161,9 @@ impl Api {
         let (h, path) = (h.clone(), path.to_string());
         blocking(move || {
             let bytes = crate::blob::side_bytes(&h.repo.to_thread_local(), &path, &side, crate::diff::MAX_FORCED_BYTES)?;
+            if let Some(file) = same.filter(|f| std::fs::metadata(f).is_ok_and(|m| m.is_file() && m.len() == bytes.len() as u64) && std::fs::read(f).is_ok_and(|b| b == bytes)) {
+                return Ok(file);
+            }
             crate::open_copy::write_copy(&cache, &oid.to_hex_with_len(12).to_string(), &path, &bytes)
         })
         .await
@@ -4412,6 +4457,95 @@ mod tests {
         let (plain, _) = with_openers(super::tests::api());
         let ids = plain.dispatch(req(serde_json::json!({"method": "listOpeners"}))).await.unwrap();
         assert!(ids.as_array().unwrap().iter().all(|o| o["id"] != "other"));
+    }
+
+    /// "Open in default app": listed after the editors (Custom too), before the file manager; it
+    /// gets the checked working-tree file, or for an old version its private read-only copy, and
+    /// never a folder.
+    #[tokio::test]
+    async fn the_default_app_opens_the_file_or_an_old_versions_copy() {
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        let cache = tempfile::tempdir().unwrap();
+        let opened: Arc<Mutex<Vec<PathBuf>>> = Arc::default();
+        let sink = opened.clone();
+        let (api, launches) = with_openers(api().with_open_cache(cache.path().to_path_buf()));
+        let api = api.with_default_app(Arc::new(move |p: &Path| {
+            sink.lock().unwrap().push(p.to_path_buf());
+            Ok(())
+        }));
+        let list = api.dispatch(req(serde_json::json!({"method": "listOpeners"}))).await.unwrap();
+        let ids: Vec<&str> = list.as_array().unwrap().iter().map(|o| o["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, ["vscode", "jetbrains-phpstorm", "default-app", "file-manager"]);
+        assert_eq!(list[2], serde_json::json!({"id": "default-app", "name": "Default app", "kind": "defaultApp"}));
+        let id = open(&api, &r).await;
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
+        let open_in = |path: &str, source: serde_json::Value| req(serde_json::json!({"method": "openIn", "params": {"repo": id, "worktree": wt, "path": path, "line": 3, "opener": "default-app", "source": source}}));
+        api.dispatch(open_in("src/app.php", serde_json::Value::Null)).await.unwrap();
+        assert_eq!(*opened.lock().unwrap(), [wt.join("src/app.php")]);
+        // A commit's version that's the working-tree file's bytes: the file itself, beside its
+        // folder (a page's stylesheet loads); edited since, the commit's version is a copy.
+        r.write("site/index.html", "<link rel=stylesheet href=style.css>\n");
+        r.git(&["add", "site"]);
+        r.git(&["commit", "-qm", "site"]);
+        let page = r.git(&["rev-parse", "HEAD:site/index.html"]);
+        api.dispatch(open_in("site/index.html", serde_json::json!({"kind": "object", "oid": page}))).await.unwrap();
+        assert_eq!(opened.lock().unwrap().last().unwrap(), &wt.join("site/index.html"));
+        r.write("site/index.html", "<p>edited</p>\n");
+        api.dispatch(open_in("site/index.html", serde_json::json!({"kind": "object", "oid": page}))).await.unwrap();
+        assert!(opened.lock().unwrap().last().unwrap().starts_with(crate::platform::fs::canonicalize(cache.path()).unwrap()));
+        // An old version: a copy named like the file, private to the user, read-only.
+        let old = r.git(&["rev-parse", "HEAD^1^1:src/app.php"]);
+        api.dispatch(open_in("src/app.php", serde_json::json!({"kind": "object", "oid": old}))).await.unwrap();
+        let copy = opened.lock().unwrap().last().unwrap().clone();
+        let cache_dir = crate::platform::fs::canonicalize(cache.path()).unwrap();
+        assert_eq!(copy, cache_dir.join(&old[..12]).join("src/app.php"));
+        assert_eq!(std::fs::read_to_string(&copy).unwrap().trim_end(), r.git(&["show", "HEAD^1^1:src/app.php"]).trim_end());
+        #[cfg(unix)]
+        {
+            assert_eq!(crate::platform::fs::mode(&std::fs::metadata(&copy).unwrap()) & 0o777, 0o444);
+            assert_eq!(crate::platform::fs::mode(&std::fs::metadata(cache_dir.join(&old[..12])).unwrap()) & 0o777, 0o700);
+        }
+        // Refused: a folder, an escaping path, a missing file.
+        for (path, kind) in [("src", GbErrorKind::InvalidInput), ("../x", GbErrorKind::InvalidInput), ("gone.txt", GbErrorKind::NotFound)] {
+            assert_eq!(api.dispatch(open_in(path, serde_json::Value::Null)).await.unwrap_err().kind, kind, "{path}");
+        }
+        assert_eq!(opened.lock().unwrap().len(), 4);
+        assert!(launches.lock().unwrap().is_empty(), "the default app isn't an opener launch");
+        // Never a file the OS would run: a script or launcher by its name, an old version's copy
+        // too (by the name it's shown under); on Unix an executable, or a symlink to one.
+        r.write("tools/install.sh", "echo hi\n");
+        r.write("tools/Setup.EXE", "MZ");
+        r.git(&["add", "tools"]);
+        r.git(&["commit", "-qm", "tools"]);
+        let script = r.git(&["rev-parse", "HEAD:tools/install.sh"]);
+        let refused = |path: &str, source: serde_json::Value| {
+            let api = &api;
+            let req = open_in(path, source);
+            async move { api.dispatch(req).await.unwrap_err() }
+        };
+        for (path, source) in [("tools/install.sh", serde_json::Value::Null), ("tools/Setup.EXE", serde_json::Value::Null), ("tools/install.sh", serde_json::json!({"kind": "object", "oid": script}))] {
+            let err = refused(path, source).await;
+            assert_eq!((err.kind, err.message.as_str()), (GbErrorKind::InvalidInput, crate::openers::default_app::RUNS_AS_PROGRAM), "{path}");
+        }
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            r.write("tools/build", "#!/bin/sh\n");
+            std::fs::set_permissions(r.path().join("tools/build"), std::fs::Permissions::from_mode(0o755)).unwrap();
+            std::os::unix::fs::symlink("build", r.path().join("tools/notes.txt")).unwrap();
+            for path in ["tools/build", "tools/notes.txt"] {
+                assert_eq!(refused(path, serde_json::Value::Null).await.message, crate::openers::default_app::RUNS_AS_PROGRAM, "{path}");
+            }
+        }
+        assert_eq!(opened.lock().unwrap().len(), 4, "nothing refused reached the OS");
+        // Without one there's no entry, and opening with it is refused.
+        let (plain, _) = with_openers(super::tests::api());
+        let ids = plain.dispatch(req(serde_json::json!({"method": "listOpeners"}))).await.unwrap();
+        assert!(ids.as_array().unwrap().iter().all(|o| o["id"] != "default-app"));
+        let pid = open(&plain, &r).await;
+        let err = plain.dispatch(req(serde_json::json!({"method": "openIn", "params": {"repo": pid, "worktree": wt, "path": "src/app.php", "line": null, "opener": "default-app"}}))).await.unwrap_err();
+        assert_eq!(err.kind, GbErrorKind::InvalidInput);
     }
 
     fn counting_detect(calls: Arc<std::sync::atomic::AtomicUsize>) -> Arc<dyn Fn() -> Vec<Opener> + Send + Sync> {

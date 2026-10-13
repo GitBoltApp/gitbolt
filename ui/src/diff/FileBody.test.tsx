@@ -14,6 +14,7 @@ import { isMutableKey } from '../repo/services';
 import { fakeServices } from '../repo/testServices';
 import { useWorkingCopy } from './workingCopy';
 import { DiffPanel } from './DiffPanel';
+import { HTML_RENDERED_TIP } from './FileBody';
 import { DEFAULT_DIFF_PREFS, DIFF_PREFS_STORAGE_KEY, useDiffPrefs } from './diffPrefs';
 import { PARSE_BUDGET_MS, PRECHECK_BYTES, RENDER_MAX_BYTES, useSlowMarkdown } from './markdownFiles';
 
@@ -68,7 +69,7 @@ function renderPanel(target: DiffTarget, load: () => Promise<DiffContentsPayload
   render(<RepoViewContext value={store}><Connected /></RepoViewContext>);
   return { store };
 }
-const toggle = () => screen.queryByRole('group', { name: 'Markdown view' });
+const toggle = () => screen.queryByRole('group', { name: /^(Markdown|HTML) view$/ });
 const pick = (name: 'Source' | 'Rendered') => fireEvent.click(within(toggle()!).getByRole('button', { name }));
 
 beforeEach(() => {
@@ -114,6 +115,7 @@ describe('File View of a Markdown file (spec #5 §3.3)', () => {
     expect(screen.queryByTestId('md')).toBeNull();
     expect(screen.getByTestId('file-view')).toBeVisible();
     expect(within(toggle()!).getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle()).toHaveAccessibleName('Markdown view');
     expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toMatchObject({ markdownView: 'source' });
   });
 
@@ -184,6 +186,55 @@ describe('File View of a Markdown file (spec #5 §3.3)', () => {
 });
 
 // --- 5B T7 ---
+describe('File View of an HTML file', () => {
+  const PAGE = '<!doctype html><html><head><script src="https://cdn.example.test/lib.js"></script></head><body><h1>Page</h1></body></html>';
+  const frame = () => screen.getByTestId('html-file').querySelector('iframe');
+
+  it.each(['site/index.html', 'old/PAGE.HTM', 'doc.xhtml'])('%s opens in Source by default; Rendered shows the page in a sandboxed frame, the editor kept (hidden) under it', async (path) => {
+    renderPanel(fileViewTarget(path, C, spec), async () => contents(blob(PAGE)));
+    await waitFor(() => expect(toggle()).not.toBeNull());
+    expect(within(toggle()!).getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle()).toHaveAccessibleName('HTML view');
+    expect(frame()).toBeNull();
+    expect(screen.getByTestId('file-view')).toBeVisible();
+    pick('Rendered');
+    await waitFor(() => expect(frame()).not.toBeNull());
+    expect(frame()).toHaveAttribute('sandbox', '');
+    expect(frame()!.getAttribute('srcdoc')).toContain('<h1>Page</h1>');
+    expect(screen.getByRole('toolbar', { name: 'Diff options' })).toContainElement(toggle());
+    expect(within(toggle()!).getByRole('button', { name: 'Rendered' })).toHaveAttribute('aria-pressed', 'true');
+    expect(await screen.findByRole('note')).toHaveTextContent('This page uses scripts or files from cdn.example.test');
+    // Rendered says what the static preview leaves out.
+    fireEvent.mouseEnter(within(toggle()!).getByRole('button', { name: 'Rendered' }));
+    expect(screen.getByRole('tooltip')).toHaveTextContent(HTML_RENDERED_TIP);
+    expect(screen.getByTestId('file-view')).not.toBeVisible();
+    expect(screen.queryByTestId('md')).toBeNull();
+  });
+
+  it("HTML's pick is its own: Markdown's stays as it was, and is remembered apart", async () => {
+    renderPanel(fileViewTarget('index.html', C, spec), async () => contents(blob(PAGE)));
+    await waitFor(() => expect(toggle()).not.toBeNull());
+    pick('Rendered');
+    await waitFor(() => expect(frame()).not.toBeNull());
+    expect(useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'rendered', markdownView: 'rendered' });
+    pick('Source');
+    expect(screen.getByTestId('html-file')).not.toBeVisible();
+    expect(frame()).toBeNull();
+    expect(screen.queryByRole('note')).toBeNull();
+    expect(screen.getByTestId('file-view')).toBeVisible();
+    expect(useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'source', markdownView: 'rendered' });
+    expect(JSON.parse(localStorage.getItem(DIFF_PREFS_STORAGE_KEY)!)).toMatchObject({ htmlView: 'source', markdownView: 'rendered' });
+  });
+
+  it("a Markdown file's Source leaves HTML's pick alone", async () => {
+    useDiffPrefs.getState().set({ htmlView: 'rendered' });
+    renderPanel(fileViewTarget('README.md', C, spec), async () => contents(blob('# Readme\n')));
+    await screen.findByTestId('md');
+    pick('Source');
+    expect(useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'rendered', markdownView: 'source' });
+  });
+});
+
 describe('too large to render (spec #5 §3.1)', () => {
   beforeEach(() => {
     Object.assign(parse, { cost: 0, now: 0, calls: 0, tooLarge: false });

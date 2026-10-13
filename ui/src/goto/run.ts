@@ -6,7 +6,7 @@ import { useRuntime } from '../app/runtime';
 import { useAppState } from '../app/state';
 import { activateTab, tabLabel, tabWorktree } from '../app/tabs';
 import { tabStore, tabView, useTabViews } from '../app/tabStores';
-import { isMarkdownPath } from '../diff/markdownFiles';
+import { viewKindOf } from '../diff/markdownFiles';
 import { showSourceFor } from '../diff/markdownOverride';
 import { toGbError } from '../errors/describe';
 import { loadCommit } from '../find/findStore';
@@ -210,8 +210,9 @@ export async function runGoto(a: GotoAction, live: () => boolean = () => true): 
       const { commit } = filesOf(tabId, a.worktree);
       const wasAll = useFileListPrefs.getState()[commit === 'worktree' ? 'wipAllFiles' : 'allFiles'];
       allFilesFor(commit);
-      // Lines are shown in the source: a Markdown file shows it rather than its rendered view.
-      if (a.lines && isMarkdownPath(a.path)) showSourceFor(a.path);
+      // Lines are shown in the source: a Markdown or HTML file shows it rather than its rendered
+      // view, a CSV or TSV file rather than its table.
+      if (a.lines && viewKindOf(a.path) !== null) showSourceFor(a.path);
       const opened = await openFileAt(tabId, a.path, commit, {
         record: true,
         closeMrView: true,

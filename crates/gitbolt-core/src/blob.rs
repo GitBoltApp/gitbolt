@@ -1,6 +1,6 @@
 //! File contents for the diff viewer (spec §10.2, §10.4). Each side's bytes come from the
 //! object database, a commit's tree, a submodule pointer or a worktree file. They're decoded to
-//! text with the detected encoding, or kept as base64 for images.
+//! text with the detected encoding, or kept as base64 for images and media (audio, video, fonts).
 
 use crate::commit::decode_text;
 use crate::diff::{BINARY_SNIFF_BYTES, LARGE_FILE_BYTES, MAX_FORCED_BYTES};
@@ -12,6 +12,9 @@ use gix::ObjectId;
 use std::path::{Component, Path, PathBuf};
 
 const IMAGE_EXTENSIONS: [&str; 8] = ["png", "jpg", "jpeg", "gif", "webp", "avif", "bmp", "ico"];
+/// Audio, video and fonts: the UI plays or previews a binary side's bytes (ui/src/media).
+const MEDIA_EXTENSIONS: [&str; 18] =
+    ["mp3", "wav", "flac", "ogg", "oga", "opus", "m4a", "aac", "weba", "webm", "ogv", "mp4", "m4v", "mov", "ttf", "otf", "woff", "woff2"];
 
 /// One side of a diff, resolved by the API layer: worktrees are already validated.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -102,8 +105,26 @@ pub fn eol_only_change(old: &str, new: &str) -> bool {
     old != new && old.replace("\r\n", "\n") == new.replace("\r\n", "\n")
 }
 
+fn has_extension(path: &str, list: &[&str]) -> bool {
+    path.rsplit_once('.').is_some_and(|(_, ext)| list.contains(&ext.to_ascii_lowercase().as_str()))
+}
+
 pub fn is_image_path(path: &str) -> bool {
-    path.rsplit_once('.').is_some_and(|(_, ext)| IMAGE_EXTENSIONS.contains(&ext.to_ascii_lowercase().as_str()))
+    has_extension(path, &IMAGE_EXTENSIONS)
+}
+
+pub fn is_media_path(path: &str) -> bool {
+    has_extension(path, &MEDIA_EXTENSIONS)
+}
+
+pub fn is_pdf_path(path: &str) -> bool {
+    has_extension(path, &["pdf"])
+}
+
+/// A PDF's bytes: its `%PDF-` header within the first KiB (where readers look for it), so a Git
+/// LFS pointer named `.pdf` isn't one.
+fn is_pdf_bytes(bytes: &[u8]) -> bool {
+    bytes[..bytes.len().min(1024)].windows(5).any(|w| w == b"%PDF-")
 }
 
 /// Whether a path component names the git directory on some filesystem. This is the same idea
@@ -364,6 +385,8 @@ pub fn diff_contents(repo: &gix::Repository, path: &str, old: &Side, new: &Side,
 pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Option<&str>, old: &Side, new: &Side, force: bool) -> Result<DiffContentsPayload, GbError> {
     let to_svg = path.rsplit_once('.').is_some_and(|(_, ext)| ext.eq_ignore_ascii_case("svg"));
     let image = is_image_path(path) || (to_svg && old_path.is_some_and(is_image_path));
+    let media = is_media_path(path);
+    let pdf = is_pdf_path(path);
     let (old_side, new_side) = (old, new);
     let old = resolve(repo, path, old)?;
     let new = resolve(repo, path, new)?;
@@ -384,6 +407,10 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
     let read = |r: Option<Resolved>| r.filter(|_| !too_large).map(|r| r.bytes(repo, limit)).transpose();
     let (old_bytes, new_bytes) = (read(old)?, read(new)?);
     too_large |= matches!(old_bytes, Some(None)) || matches!(new_bytes, Some(None));
+    // Media plays only when every side is binary: against a text side (a Git LFS pointer) the
+    // diff is text or hex, so no side's bytes are sent.
+    let text_side = [&old_bytes, &new_bytes].into_iter().any(|b| matches!(b, Some(Some((bytes, declared))) if !is_binary_head(bytes, declared.as_deref())));
+    let media_bytes = media && !text_side;
     let load = |bytes: Option<Option<Loaded>>, size: Option<u64>, clean: Option<(PathBuf, bool)>| -> Option<BlobPayload> {
         let size = size?;
         let (bytes, declared) = match bytes {
@@ -395,7 +422,10 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
             }
         };
         let d = decode_blob(&bytes, declared.as_deref());
-        let base64 = (d.binary && image).then(|| base64::engine::general_purpose::STANDARD.encode(&bytes));
+        // A text side of an image or media file (a Git LFS pointer) stays text, without its
+        // bytes; a PDF side carries them when it is one (its `%PDF-` header near the start), even
+        // written in plain ASCII.
+        let base64 = ((d.binary && (image || media_bytes)) || (pdf && is_pdf_bytes(&bytes))).then(|| base64::engine::general_purpose::STANDARD.encode(&bytes));
         // The file's own encoding, line endings and hash (what a save keeps and checks), with the
         // text git compares.
         let (text, filtered) = match (d.text, clean) {
@@ -410,7 +440,7 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
     let old = load(old_bytes, old_size, old_clean);
     let new = load(new_bytes, new_size, new_clean);
     let eol_only = matches!((&old, &new), (Some(BlobPayload { text: Some(a), .. }), Some(BlobPayload { text: Some(b), .. })) if eol_only_change(a, b));
-    Ok(DiffContentsPayload { old, new, too_large, eol_only, image })
+    Ok(DiffContentsPayload { old, new, too_large, eol_only, image, media, pdf })
 }
 
 #[cfg(test)]
@@ -512,6 +542,61 @@ mod tests {
         assert!(renamed.new.unwrap().text.unwrap().contains("<svg"), "the SVG side stays text");
         let to_text = diff_contents_renamed(&repo, "notes.txt", Some("logo.png"), &png, &svg, false).unwrap();
         assert!(!to_text.image, "an image renamed to anything but an image type isn't an image diff");
+    }
+
+    /// Audio, video and fonts carry a binary side's bytes for the player or font preview; a text
+    /// side (a Git LFS pointer) stays text, and the binary side against it sends no bytes.
+    #[test]
+    fn media_sides_carry_their_bytes() {
+        let (r, repo) = setup();
+        for path in ["a/clip.WEBM", "song.mp3", "tone.ogg", "Font.woff2", "x.ttf"] {
+            assert!(is_media_path(path), "{path}");
+        }
+        for path in ["logo.png", "notes.txt", "mp3", "archive.mp3.zip"] {
+            assert!(!is_media_path(path), "{path}");
+        }
+        let bin = object(&r, "HEAD^1:data.bin");
+        let font = diff_contents(&repo, "fonts/Sans.ttf", &Side::Absent, &bin, false).unwrap();
+        assert!(font.media && !font.image);
+        assert_eq!(&base64::engine::general_purpose::STANDARD.decode(font.new.unwrap().base64.unwrap()).unwrap()[..4], b"BIN\0");
+        let pointer = object(&r, "HEAD^1:docs/manual.txt");
+        let lfs = diff_contents(&repo, "song.mp3", &bin, &pointer, false).unwrap();
+        let (old, new) = (lfs.old.unwrap(), lfs.new.unwrap());
+        assert!(lfs.media && old.binary && old.base64.is_none(), "nothing plays against a text side");
+        assert!(new.text.is_some() && new.base64.is_none(), "a text side has no bytes");
+        let both = diff_contents(&repo, "song.mp3", &bin, &bin, false).unwrap();
+        assert!(both.old.unwrap().base64.is_some() && both.new.unwrap().base64.is_some());
+        let plain = diff_contents(&repo, "data.bin", &Side::Absent, &bin, false).unwrap();
+        assert!(!plain.media && plain.new.unwrap().base64.is_none());
+    }
+
+    /// A PDF's sides carry their bytes for the UI's page view, a plain-ASCII one too; a binary
+    /// with any other extension still carries none.
+    #[test]
+    fn pdf_sides_carry_their_bytes() {
+        let r = TestRepo::new();
+        r.write_bytes("survey.pdf", b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<<>>\nendobj\n");
+        r.write("plain.PDF", "%PDF-1.4\n1 0 obj\n<<>>\nendobj\n");
+        r.git(&["add", "--", "survey.pdf", "plain.PDF"]);
+        r.commit("Add the survey");
+        let repo = gix::open(r.path()).unwrap();
+        let decode = |b: &BlobPayload| base64::engine::general_purpose::STANDARD.decode(b.base64.as_ref().unwrap()).unwrap();
+        let added = diff_contents(&repo, "survey.pdf", &Side::Absent, &object(&r, "HEAD:survey.pdf"), false).unwrap();
+        assert!(added.pdf && !added.image);
+        assert_eq!(&decode(added.new.as_ref().unwrap())[..5], b"%PDF-");
+        let plain = diff_contents(&repo, "plain.PDF", &Side::Absent, &object(&r, "HEAD:plain.PDF"), false).unwrap();
+        let side = plain.new.unwrap();
+        assert!(plain.pdf && !side.binary, "sniffed as text");
+        assert_eq!(&decode(&side)[..5], b"%PDF-");
+        let named = diff_contents(&repo, "survey.bin", &Side::Absent, &object(&r, "HEAD:survey.pdf"), false).unwrap();
+        assert!(!named.pdf && named.new.unwrap().base64.is_none());
+        // A Git LFS pointer named .pdf isn't one: it stays text, without bytes.
+        r.write("big.pdf", "version https://git-lfs.github.com/spec/v1\noid sha256:4d7a\nsize 12345\n");
+        r.git(&["add", "--", "big.pdf"]);
+        r.commit("Add a pointer");
+        let pointer = diff_contents(&repo, "big.pdf", &Side::Absent, &object(&r, "HEAD:big.pdf"), false).unwrap();
+        let side = pointer.new.unwrap();
+        assert!(pointer.pdf && side.text.is_some() && side.base64.is_none());
     }
 
     #[test]

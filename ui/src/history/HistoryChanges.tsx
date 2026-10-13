@@ -5,15 +5,17 @@ import { errorMessage } from '../api/client';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileHistoryRow } from '../api/gen/FileHistoryRow';
 import { useChangeKeys } from '../diff/changeKeys';
-import { FORCED_CEILING_LABEL, ImageBody, isHex, isImage, useContents, usePresented } from '../diff/DiffPanel';
+import { FORCED_CEILING_LABEL, ImageBody, isHex, isImage, isMedia, MediaBody, useContents, usePresented } from '../diff/DiffPanel';
 import { DiffTextBody } from '../diff/DiffTextBody';
 import { DiffToolbar } from '../diff/DiffToolbar';
 import { MarkdownViewToggle } from '../diff/FileBody';
+import { useTableView } from '../diff/tableView';
+import { tableDelimiterOf } from '../table/csv';
 import { formatBytes } from '../diff/format';
 import { HexBody, HexView } from '../diff/hex';
 import { hexOf } from '../diff/hexContents';
 import { highlightLanguage } from '../diff/language';
-import { isMarkdownTarget, TOO_LARGE_TO_RENDER, useDiffTooLarge } from '../diff/markdownFiles';
+import { isRenderedTarget, renderedKindOf, TOO_LARGE_TO_RENDER, useDiffTooLarge } from '../diff/markdownFiles';
 import { useMarkdownView } from '../diff/markdownOverride';
 import { filesKey, type RepoServices } from '../repo/services';
 import { useRepoView } from '../repo/store';
@@ -81,29 +83,36 @@ function ChangesBody({ target, views }: { target: ChangesTarget; views: ReactNod
   const shown = body.target as ChangesTarget;
   const contents = body.contents;
   const loaded = contents.status === 'ready' ? contents.data : null;
-  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded);
-  const mdDiff = textBody && isMarkdownTarget(shown);
+  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isMedia(shown, loaded) && !isHex(shown, loaded);
+  const mdDiff = textBody && isRenderedTarget(shown);
   const diffTooLarge = useDiffTooLarge(shown.key, mdDiff ? loaded?.old?.text ?? '' : '', mdDiff ? loaded?.new?.text ?? '' : '').tooLarge;
   const picked = useMarkdownView(mdDiff ? shown.path : null);
   const rendered = mdDiff && picked === 'rendered' && !diffTooLarge;
-  // An SVG's Source toggle (or a raster image's Hex), per file: a text (or hex) diff to step through.
+  // An HTML file's rendered diff: its pages side by side, no changes to step through.
+  const page = rendered && renderedKindOf(shown) === 'html';
+  // An SVG's Source toggle (or a raster image's or media's Hex), per file: a text (or hex) diff to
+  // step through.
   const [sourceOf, setSourceOf] = useState<string | null>(null);
   const imageDiff = !!loaded && !loaded.tooLarge && isImage(shown, loaded);
-  const svgSource = imageDiff && sourceOf === shown.key;
-  const textDiff = (!!loaded && !loaded.tooLarge && !imageDiff) || svgSource;
-  const hexImage = svgSource && !shown.path.toLowerCase().endsWith('.svg');
-  useChangeKeys(textDiff);
+  const mediaDiff = !!loaded && isMedia(shown, loaded);
+  const sourceOn = (imageDiff || mediaDiff) && sourceOf === shown.key;
+  const textDiff = (!!loaded && !loaded.tooLarge && !imageDiff && !mediaDiff) || sourceOn;
+  const hexImage = sourceOn && (mediaDiff || !shown.path.toLowerCase().endsWith('.svg'));
+  useChangeKeys(textDiff && !page);
+  const table = useTableView(shown, textBody ? loaded : null);
   return (
     <>
       <DiffToolbar
         target={shown}
         canDiff
-        canStep={textDiff}
-        textTools={!imageDiff || svgSource}
+        canStep={textDiff && !page}
+        textTools={!(imageDiff || mediaDiff) || sourceOn}
         binary={!!loaded && (isHex(shown, loaded) || hexImage)}
         rendered={rendered}
+        page={page}
+        table={table.diff}
         views={views}
-        markdown={mdDiff ? <MarkdownViewToggle path={shown.path} forced={diffTooLarge ? TOO_LARGE_TO_RENDER : null} /> : null}
+        markdown={mdDiff ? <MarkdownViewToggle path={shown.path} kind={renderedKindOf(shown) ?? undefined} forced={diffTooLarge ? TOO_LARGE_TO_RENDER : null} /> : table.toggle}
       />
       <div className="diff-body" data-testid="history-changes">
         <Body target={shown} contents={contents} forced={forcedKey === shown.key} onLoadAnyway={() => setForcedKey(shown.key)} onSourceChange={(on) => setSourceOf(on ? shown.key : null)} />
@@ -128,6 +137,7 @@ function Body({ target, contents, forced, onLoadAnyway, onSourceChange }: { targ
     );
   }
   if (isImage(target, c)) return <ImageBody target={target} contents={c} onSourceChange={onSourceChange} />;
+  if (isMedia(target, c)) return <MediaBody target={target} contents={c} onSourceChange={onSourceChange} />;
   if (isHex(target, c)) {
     const hex = hexOf(c);
     return hex ? <HexView path={target.path} hex={hex} file={false} /> : <HexBody target={target} contents={c} />;
@@ -138,7 +148,9 @@ function Body({ target, contents, forced, onLoadAnyway, onSourceChange }: { targ
     <DiffTextBody
       identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified}
       language={highlightLanguage(target.path, modified || original)}
-      markdown={isMarkdownTarget(target) ? target.sides : null}
+      markdown={isRenderedTarget(target) ? target.sides : null}
+      target={target}
+      table={tableDelimiterOf(target)}
     />
   );
 }

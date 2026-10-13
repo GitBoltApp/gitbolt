@@ -114,10 +114,31 @@ describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
     expect(sub.initial).toBe('opener.jetbrains-phpstorm');
     find(sub.rows, 'Show in Files').run();
     expect(env.act.openIn).toHaveBeenLastCalledWith(OPENERS[2], t.openIn);
-    // A stored version opens as a read-only copy, and the tooltip says so.
+    // A stored version opens as the file, or a read-only copy if it has changed, and the tooltip says so.
     expect(find(sub.rows, 'Open in VS Code').tooltip).toMatch(/read-only copy/);
     const wip = file(target({ sha: null, openIn: { ...t.openIn, source: { kind: 'worktree', worktree: '/r' } } }), env).find((r) => r.kind === 'submenu') as Submenu;
     expect(find(wip.rows, 'Open in VS Code').tooltip).not.toMatch(/read-only/);
+  });
+
+  it('Open in ▸: the default app is named for the file ("Open in browser" for HTML) and says when it opens a copy', () => {
+    const list: OpenerPayload[] = [...OPENERS.slice(0, 2), { id: 'default-app', name: 'Default app', kind: 'defaultApp' }, ...OPENERS.slice(2)];
+    const env = envOf({ openers: { list, error: null, last: null } });
+    const t = target();
+    const page = file(target({ openIn: { ...t.openIn, path: 'site/index.html' } }), env).find((r) => r.kind === 'submenu') as Submenu;
+    expect(labels(page.rows)).toEqual(['Open in VS Code', 'Open in PhpStorm', '---', 'Open in browser', 'Show in Files', 'Other…']);
+    expect(page.initial).toBe('opener.vscode');
+    expect(find(page.rows, 'Open in browser').tooltip).toMatch(/temporary read-only copy/);
+    const sub = file(t, env).find((r) => r.kind === 'submenu') as Submenu;
+    find(sub.rows, 'Open in default app').run();
+    expect(env.act.openIn).toHaveBeenLastCalledWith(list[2], t.openIn);
+    // A program: the row stays, disabled with the reason.
+    const exe = file(target({ openIn: { ...t.openIn, path: 'bin/setup.exe' } }), env).find((r) => r.kind === 'submenu') as Submenu;
+    expect(find(exe.rows, 'Open in default app').disabledReason).toMatch(/^Runs as a program/);
+    // A submodule (a folder): no row.
+    const wipSub = file(target({ sha: null, wip: { worktree: '/r', staged: false, oldPath: null, status: 'M', submodule: true } }), env).find((r) => r.kind === 'submenu') as Submenu;
+    expect(labels(wipSub.rows)).not.toContain('Open in default app');
+    const commitSub = file(target({ diff: { ...t.diff, old: { kind: 'submodule', oid: 'a'.repeat(40) }, new: { kind: 'submodule', oid: 'b'.repeat(40) } } }), env).find((r) => r.kind === 'submenu') as Submenu;
+    expect(labels(commitSub.rows)).not.toContain('Open in default app');
   });
 
   it('Open in ▸ while the openers load, after a failed load, and with none found', () => {

@@ -243,6 +243,32 @@ function noticeSections(text: string): { head: string; sections: { ids: string[]
   };
 }
 
+/**
+ * The licenses of files a package ships under their own, in a subfolder beside them: pdfjs-dist's
+ * `wasm/` holds openjpeg.wasm with `LICENSE_OPENJPEG` (and `LICENSE_PDFJS_OPENJPEG` for its
+ * wrapper). A file there named `LICENSE_<NAME>` (or `LICENSE_<PKG>_<NAME>`) goes with the bundled
+ * files whose names start with `<name>`; a plain `LICENSE` with any of them.
+ */
+function subfolderLicenses(pkgDir: string, label: string, subFiles: Map<string, Set<string>>): string[] {
+  const out: string[] = [];
+  for (const [dir, files] of [...subFiles].filter(([d]) => d.startsWith(`${pkgDir}/`)).sort()) {
+    let names: string[];
+    try {
+      names = readdirSync(dir).filter((f) => LICENSE_FILE.test(f) && !NOT_TEXT.test(f)).sort();
+    } catch {
+      continue;
+    }
+    const rel = dir.slice(pkgDir.length + 1);
+    for (const f of names) {
+      const parts = f.replace(/\.(txt|md)$/i, '').split(/[_.-]/).slice(1).map((x) => x.toLowerCase());
+      const users = [...files].filter((b) => !parts.length || parts.some((x) => b.toLowerCase().startsWith(x))).sort();
+      const t = users.length ? readText(dir, f) : null;
+      if (t?.trim()) out.push('', '='.repeat(100), `License of ${users.map((u) => `${rel}/${u}`).join(', ')} in ${label} (${rel}/${f})`, '='.repeat(100), '', t.trim(), '');
+    }
+  }
+  return out;
+}
+
 export function buildUiNotices(opts: {
   moduleIds: Iterable<string>; accepted: string[]; exceptions: Exceptions; shiki?: ShikiMeta; root?: string;
   /** `<id>.txt`: the upstream license text of a clarified grammar or theme. */
@@ -252,6 +278,7 @@ export function buildUiNotices(opts: {
   const errors: string[] = [];
   const warnings: string[] = [];
   const pkgs = new Map<string, string>(); // dir -> name
+  const subFiles = new Map<string, Set<string>>(); // a package's subfolder -> the files bundled from it
   const grammarIds = new Set<string>();
   const themeIds = new Set<string>();
   const ownGrammarIds = new Set<string>();
@@ -264,6 +291,8 @@ export function buildUiNotices(opts: {
     const p = helper && opts.root ? { dir: join(opts.root, 'node_modules', helper[1]), name: helper[1] } : packageDirOf(id);
     if (!p) continue;
     pkgs.set(p.dir, p.name);
+    const slash = path.lastIndexOf('/');
+    if (path.slice(0, slash) !== p.dir) subFiles.set(path.slice(0, slash), (subFiles.get(path.slice(0, slash)) ?? new Set()).add(path.slice(slash + 1)));
     const file = path.split('/').pop()!.replace(/\.mjs$/, '');
     if (p.name === '@shikijs/langs' && /\/dist\/[^/]+\.mjs/.test(path) && file !== 'index') grammarIds.add(file);
     if (p.name === '@shikijs/themes' && /\/dist\/[^/]+\.mjs/.test(path) && file !== 'index') themeIds.add(file);
@@ -307,6 +336,7 @@ export function buildUiNotices(opts: {
       const t = readText(dir, f);
       if (t?.trim()) notices.push('', '='.repeat(100), `Notices shipped by ${label} (${f})`, '='.repeat(100), '', t.trim(), '');
     }
+    notices.push(...subfolderLicenses(dir, label, subFiles));
   }
 
   const extra: string[] = [];

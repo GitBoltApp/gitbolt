@@ -74,11 +74,19 @@ impl gitbolt_core::updates::UpdateRunner for RecordingRunner {
 /// What `/launches` names "Other…" (the Open With chooser) by, in place of a program.
 pub const CHOOSER_PROGRAM: &str = "open-with-chooser";
 
-/// A fixed opener list (one of each style; the programs don't exist) plus "Other…", whose
-/// launches `launches` records.
+/// What `/launches` names "Open in default app" by, in place of a program.
+pub const DEFAULT_APP_PROGRAM: &str = "default-app";
+
+/// A fixed opener list (one of each style; the programs don't exist) plus "Open in default app"
+/// and "Other…", whose launches `launches` records.
 pub fn with_fake_openers(api: Api, launches: Arc<Launches>) -> Api {
     let chosen = launches.clone();
-    api.with_chooser(Arc::new(move |file: &std::path::Path| {
+    let defaulted = launches.clone();
+    api.with_default_app(Arc::new(move |file: &std::path::Path| {
+        defaulted.record(&LaunchCommand { program: DEFAULT_APP_PROGRAM.into(), args: vec![file.into()] });
+        Ok(())
+    }))
+    .with_chooser(Arc::new(move |file: &std::path::Path| {
         chosen.record(&LaunchCommand { program: CHOOSER_PROGRAM.into(), args: vec![file.into()] });
         Ok(())
     }))

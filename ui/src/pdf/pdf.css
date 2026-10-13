@@ -1,0 +1,22 @@
+/* A PDF's pages (pdf/PdfView.tsx). The toolbar is the image diff's (image.css). */
+.pdf-stage { position: relative; display: flex; gap: 2px; flex: 1; min-height: 0; }
+.pdf-side { position: relative; flex: 1; min-width: 0; display: flex; }
+.pdf-pane { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; background: var(--app-bg0); outline: none; }
+.pdf-pane:focus-visible { box-shadow: inset 0 0 0 2px var(--blue); }
+.pdf-column { position: relative; min-width: 100%; margin: 0 auto; }
+.pdf-page { position: absolute; left: 50%; transform: translateX(-50%); /* theme-ok: paper is white in every theme */ background: #fff; box-shadow: 0 0 0 1px var(--image-frame-border); }
+.pdf-canvas { display: block; }
+.pdf-message { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--text-secondary); }
+.pdf-side > .pdf-label { position: absolute; top: 8px; left: 50%; transform: translateX(-50%); font-size: 13px; padding: 2px 8px; border-radius: 3px; /* theme-ok: a chip over the pages, as the image diff's */ background: rgba(0, 0, 0, 0.55); }
+
+.pdf-page-no { display: inline-block; font-variant-numeric: tabular-nums; }
+
+/* pdf.js's text layer (its web/pdf_viewer.css, trimmed): transparent text over the canvas, for selection. */
+.pdf-page .textLayer { position: absolute; inset: 0; overflow: clip; line-height: 1; text-align: initial; transform-origin: 0 0; z-index: 0; --scale-round-x: 1px; --scale-round-y: 1px; --min-font-size: 1; --text-scale-factor: calc(var(--total-scale-factor) * var(--min-font-size)); --min-font-size-inv: calc(1 / var(--min-font-size)); forced-color-adjust: none; text-size-adjust: none; }
+.pdf-page .textLayer :is(span, br) { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; user-select: text; -webkit-user-select: text; }
+.pdf-page .textLayer > :not(.markedContent), .pdf-page .textLayer .markedContent span:not(.markedContent) { z-index: 1; --font-height: 0; font-size: calc(var(--text-scale-factor) * var(--font-height)); --scale-x: 1; --rotate: 0deg; transform: rotate(var(--rotate)) scaleX(var(--scale-x)) scale(var(--min-font-size-inv)); }
+.pdf-page .textLayer .markedContent { display: contents; }
+.pdf-page .textLayer span[role="img"] { user-select: none; -webkit-user-select: none; cursor: default; }
+.pdf-page .textLayer ::selection { background: color-mix(in srgb, var(--blue) 35%, transparent); color: transparent; }
+.pdf-page .textLayer br::selection { background: transparent; }
+.pdf-page .textLayer .endOfContent { display: block; position: absolute; inset: 100% 0 0; z-index: 0; cursor: default; user-select: none; -webkit-user-select: none; }

@@ -5,13 +5,15 @@
 import { api, type ContentsRequest } from '../api/client';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
 import type { HexDumpPayload } from '../api/gen/HexDumpPayload';
+import { showsMedia } from '../media/kind';
+import { isPdf } from '../pdf/kind';
 
 /** Contents, with a binary's hex dumps (`hexDump`) when it has them. */
 export type HexContents = DiffContentsPayload & { hex?: HexDumpPayload };
 
-/** A binary loaded for the viewer that isn't a raster image: it shows as hex. (An SVG with a
- * binary side has no image bytes, so it's one too.) */
-export const wantsHex = (c: DiffContentsPayload) => !c.tooLarge && !c.image && !!(c.old?.binary || c.new?.binary);
+/** A binary loaded for the viewer that isn't a raster image, media or a PDF: it shows as hex.
+ * (An SVG with a binary side has no image bytes, so it's one too.) */
+export const wantsHex = (c: DiffContentsPayload) => !c.tooLarge && !c.image && !showsMedia(c) && !isPdf(c) && !!(c.old?.binary || c.new?.binary);
 
 export const hexOf = (c: DiffContentsPayload): HexDumpPayload | null => (c as HexContents).hex ?? null;
 

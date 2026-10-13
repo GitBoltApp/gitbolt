@@ -17,6 +17,13 @@ export const BINARY_MODE_TIP = 'A binary file always shows side by side: hex and
 export const RENDERED_HUNK_TIP = 'The rendered diff shows the whole document: pick Inline or Split, or Source for Hunk';
 export const RENDERED_WHITESPACE_TIP = "The rendered diff already ignores whitespace that doesn't show";
 export const RENDERED_WRAP_TIP = 'Rendered text always wraps';
+/** An HTML file's rendered diff: its old and new pages, side by side, as they are. */
+export const PAGE_MODE_TIP = 'The rendered pages show side by side: pick Source for Hunk or Inline';
+export const PAGE_AS_IS_TIP = 'The rendered pages show as they are';
+/** Why the text-diff tools are off while a CSV or TSV file's table diff shows. */
+export const TABLE_MODE_TIP = 'The table diff lines rows up in one column: pick Source for Hunk, Inline or Split';
+export const TABLE_WHITESPACE_TIP = 'The table diff compares cells exactly';
+export const TABLE_WRAP_TIP = 'Table cells stay on one line';
 
 /** Next / previous change: the rendered Markdown diff's while it shows (5C, R3), else the diff
  * editor's (F7 / Shift+F7, the toolbar arrows). */
@@ -42,9 +49,13 @@ export const goToChange = (dir: 'next' | 'previous') => {
  * the right group (it grows leftward, so nothing after it moves).
  * `rendered`: the rendered Markdown diff shows (5C): Inline and Split pick its layout (the same
  * saved mode); Hunk, whitespace and wrap stay in place, off, and say why.
+ * `page`: what shows is an HTML file's rendered diff, its pages side by side: the view modes,
+ * whitespace and wrap stay in place, off, and say why.
+ * `table`: a CSV or TSV file's table diff shows: the view modes, whitespace and wrap stay in
+ * place, off, and say why; Previous/Next change step through its changed rows.
  * `views`: another view switch in File View / Diff View's place (File History's `File | Changes`).
  */
-export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, rendered = false, leading, staging, history, markdown, views }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; rendered?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode; markdown?: ReactNode; views?: ReactNode }) {
+export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary = false, rendered = false, page = false, table = false, leading, staging, history, markdown, views }: { target: DiffTarget; canDiff: boolean; canStep: boolean; textTools?: boolean; binary?: boolean; rendered?: boolean; page?: boolean; table?: boolean; leading?: ReactNode; staging?: ReactNode; history?: ReactNode; markdown?: ReactNode; views?: ReactNode }) {
   const prefs = useDiffPrefs((s) => s.prefs);
   const setPrefs = useDiffPrefs((s) => s.set);
   const store = useRepoViewStore();
@@ -79,14 +90,14 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary
               <IconButton label="Next change" tip="Next change (F7)" disabled={!canStep} onClick={() => goToChange('next')}><ArrowDown size={14} /></IconButton>
             </div>
             <div className="segmented" role="group" aria-label="View mode">
-              {MODES.map(([m, label]) => binary || (rendered && m === 'hunk')
+              {MODES.map(([m, label]) => binary || page || table || (rendered && m === 'hunk')
                 // `aria-disabled`, so the tooltip still shows on hover.
-                ? <HoverTooltip key={m} content={binary ? BINARY_MODE_TIP : RENDERED_HUNK_TIP} disabled={binary && m !== 'inline'}><button type="button" aria-pressed={!rendered && prefs.mode === m} aria-disabled="true">{label}</button></HoverTooltip>
+                ? <HoverTooltip key={m} content={binary ? BINARY_MODE_TIP : page ? PAGE_MODE_TIP : table ? TABLE_MODE_TIP : RENDERED_HUNK_TIP} disabled={binary && m !== 'inline'}><button type="button" aria-pressed={page ? m === 'split' : !rendered && !table && prefs.mode === m} aria-disabled="true">{label}</button></HoverTooltip>
                 : <button key={m} type="button" aria-pressed={mode === m} disabled={!inDiff} onClick={() => setPrefs({ mode: m })}>{label}</button>)}
             </div>
             <div className="diff-toolbar-group" role="group" aria-label="Display">
-              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} blockedTip={rendered && !binary ? RENDERED_WHITESPACE_TIP : undefined} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
-              <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} disabled={binary} blockedTip={rendered && !binary ? RENDERED_WRAP_TIP : undefined} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
+              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} blockedTip={page ? PAGE_AS_IS_TIP : table ? TABLE_WHITESPACE_TIP : rendered && !binary ? RENDERED_WHITESPACE_TIP : undefined} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
+              <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} disabled={binary} blockedTip={page ? PAGE_AS_IS_TIP : table ? TABLE_WRAP_TIP : rendered && !binary ? RENDERED_WRAP_TIP : undefined} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
             </div>
           </>
         )}

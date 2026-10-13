@@ -14,4 +14,15 @@ eolOnly: boolean,
 /**
  * The path has a raster-image extension (the UI shows the image diff).
  */
-image: boolean, };
+image: boolean, 
+/**
+ * The path is a `.pdf`: each side that is one (its `%PDF-` header, not a Git LFS pointer)
+ * carries its bytes, and the UI shows its pages. Absent otherwise.
+ */
+pdf?: boolean, 
+/**
+ * The path has an audio, video or font extension: when every side is binary, they carry their
+ * bytes, which the UI plays or previews. Like an image, it keeps the large-file gate, up to
+ * `MAX_FORCED_BYTES`: past that it shows as a binary's capped hex dump. Absent otherwise.
+ */
+media?: boolean, };

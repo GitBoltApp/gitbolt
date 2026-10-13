@@ -4,7 +4,7 @@
 //! `git cat-file blob` with its stdout capped (gix has no streaming blob read).
 
 use crate::blob::{is_binary_head, resolve, Resolved, Side};
-use crate::diff::BINARY_SNIFF_BYTES;
+use crate::diff::{BINARY_SNIFF_BYTES, MAX_FORCED_BYTES};
 use crate::error::{gix_err, GbError};
 use crate::git::{GitCli, GitInvocation};
 use crate::payload::{DiffContentsPayload, HexDumpPayload, HexSide};
@@ -94,9 +94,12 @@ async fn dump_side(repo: &gix::ThreadSafeRepository, cli: &GitCli, cwd: &Path, p
 /// A diff held back by the large-file gates (`too_large`) whose old or new side is binary
 /// (`is_binary_head` on its first `BINARY_SNIFF_BYTES`, read without the rest) isn't held back:
 /// it shows as a capped hex dump, so its size doesn't matter. Those sides are marked binary and
-/// `too_large` cleared. Text files and images keep the gates.
+/// `too_large` cleared. Text files, images and PDFs keep the gates, and so does media up to the forced
+/// ceiling, which "Load anyway" brings in to play; past it, media is too large to play and shows
+/// as hex, as any binary.
 pub async fn ungate_binary(repo: &gix::ThreadSafeRepository, cli: &GitCli, cwd: &Path, path: &str, old: &Side, new: &Side, c: &mut DiffContentsPayload) -> Result<(), GbError> {
-    if !c.too_large || c.image {
+    let playable = c.media && [&c.old, &c.new].into_iter().flatten().all(|s| s.size <= MAX_FORCED_BYTES);
+    if !c.too_large || c.image || c.pdf || playable {
         return Ok(());
     }
     let mut binary = false;
@@ -201,7 +204,6 @@ mod tests {
     #[tokio::test]
     async fn large_binaries_skip_the_large_file_gates() {
         use crate::blob::diff_contents;
-        use crate::diff::MAX_FORCED_BYTES;
         let r = TestRepo::new();
         fixtures::details(&r);
         let repo = gix::open(r.path()).unwrap().into_sync();
@@ -219,7 +221,7 @@ mod tests {
             assert!(side.binary && side.text.is_none() && side.base64.is_none());
             assert_eq!(side.size, MAX_FORCED_BYTES + 1);
         }
-        let dump = hex_dump(&repo, &cli(), r.path(), "huge.dat", Side::Absent, huge, HEX_CAP).await.unwrap().new.unwrap();
+        let dump = hex_dump(&repo, &cli(), r.path(), "huge.dat", Side::Absent, huge.clone(), HEX_CAP).await.unwrap().new.unwrap();
         assert_eq!((dump.size, dump.shown), (MAX_FORCED_BYTES + 1, HEX_CAP));
         // A large text file keeps its prompt.
         let mut text = diff_contents(&local, "big.txt", &Side::Absent, &big, false).unwrap();
@@ -232,5 +234,15 @@ mod tests {
         let mut c = diff_contents(&local, "wt.bin", &wt, &Side::Absent, false).unwrap();
         ungate_binary(&repo, &cli(), r.path(), "wt.bin", &wt, &Side::Absent, &mut c).await.unwrap();
         assert!(!c.too_large && c.old.unwrap().binary);
+        // A large video keeps its prompt, as an image does: "Load anyway" brings its bytes to play.
+        r.write_bytes("clip.mp4", &vec![0u8; 3 * 1024 * 1024]);
+        let clip = Side::Object(ObjectId::from_hex(r.git(&["hash-object", "-w", "clip.mp4"]).as_bytes()).unwrap());
+        let mut video = diff_contents(&local, "clip.mp4", &Side::Absent, &clip, false).unwrap();
+        ungate_binary(&repo, &cli(), r.path(), "clip.mp4", &Side::Absent, &clip, &mut video).await.unwrap();
+        assert!(video.media && video.too_large);
+        // Past the forced ceiling it can't play: its capped hex dump, as any binary's.
+        let mut huge_video = diff_contents(&local, "clip.mp4", &Side::Absent, &huge, false).unwrap();
+        ungate_binary(&repo, &cli(), r.path(), "clip.mp4", &Side::Absent, &huge, &mut huge_video).await.unwrap();
+        assert!(huge_video.media && !huge_video.too_large && huge_video.new.unwrap().binary);
     }
 }

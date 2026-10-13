@@ -111,6 +111,20 @@ describe('File View places (spec #5 §3.4)', () => {
     expect(takePendingScroll('t', 'file', `file:${A}:docs/guide.md`, 'source')).toMatchObject({ top: 640 });
   });
 
+  it("an HTML file's place records and restores HTML's own pick, leaving Markdown's alone", async () => {
+    store.getState().selectRow(1);
+    await flush();
+    store.getState().openFile({ ...targetFor(change('site/index.html'), specA), view: 'file' });
+    useDiffPrefs.getState().set({ htmlView: 'rendered', markdownView: 'source' });
+    store.getState().selectRow(2);
+    await flush();
+    store.getState().openFile({ ...targetFor(change('README.md'), specB), view: 'file' });
+    expect(historyOf('t').places[0]).toMatchObject({ kind: 'file', path: 'site/index.html', view: 'rendered' });
+    useDiffPrefs.getState().set({ htmlView: 'source' });
+    await navBack('t');
+    expect(useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'rendered', markdownView: 'source' });
+  });
+
   it('a long rendered document is captured with its first visible block, and Back asks its view for that block', async () => {
     store.getState().selectRow(1);
     await flush();

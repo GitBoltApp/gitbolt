@@ -1,5 +1,6 @@
 import { api } from '../api/client';
 import type { ForgeImage } from '../api/gen/ForgeImage';
+import { base64Bytes } from '../image/sources';
 
 /** The extensions GitLab renders an image link to as a video (`![clip](/uploads/…/clip.webm)`). */
 const VIDEO_PATH = /\.(mp4|m4v|mov|webm|ogv)$/i;
@@ -24,8 +25,11 @@ export function videoCodec(bytes: Uint8Array): string | null {
   return find(0, Math.min(bytes.length, SCAN)) ?? (bytes.length > SCAN ? find(Math.max(SCAN, bytes.length - SCAN), bytes.length) : null);
 }
 
-const CONTAINER: Record<string, string> = { 'video/mp4': 'MP4', 'video/quicktime': 'QuickTime', 'video/webm': 'WebM', 'video/ogg': 'Ogg' };
-/** What "This video's format (…) can't play here" names: the codec, else the container. */
+const CONTAINER: Record<string, string> = {
+  'video/mp4': 'MP4', 'video/quicktime': 'QuickTime', 'video/webm': 'WebM', 'video/ogg': 'Ogg',
+  'audio/mpeg': 'MP3', 'audio/wav': 'WAV', 'audio/flac': 'FLAC', 'audio/ogg': 'Ogg', 'audio/ogg; codecs=opus': 'Opus', 'audio/mp4': 'MP4 audio', 'audio/aac': 'AAC', 'audio/webm': 'WebM',
+};
+/** What "This video's (or audio file's) format (…) can't play here" names: the codec, else the container. */
 export const videoFormat = (mime: string, codec: string | null): string => codec ?? CONTAINER[mime] ?? mime;
 
 export type LoadedVideo = { kind: 'found'; url: string; mime: string; codec: string | null } | Exclude<ForgeImage, { kind: 'found' }>;
@@ -35,9 +39,7 @@ const KEPT = 6;
 const loaded = new Map<string, Promise<LoadedVideo>>();
 
 function toBlob(mime: string, base64: string): { blob: Blob; codec: string | null } {
-  const bin = atob(base64);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const bytes = base64Bytes(base64);
   return { blob: new Blob([bytes], { type: mime }), codec: videoCodec(bytes) };
 }
 

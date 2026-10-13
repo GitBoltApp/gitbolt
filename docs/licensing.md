@@ -11,7 +11,7 @@ every package carries them, generated fresh by each `just package`.
 | --- | --- |
 | `LICENSE` | GitBolt's own license |
 | `THIRD-PARTY-NOTICES-rust.txt` | Every crate `gitbolt-app` links, grouped by license |
-| `THIRD-PARTY-NOTICES-ui.txt` | Every npm package in the UI bundle, grouped by license; Shiki's grammars and themes with their own licenses; notices packages ship (Monaco's `ThirdPartyNotices.txt`) |
+| `THIRD-PARTY-NOTICES-ui.txt` | Every npm package in the UI bundle, grouped by license; Shiki's grammars and themes with their own licenses; notices packages ship (Monaco's `ThirdPartyNotices.txt`); the licenses a package keeps beside files bundled from a subfolder (pdf.js's `wasm/LICENSE_OPENJPEG`, `LICENSE_JBIG2`) |
 | `CEF-LICENSE.txt` | CEF's license, from the CEF distribution the build used |
 | `CHROMIUM-CREDITS.html.gz` | Chromium's credits for everything it bundles, from the same distribution (about 20 MB of HTML, gzipped to about 2 MB) |
 | `DICTIONARY-en-US-LICENSE.txt` | The spell-check dictionary's source and license (below) |

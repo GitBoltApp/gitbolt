@@ -126,6 +126,25 @@ describe('OpenInButton', () => {
     expect(screen.getByRole('button', { name: 'Open in PhpStorm' })).toBeInTheDocument();
   });
 
+  it('"Open in browser" for an HTML file opens it, and stays a menu row: it is never remembered', async () => {
+    listOpeners.mockResolvedValue([OPENERS[1], { id: 'default-app', name: 'Default app', kind: 'defaultApp' }, ...OPENERS.slice(2)]);
+    const page: DiffTarget = { ...commitTarget, key: 'k|site/index.html', path: 'site/index.html' };
+    renderButton(page);
+    fireEvent.click(await screen.findByRole('button', { name: 'More ways to open' }));
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Open in VS Code', 'Open in browser', 'Show in Files', 'Other…']);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Open in browser' }));
+    await waitFor(() => expect(openIn).toHaveBeenCalledExactlyOnceWith(7, { worktree: '/repo', path: 'site/index.html', line: null, opener: 'default-app', source: { kind: 'object', oid: 'b'.repeat(40) }, fallback: null }));
+    expect(screen.getByRole('button', { name: 'Open in VS Code' })).toBeInTheDocument();
+    expect(loadLastOpener()).toBeNull();
+  });
+
+  it('a submodule has no default app row', async () => {
+    listOpeners.mockResolvedValue([OPENERS[1], { id: 'default-app', name: 'Default app', kind: 'defaultApp' }, ...OPENERS.slice(2)]);
+    renderButton({ ...commitTarget, key: 'k|vendor/lib', path: 'vendor/lib', old: { kind: 'submodule', oid: 'a'.repeat(40) }, new: { kind: 'submodule', oid: 'b'.repeat(40) } });
+    fireEvent.click(await screen.findByRole('button', { name: 'More ways to open' }));
+    expect(screen.getAllByRole('menuitem').map((i) => i.textContent)).toEqual(['Open in VS Code', 'Show in Files', 'Other…']);
+  });
+
   it('Escape closes the dropdown and returns focus to its toggle; a click outside closes it', async () => {
     renderButton();
     const toggle = await screen.findByRole('button', { name: 'More ways to open' });

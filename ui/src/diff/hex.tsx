@@ -17,6 +17,7 @@ import type { HexView as HexViewApi } from './monaco/host';
 import { EditorLoadError, useMonacoHost, useOnShown } from './TextDiff';
 import './hex.css';
 import { ArrowGlyph } from '../ui/ArrowGlyph';
+import { tooLargeToPlay } from '../media/kind';
 
 /** One decimal, none when it's 0: "1.2", "256". */
 const decimal = (x: number) => x.toFixed(1).replace(/\.0$/, '');
@@ -59,7 +60,8 @@ export function BinaryNote({ target, contents: c, hex, summary = true }: { targe
       )}
       {over.length > 0 && (
         <span className="hex-capped" data-testid="hex-capped">
-          {over.length === 1 ? `Showing the first ${cap} of ${formatSize(over[0])}` : `Showing the first ${cap} of each side`}
+          {tooLargeToPlay(c) ? `Too large to play; showing the first ${cap} as hex`
+            : over.length === 1 ? `Showing the first ${cap} of ${formatSize(over[0])}` : `Showing the first ${cap} of each side`}
         </span>
       )}
     </>

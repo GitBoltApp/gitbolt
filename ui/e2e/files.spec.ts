@@ -570,12 +570,12 @@ test.describe('file list and diff takeover', () => {
       await menu.getByText('Forge link').click();
       if (browserName === 'chromium') await expect.poll(clip).toBe(`https://gitlab.example.com/group/project/-/blob/${sha}/src/app.php`);
 
-      // Open in ▸: the detected openers, then Show in Files, then Other….
+      // Open in ▸: the detected openers, then the default app, Show in Files, then Other….
       await row.click({ button: 'right' });
       const openIn = menu.getByRole('menuitem', { name: 'Open in', exact: true });
       await openIn.hover();
       const sub = page.getByRole('menu', { name: 'Open in' });
-      await expect(sub.getByRole('menuitem')).toHaveText(['Open in VS Code', 'Open in PhpStorm', 'Open in Text Editor', 'Show in Files', 'Other…']);
+      await expect(sub.getByRole('menuitem')).toHaveText(['Open in VS Code', 'Open in PhpStorm', 'Open in Text Editor', 'Open in default app', 'Show in Files', 'Other…']);
       await expect(sub.locator('[data-active="true"]')).toHaveAttribute('data-row-id', 'opener.vscode');
       await page.keyboard.press('ArrowDown');
       await page.keyboard.press('Enter');

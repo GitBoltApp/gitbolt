@@ -130,7 +130,11 @@ untrusted text (`ui/src/markdown/`).
     load anything from outside;
   - `img-src 'self' data: blob:`: the core hands over every remote image as `data:` or `blob:`;
   - `media-src 'self' blob:`: a video in rendered Markdown plays from a `blob:` URL of the bytes
-    the core fetched;
+    the core fetched, and audio and video in the diff and File View from a `blob:` URL of the
+    file's bytes;
+  - no `font-src` (so `default-src 'self'`): a font file in the diff and File View is previewed
+    from its bytes (a `FontFace` built from a buffer, never fetched from a URL), which pass
+    through Chromium's font sanitizer (OTS) like any web font;
   - `connect-src 'self' ipc: http://ipc.localhost`: the app's own IPC only;
   - `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'none'`.
 - **The page may read the clipboard's text** (the clipboard plugin's `read-text` permission,
@@ -141,6 +145,50 @@ untrusted text (`ui/src/markdown/`).
 - The end-to-end tests run the UI under the same policy (sent by `vite preview`,
   `ui/vite.config.ts`), and fail on any violation (`ui/e2e/test.ts`). `ui/e2e/csp.spec.ts` checks
   that a script injected into rendered Markdown never runs.
+
+### Rendered HTML files
+
+An `.html`, `.htm` or `.xhtml` file shows rendered in File View and Diff View
+(`ui/src/diff/pageDoc.ts`, `HtmlPage.tsx`). Its markup is untrusted. Two layers keep it from
+running, and these are the guarantee:
+
+- **The sandbox.** It shows in an `<iframe sandbox>` with no permissions: no scripts, an opaque
+  origin (no access to the app or its IPC), no forms, popups or navigation of the app. Its
+  content comes through `srcdoc`.
+- **The Content Security Policy.** A `srcdoc` document inherits the app's policy, and GitBolt
+  adds a stricter one first in its head: `default-src 'none'`, with only inline styles and
+  `data:` images, fonts and media. Nothing is fetched, from the network or from the app's own
+  origin.
+
+On top of these, best-effort hardening, which the guarantee doesn't rely on:
+
+- `<script>` elements, `on…` handlers, `javascript:` URLs, `<link>`s that weren't inlined,
+  `ping` and `attributionsrc`, `<base>`, `<meta http-equiv="refresh">` and nested `srcdoc` are
+  taken out before it shows, and every link
+  opens a new window, which the sandbox refuses: a click does nothing.
+- Relative images and stylesheets are read from the repository (at the commit shown) and inlined
+  as `data:` URLs and `<style>` before that clean-up, with `</style` escaped in the CSS. The
+  result is parsed and cleaned again until it doesn't change, so markup that reads differently
+  once parsed again (SVG or MathML namespace confusion) is cleaned as the frame will read it.
+- Scripts and files on other hosts don't load; a bar names those hosts, and **Open in browser**
+  opens the file outside the app, through the system's Open With chooser.
+
+### PDFs
+
+A PDF in File View or Diff View is untrusted bytes from the repository, drawn by pdf.js
+(`pdfjs-dist`, `ui/src/pdf/pdfjs.ts`), not by Chromium's PDF viewer:
+
+- It is parsed in pdf.js's own Web Worker; the page only draws what the worker sends (canvases,
+  and a text layer of plain text nodes for selection).
+- No annotation layer, forms, XFA or PDF JavaScript: links and scripts in the document are never
+  rendered or run. Annotations' appearances (stamps, filled-in fields) are drawn on the canvas, as
+  pixels only. pdf.js 6 has no `eval` path at all, and its worker runs under the app's policy
+  like the others, which would block one.
+- It needs no change to the CSP: the worker and the JPEG 2000 and JBIG2 decoders' WebAssembly
+  are the bundle's own files (`'self'`, `'wasm-unsafe-eval'`). Chromium's built-in viewer would
+  need `object-src` and `frame-src` opened to `blob:`, and runs PDFium in a frame of the page.
+- Keep `pdfjs-dist` current: a parser bug that ran code here would run it with the UI's powers
+  (CVE-2024-4367 was one, fixed in pdf.js 4.2.67).
 
 ### Git hooks and repository config
 
@@ -168,6 +216,24 @@ That is a trust boundary.
 - To open a repository you don't trust without running its fetch hooks, set the background fetch
   interval to Off first. `git status` and the other reads still run, so its `core.fsmonitor` still
   applies: open it only if you'd also run `git status` in it.
+
+### Open in default app
+
+**Open in default app** (**Open in browser** for an HTML file) hands a file to the program your
+system opens it with. GitBolt never uses it to run a repository's file. Before anything starts,
+the core refuses a file the system would execute or launch rather than open:
+
+- by its extension, on every OS: executables, scripts, installers and shortcuts (`.exe`, `.bat`,
+  `.cmd`, `.ps1`, `.msi`, `.lnk`, `.url`, `.jar` and the like), and the launchers and scripts a
+  Linux desktop or macOS may run (`.desktop`, `.sh`, `.command`, `.app`, `.AppImage`, `.webloc`,
+  `.scpt` and the like);
+- on Linux and macOS, a file with any execute permission;
+- on Windows, a type the shell itself calls dangerous (`AssocIsDangerous`).
+
+It checks both the name the file has in the repository and the file it resolves to, so a
+symlink to an executable is refused too. An old version opens as a read-only copy (or as the
+working-tree file, when that has the same bytes), checked by the name it's shown under. The menu shows the entry disabled for such a file, and
+**Other…** or an editor still opens it.
 
 ### Updates
 

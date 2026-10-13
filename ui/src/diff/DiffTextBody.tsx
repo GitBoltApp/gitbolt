@@ -6,17 +6,23 @@ import type { FileMarkdownContext } from '../markdown/types';
 import { setChangeStepper, stepChange } from './changeStepper';
 import { useDiffPrefs } from './diffPrefs';
 import type { DiffSides } from './markdownDiffSides';
-import { markSlow, PRECHECK_BYTES, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
+import { HtmlDiff } from './HtmlPage';
+import { markSlow, PRECHECK_BYTES, renderedKindOf, TOO_LARGE_TO_RENDER, useDiffTooLarge } from './markdownFiles';
 import { MdDiffFrame } from './MdDiffRuler';
 import { holdFirstChange, holdLine } from './mdOpen';
 import { useNarrowPane } from './narrowPane';
 import { MdFontPx } from '../markdown/fontPx';
 import { editorFontVar, useEditorFontPx } from './fontZoom';
-import { clearMarkdownOverride, markdownViewOf, useMarkdownOverride, useMarkdownView } from './markdownOverride';
+import { clearMarkdownOverride, markdownViewOf, showSourceFor, useMarkdownOverride, useMarkdownView } from './markdownOverride';
 import type { DiffLine, HunkZoneRequest } from './monaco/host';
 import { useParseBudget } from './parseBudget';
 import { RenderedReview, RenderedReviewNote } from './review/RenderedReview';
 import { loadedHost, TextDiff } from './TextDiff';
+import { CsvTableDiff } from '../table/CsvTable';
+import { useForgetTables, type Delimiter } from '../table/csv';
+import { tableDiffOf } from '../table/rowDiff';
+import { usePublishTableStatus } from '../table/tableStatus';
+import type { DiffTarget } from '../repo/store';
 
 /**
  * Diff View's text body (5C). Every text diff sits in the same box (`.file-source`, as File View's
@@ -27,8 +33,12 @@ import { loadedHost, TextDiff } from './TextDiff';
  * happens in Source only. `after`: what follows the editor in Source only (a WIP diff's hunk
  * actions). Over 5 MB a side, a diff over 2 s, or one that gave up (its alignment ran out of time,
  * at any size), it's Source with "Too large to render" (R14), and the file stays in Source.
+ * An HTML file (`markdown` holds its sides' commits too) shows its old and new pages side by side
+ * (`HtmlDiff`), static and sandboxed; `target`: the diff shown, for which sides it has and its
+ * Open in browser. A CSV or TSV file (`table`) shows its table diff the same way, lined up by row;
+ * over 50,000 rows a side it's Source with a note.
  */
-export function DiffTextBody({ identity, path, oldPath, original, modified, language, line, onShown, editable = false, onEdit, hunkZones, after, markdown }: {
+export function DiffTextBody({ identity, path, oldPath, original, modified, language, line, onShown, editable = false, onEdit, hunkZones, after, markdown, target = null, table = null }: {
   identity: string;
   path: string;
   oldPath: string | null;
@@ -42,12 +52,21 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   hunkZones?: () => HunkZoneRequest | undefined;
   after?: ReactNode;
   markdown: DiffSides | null;
+  target?: DiffTarget | null;
+  /** A CSV or TSV diff's delimiter: while Rendered (Table), the table diff in the editor's place,
+   * or Source with a note when it's too large to line up (`tableDiffOf`). */
+  table?: Delimiter | null;
 }) {
   const { tabId } = useRepoContext();
   const isMd = markdown !== null;
-  const picked = useMarkdownView(isMd ? path : null);
+  // A rename between a Markdown and an HTML name renders as its new name says.
+  const html = isMd && renderedKindOf({ path, oldPath }) === 'html';
+  const renders = isMd || table !== null;
+  const picked = useMarkdownView(renders ? path : null);
   // Another file shown ends a just-created file's Source, as in File View (markdownOverride.ts).
   useEffect(() => { const over = useMarkdownOverride.getState().path; if (over !== null && over !== path) clearMarkdownOverride(); }, [path]);
+  // Lines asked for show in Source: a table diff has no lines (a review badge, a note's file:line).
+  useLayoutEffect(() => { if (table !== null && line) showSourceFor(path); }, [line]); // eslint-disable-line react-hooks/exhaustive-deps
   // The editable side as Rendered was picked, when it held unsaved edits.
   const kept = useRef<{ identity: string; buffer: string } | null>(null);
   const shownNew = kept.current?.identity === identity ? kept.current.buffer : modified;
@@ -57,13 +76,13 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   const onTooLarge = useCallback(() => markSlow(renderKey), [renderKey]);
   const waiting = useParseBudget(
     renderKey,
-    rendered && original.length + shownNew.length > PRECHECK_BYTES,
+    rendered && !html && original.length + shownNew.length > PRECHECK_BYTES,
     () => import('../markdown/parseAsync').then((m) => () => m.diffChunkStream(original, shownNew, flavor)),
   );
   const loaded = useRef(modified);
   loaded.current = modified;
   useEffect(() => {
-    if (!isMd) return;
+    if (!renders) return;
     // Source → Rendered for this file: the app-wide pick, or the end of its just-created Source.
     const was = { view: markdownViewOf(path) };
     const check = () => {
@@ -77,13 +96,19 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
     const offPrefs = useDiffPrefs.subscribe(check);
     const offOver = useMarkdownOverride.subscribe(check);
     return () => { offPrefs(); offOver(); };
-  }, [isMd, editable, identity, path]);
+  }, [renders, editable, identity, path]);
+  const tableDiff = useMemo(() => (table !== null && picked === 'rendered' ? tableDiffOf(original, shownNew, table) : null), [table, picked, original, shownNew]);
+  const tabled = tableDiff?.diff != null;
+  useForgetTables(table !== null ? original : '', table !== null ? shownNew : '');
+  // The toolbar goes by this one result (the text shown, unsaved edits included).
+  usePublishTableStatus(identity, tableDiff ? tableDiff.note : undefined);
+  const away = rendered || tabled;
   // Back to Source: the editor lays out in its box again; a later Rendered snapshots afresh.
   useLayoutEffect(() => {
-    if (rendered) return;
+    if (away) return;
     kept.current = null;
     loadedHost()?.layout();
-  }, [rendered]);
+  }, [away]);
   const pane = useRef<HTMLDivElement>(null);
   // The pane as state too: `RenderedReview` inside it reads it in its own effects, which run
   // before a parent's ref is set (review comments, spec 2026-10-08 §3).
@@ -105,19 +130,19 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   // object across re-renders and refreshes, and a new one only when a line is asked for again.
   const opened = useRef<DiffLine | string | null>(null);
   useLayoutEffect(() => {
-    if (!rendered) { opened.current = null; return; }
+    if (!rendered || html) { opened.current = null; return; }
     const want = line ?? identity;
     if (opened.current === want) return;
     opened.current = want;
     if (!pane.current) return;
     return line ? holdLine(pane.current, line) : holdFirstChange(pane.current);
-  }, [rendered, identity, line]);
+  }, [rendered, html, identity, line]);
   // R3: Previous/Next change (and F7) step through the rendered changes.
-  useEffect(() => (rendered ? setChangeStepper((dir) => { if (pane.current) stepChange(pane.current, dir); }) : undefined), [rendered]);
+  useEffect(() => (rendered && !html ? setChangeStepper((dir) => { if (pane.current) stepChange(pane.current, dir); }) : undefined), [rendered, html]);
   // The diff mode applies (5C): Split shows it side by side, unless the pane is too narrow.
   const splitPicked = useDiffPrefs((s) => s.prefs.mode === 'split');
   const fontPx = useEditorFontPx();
-  const narrow = useNarrowPane(pane, rendered && splitPicked);
+  const narrow = useNarrowPane(pane, rendered && !html && splitPicked);
   const oldSide = markdown?.old ?? null;
   const newSide = markdown?.new ?? null;
   const ctx = useMemo<{ new: FileMarkdownContext; old: FileMarkdownContext } | null>(() => (isMd
@@ -129,11 +154,24 @@ export function DiffTextBody({ identity, path, oldPath, original, modified, lang
   return (
     <>
       {isMd && picked === 'rendered' && tooLarge && <div role="note" className="diff-banner">{TOO_LARGE_TO_RENDER}</div>}
-      <div className="file-source" hidden={rendered} data-font-zoom="">
+      {tableDiff?.note && <div role="note" className="diff-banner">{tableDiff.note}</div>}
+      <div className="file-source" hidden={away} data-font-zoom="">
         <TextDiff identity={identity} path={path} original={original} modified={modified} language={language} line={line} onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={hunkZones} />
       </div>
-      {!rendered && after}
-      {isMd && (
+      {!away && after}
+      {tableDiff?.diff && <CsvTableDiff key={identity} diff={tableDiff.diff} fontPx={fontPx} />}
+      {html && (
+        <div className="html-rendered" hidden={!rendered} data-testid="html-diff" tabIndex={-1}>
+          {rendered && (
+            <HtmlDiff
+              old={target?.old.kind === 'absent' ? null : original} neu={target?.new.kind === 'absent' ? null : shownNew}
+              oldSource={ctx?.old ?? null} newSource={ctx?.new ?? null}
+              target={target} path={path} oldPath={oldPath}
+            />
+          )}
+        </div>
+      )}
+      {isMd && !html && (
         <MdDiffFrame pane={pane} active={rendered} split={splitPicked && !narrow}>
           <div ref={paneRef} className="md-rendered md-diff-pane" hidden={!rendered} data-testid="markdown-diff" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>
             {rendered && ctx && (waiting

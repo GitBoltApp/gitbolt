@@ -6,7 +6,7 @@ import type { SaveOutcome } from '../api/gen/SaveOutcome';
 import { useRuntime } from '../app/runtime';
 import { tabIdOf, tabStore } from '../app/tabStores';
 import { showSourceFor } from '../diff/markdownOverride';
-import { isMarkdownPath } from '../diff/markdownFiles';
+import { viewKindOf } from '../diff/markdownFiles';
 import { loadMonacoHost } from '../diff/monaco/load';
 import { endStickyHistory } from '../history/sticky';
 import type { MenuRow } from '../menu/types';
@@ -93,10 +93,10 @@ export async function createFile(ctx: WriteCtx, path: string): Promise<boolean> 
   const change = r.wip?.unstaged.files.find((f) => f.path === path);
   // An ignored path isn't in the Unstaged list: its working-tree file, as View all files opens it.
   const target: DiffTarget = change ? { ...targetFor(change, spec), view: 'file' } : worktreeViewTarget(path, spec.worktree, spec);
-  // A new file is made to be typed into, and a Markdown file is edited in Source only: Rendered
-  // (the default) would show an empty page with the editor hidden under it. Only this file shows
-  // Source; the app-wide pick stays as it is.
-  if (isMarkdownPath(path)) showSourceFor(path);
+  // A new file is made to be typed into, and a Markdown, HTML, CSV or TSV file is edited in
+  // Source only: Rendered or Table would show an empty page with the editor hidden under it. Only
+  // this file shows Source; the app-wide pick stays as it is.
+  if (viewKindOf(path) !== null) showSourceFor(path);
   // Made to be typed into, in File View: File History stops being sticky (UX).
   endStickyHistory(ctx.tabId);
   store.getState().openFile(target);

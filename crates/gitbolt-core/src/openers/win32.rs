@@ -1,4 +1,4 @@
-//! The Windows shell's own pieces: the URL handler (`ShellExecuteW`), the Open With dialog
+//! The Windows shell's own pieces: the URL and default-app handlers (`ShellExecuteW`), the Open With dialog
 //! (`SHOpenWithDialog`) and the folder picker (`IFileOpenDialog`).
 //!
 //! Each runs on a thread of its own, in a COM single-threaded apartment as the shell's dialogs
@@ -14,7 +14,7 @@ use windows::core::{w, HSTRING, PCWSTR};
 use windows::Win32::Foundation::{ERROR_CANCELLED, HWND};
 use windows::Win32::System::Com::{CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx, CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, COINIT_DISABLE_OLE1DDE};
 use windows::Win32::UI::Shell::{
-    FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, SHOpenWithDialog, ShellExecuteW, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, OAIF_EXEC, OPENASINFO,
+    AssocIsDangerous, FileOpenDialog, IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, SHOpenWithDialog, ShellExecuteW, FOS_FORCEFILESYSTEM, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, OAIF_EXEC, OPENASINFO,
     SIGDN_FILESYSPATH,
 };
 use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -49,6 +49,29 @@ pub(super) fn open_url(url: &str) -> Result<(), GbError> {
         }),
         "link opener",
     )
+}
+
+/// Opens `file` (absolute, checked, and not a program: `default_app::check_not_a_program`) in its
+/// default application, as a double click does: the shell's default verb (no verb, which is
+/// `open` unless the type names another). Waits for the shell's answer, which comes once the
+/// handler has started.
+pub(super) fn open_file(file: &Path) -> Result<(), GbError> {
+    let file = HSTRING::from(file);
+    joined(
+        on_sta_thread("open file", move || {
+            // SAFETY: every string outlives the call; no window, verb or parameters.
+            let done = unsafe { ShellExecuteW(None, PCWSTR::null(), &file, PCWSTR::null(), PCWSTR::null(), SW_SHOWNORMAL) };
+            if done.0 as isize > 32 { Ok(()) } else { Err(GbError::other(format!("couldn't open {file}: no application answered (code {})", done.0 as isize))) }
+        }),
+        "file opener",
+    )
+}
+
+/// Whether the shell treats the type `ext` (`.xbap`) as dangerous to open: it runs code
+/// (`AssocIsDangerous`).
+pub(super) fn assoc_is_dangerous(ext: &str) -> bool {
+    // SAFETY: the string outlives the call.
+    unsafe { AssocIsDangerous(&HSTRING::from(ext)) }.as_bool()
 }
 
 /// Shows Windows's Open With dialog for `file`, which starts the program the user picks

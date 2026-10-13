@@ -386,7 +386,7 @@ pub struct BlobPayload {
     pub eol: Eol,
     /// Decoded text; `None` for binary files and for sides held back by the large-file prompt.
     pub text: Option<String>,
-    /// Raw bytes, base64, for binary images only (spec §10.4).
+    /// Raw bytes, base64, for binary images (spec §10.4), media (audio, video, fonts) and PDFs only.
     pub base64: Option<String>,
     /// The loaded bytes' `worktree_id` (2B Deviation 12): the save base of a working-tree side.
     /// `None` when the side wasn't loaded (too large).
@@ -412,6 +412,17 @@ pub struct DiffContentsPayload {
     pub eol_only: bool,
     /// The path has a raster-image extension (the UI shows the image diff).
     pub image: bool,
+    /// The path is a `.pdf`: each side that is one (its `%PDF-` header, not a Git LFS pointer)
+    /// carries its bytes, and the UI shows its pages. Absent otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub pdf: bool,
+    /// The path has an audio, video or font extension: when every side is binary, they carry their
+    /// bytes, which the UI plays or previews. Like an image, it keeps the large-file gate, up to
+    /// `MAX_FORCED_BYTES`: past that it shows as a binary's capped hex dump. Absent otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub media: bool,
 }
 
 /// One side of a binary file as a hex dump (`hexDump`): `hexdump -C` lines of its first

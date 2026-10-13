@@ -2,9 +2,9 @@ import type { DiffSpec } from '../api/gen/DiffSpec';
 import type { DiffLine } from '../diff/monaco/host';
 import { selectCommit } from '../app/graphNav';
 import { tabView, useTabViews, type TabView } from '../app/tabStores';
-import { markdownViewOf } from '../diff/markdownOverride';
+import { markdownViewOf, viewPrefOf } from '../diff/markdownOverride';
 import { useDiffPrefs } from '../diff/diffPrefs';
-import { isMarkdownPath } from '../diff/markdownFiles';
+import { isRenderedPath } from '../diff/markdownFiles';
 import { shortSha } from '../format/sha';
 import { endStickyHistory } from '../history/sticky';
 import { MR_FLYOUT } from '../forge/mrStore';
@@ -37,7 +37,7 @@ export function fileCommitOf(s: Pick<RepoViewState, 'selection'>, t: DiffTarget)
   }
 }
 
-const viewOf = (path: string): PlaceView => (isMarkdownPath(path) ? markdownViewOf(path) : 'source');
+const viewOf = (path: string): PlaceView => (isRenderedPath(path) ? markdownViewOf(path) : 'source');
 
 /** The navigation place a File View of `t` is; `null` for a Diff View or a file with no commit. */
 export function filePlaceOf(s: Pick<RepoViewState, 'selection'>, t: DiffTarget): FilePlace | null {
@@ -167,7 +167,9 @@ const offFile = registerPlaceKind('file', {
   arrivesItself: true,
   async restore(tabId, p, arrive) {
     const prefs = useDiffPrefs.getState();
-    if (isMarkdownPath(p.path) && prefs.prefs.markdownView !== p.view) prefs.set({ markdownView: p.view });
+    // The pick of the place's kind of file (Markdown's, or HTML's own).
+    const pref = viewPrefOf(p.path);
+    if (isRenderedPath(p.path) && prefs.prefs[pref] !== p.view) prefs.set({ [pref]: p.view });
     return openFileAt(tabId, p.path, p.commit, { scrollTop: p.scrollTop, block: p.block, closeMrView: true, onArrive: arrive });
   },
 });

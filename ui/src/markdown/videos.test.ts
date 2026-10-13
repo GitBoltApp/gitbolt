@@ -27,6 +27,7 @@ describe('Markdown videos', () => {
     expect(videoCodec(bytes('\x1aE\xdf\xa3webm'))).toBeNull();
     expect(videoFormat('video/mp4', 'H.264')).toBe('H.264');
     expect(videoFormat('video/quicktime', null)).toBe('QuickTime');
+    expect([videoFormat('audio/aac', null), videoFormat('audio/ogg; codecs=opus', null), videoFormat('audio/x-unknown', null)]).toEqual(['AAC', 'Opus', 'audio/x-unknown']);
     expect(videoFormat('video/webm', null)).toBe('WebM');
   });
 

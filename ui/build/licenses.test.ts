@@ -99,6 +99,23 @@ describe('buildUiNotices', () => {
     expect(r.counts).toEqual({ MIT: 5, 'Apache-2.0': 1 });
   });
 
+  it('adds the licenses a package ships beside the files bundled from its subfolders (pdf.js\'s WASM decoders)', () => {
+    const { root, pkg } = fakeRepo();
+    pkg('pdfish', { license: 'Apache-2.0' }, { LICENSE: 'Apache License\nVersion 2.0' });
+    const wasm = join(root, 'node_modules', 'pdfish', 'wasm');
+    mkdirSync(wasm);
+    for (const [f, t] of Object.entries({ LICENSE_OPENJPEG: 'OpenJPEG: BSD 2-clause', LICENSE_PDFISH_OPENJPEG: 'The wrapper: BSD', LICENSE_JBIG2: 'PDFium JBIG2: BSD 3-clause', LICENSE_QCMS: 'qcms: MIT', 'openjpeg.wasm': '', 'jbig2.wasm': '' })) writeFileSync(join(wasm, f), t);
+    const ids = [join(root, 'node_modules', 'pdfish', 'build', 'pdf.mjs'), `${join(wasm, 'openjpeg.wasm')}?url`, `${join(wasm, 'jbig2.wasm')}?url`];
+    const r = buildUiNotices({ moduleIds: ids, accepted: ACCEPTED, exceptions: {}, root });
+    expect(r.errors).toEqual([]);
+    expect(r.text).toContain('License of wasm/openjpeg.wasm in pdfish 1.0.0 (wasm/LICENSE_OPENJPEG)');
+    expect(r.text).toContain('OpenJPEG: BSD 2-clause');
+    expect(r.text).toContain('The wrapper: BSD');
+    expect(r.text).toContain('License of wasm/jbig2.wasm in pdfish 1.0.0 (wasm/LICENSE_JBIG2)');
+    // qcms isn't bundled: its license isn't listed.
+    expect(r.text).not.toContain('qcms: MIT');
+  });
+
   it('points to the source of a package under EPL-2.0 (npm package and repository)', () => {
     const { pkg } = fakeRepo();
     const ids = [

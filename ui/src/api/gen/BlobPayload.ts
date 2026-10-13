@@ -11,7 +11,7 @@ encoding: string, eol: Eol,
  */
 text: string | null, 
 /**
- * Raw bytes, base64, for binary images only (spec §10.4).
+ * Raw bytes, base64, for binary images (spec §10.4), media (audio, video, fonts) and PDFs only.
  */
 base64: string | null, 
 /**

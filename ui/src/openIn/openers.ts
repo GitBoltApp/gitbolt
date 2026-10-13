@@ -142,10 +142,13 @@ export function useOpenIn() {
   return { last, open };
 }
 
-/** Opens `t` in repo `repo` with `opener`, remembering it as the default; a failure shows as a
- * toast. Shared by the Open in button and the file menu. */
+/** Opens `t` in repo `repo` with `opener`, remembering it as the default (not the default app,
+ * which stays a menu row: `defaultOpener`); a failure shows as a toast. Shared by the Open in
+ * button and the file menu. */
 export function openWith(repo: number, opener: OpenerPayload, t: OpenInTarget, toast: (m: string) => void = (m) => useToast.getState().show(m)): void {
-  saveLastOpener(opener.id);
-  useLastOpener.setState({ last: opener.id });
+  if (opener.kind !== 'defaultApp') {
+    saveLastOpener(opener.id);
+    useLastOpener.setState({ last: opener.id });
+  }
   api.openIn(repo, { worktree: t.worktree, path: t.path, line: t.line, opener: opener.id, source: t.source, fallback: t.fallback }).catch((e: unknown) => toast(errorMessage(e)));
 }

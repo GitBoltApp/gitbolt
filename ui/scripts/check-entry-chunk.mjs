@@ -24,6 +24,7 @@ const MARKERS = [
   'u{C0}-', // jsdiff's word tokenizer (the rendered Markdown diff, 5C): lazy
   "couldn't be fetched from", // an MR's Compare (forge/mrview/compare.ts): loads with the MR view, or on the review chip's click
   'has new commits since this compare', // review mode (diff/review/ReviewMode.tsx), which Compare brings: with the diff panel
+  'Setting up fake worker failed', // pdf.js (pdf/pdfjs.ts): loads on the first PDF shown
 ];
 
 const html = readFileSync(join(dist, 'index.html'), 'utf8');
@@ -43,7 +44,7 @@ for (const file of eager) {
   const found = MARKERS.filter((m) => code.includes(m));
   if (found.length) {
     failed = true;
-    console.error(`check-entry-chunk: ${file} is loaded at startup but contains ${found.join(', ')}; Monaco, Shiki, the Markdown renderer, Mermaid, Compare and review mode must stay in lazy chunks (spec §10.3, spec #5 §3.1).`);
+    console.error(`check-entry-chunk: ${file} is loaded at startup but contains ${found.join(', ')}; Monaco, Shiki, the Markdown renderer, Mermaid, Compare, review mode and pdf.js must stay in lazy chunks (spec §10.3, spec #5 §3.1).`);
   }
 }
 if (failed) process.exit(1);

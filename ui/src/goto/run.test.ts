@@ -88,6 +88,11 @@ describe('runGoto', () => {
     expect(useToast.getState().message).toBe("Showing the working copy of docs/a.md, not v2's");
   });
 
+  it("shows a CSV file's lines in its source, not its table", async () => {
+    await runGoto(file({ path: 'data/plants.csv', lines: { start: 4, end: 4 } }));
+    expect(useMarkdownOverride.getState().path).toBe('data/plants.csv');
+  });
+
   it("switches the tab's worktree for a path in another worktree of its repository", async () => {
     await runGoto(file({ worktree: '/home/ada/harbor/.wt/fix', path: 'fix.txt' }));
     expect(m.setActiveWorktree).toHaveBeenCalledWith('t1', '/home/ada/harbor/.wt/fix');

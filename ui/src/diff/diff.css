@@ -113,6 +113,17 @@
    keeps clear of it (24 px + the ruler's 30). */
 .md-diff-frame { position: relative; display: flex; flex-direction: column; flex: 1; min-height: 0; }
 .md-diff-frame[hidden], .md-diff-ruler[hidden], .md-diff-ruler-slider[hidden] { display: none; }
+/* An HTML file's rendered view (HtmlPage.tsx): the page in its sandboxed frame, filling the body,
+   on white as a browser shows a page with no background of its own. The diff: two pages, side
+   by side, a hairline between. */
+.html-rendered { display: flex; flex-direction: column; flex: 1; min-height: 0; background: var(--app-bg0); outline: none; }
+.html-rendered[hidden] { display: none; }
+.html-frame { flex: 1; min-height: 0; width: 100%; border: 0; /* theme-ok: a page with no background of its own shows on white, as in a browser */ background: #fff; color-scheme: light; }
+.html-diff { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; flex: 1; min-height: 0; background: var(--section-border); }
+.html-diff-side { display: flex; flex-direction: column; min-width: 0; min-height: 0; background: var(--app-bg0); }
+.html-page-bar { display: flex; align-items: center; gap: 12px; }
+.html-page-bar > span { flex: 1; min-width: 0; }
+.html-page-bar > .text-button { flex: none; padding: 1px 8px; }
 .md-diff-ruled > .md-diff-pane { scrollbar-width: none; padding-right: 54px; }
 .md-diff-ruled > .md-diff-pane::-webkit-scrollbar { display: none; }
 .md-diff-ruler { position: absolute; top: 0; right: 0; bottom: 0; width: 30px; z-index: 1; }

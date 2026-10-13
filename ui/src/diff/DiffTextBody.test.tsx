@@ -75,7 +75,7 @@ function renderPanel(target: DiffTarget, load: () => Promise<DiffContentsPayload
   render(<RepoViewContext value={store}><Connected /></RepoViewContext>);
   return { store };
 }
-const toggle = () => screen.queryByRole('group', { name: 'Markdown view' });
+const toggle = () => screen.queryByRole('group', { name: /^(Markdown|HTML) view$/ });
 const pick = (name: 'Source' | 'Rendered') => fireEvent.click(within(toggle()!).getByRole('button', { name }));
 const button = (name: string) => screen.getByRole('button', { name });
 
@@ -241,6 +241,55 @@ describe('the rendered Markdown diff in Diff View (5C)', () => {
       expect(await screen.findByRole('note')).toHaveTextContent('Too large to render');
       expect(parse.calls).toBe(1);
     });
+  });
+});
+
+describe('the rendered HTML diff in Diff View', () => {
+  const frames = () => [...screen.getByTestId('html-diff').querySelectorAll('iframe')];
+  beforeEach(() => useDiffPrefs.getState().set({ htmlView: 'rendered' }));
+
+  it("opens in Source by default (HTML's own pick, not Markdown's)", async () => {
+    useDiffPrefs.setState({ prefs: DEFAULT_DIFF_PREFS });
+    renderPanel(targetFor(change('site/index.html', at(P), at(C)), spec), async () => contents(blob('<p>Old</p>'), blob('<p>New</p>')));
+    await waitFor(() => expect(toggle()).not.toBeNull());
+    expect(within(toggle()!).getByRole('button', { name: 'Source' })).toHaveAttribute('aria-pressed', 'true');
+    expect(toggle()).toHaveAccessibleName('HTML view');
+    expect(frames()).toHaveLength(0);
+    expect(screen.getByTestId('text-diff')).toBeVisible();
+    expect(useDiffPrefs.getState().prefs.markdownView).toBe('rendered');
+  });
+
+  it('shows the old and new pages side by side, sandboxed; the modes, whitespace and wrap are off and say why', async () => {
+    renderPanel(targetFor(change('site/index.html', at(P), at(C)), spec), async () => contents(blob('<p>Old</p>'), blob('<p>New</p>')));
+    await waitFor(() => expect(frames()).toHaveLength(2));
+    const [old, neu] = frames();
+    expect(old.getAttribute('srcdoc')).toContain('<p>Old</p>');
+    expect(neu.getAttribute('srcdoc')).toContain('<p>New</p>');
+    for (const f of frames()) expect(f).toHaveAttribute('sandbox', '');
+    expect(within(toggle()!).getByRole('button', { name: 'Rendered' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('text-diff')).not.toBeVisible();
+    for (const name of ['Hunk', 'Inline', 'Split']) expect(button(name)).toHaveAttribute('aria-disabled', 'true');
+    expect(button('Split')).toHaveAttribute('aria-pressed', 'true');
+    for (const name of ['Ignore whitespace', 'Word wrap']) expect(button(name)).toHaveAttribute('aria-disabled', 'true');
+    expect(button('Next change')).toBeDisabled();
+    expect(changeStepper()).toBeNull();
+    expect(screen.queryByTestId('md-diff')).toBeNull();
+  });
+
+  it('Source shows the text diff and its modes again', async () => {
+    renderPanel(targetFor(change('page.htm', at(P), at(C)), spec), async () => contents(blob('<p>a</p>'), blob('<p>b</p>')));
+    await waitFor(() => expect(frames()).toHaveLength(2));
+    pick('Source');
+    expect(screen.getByTestId('html-diff')).not.toBeVisible();
+    expect(screen.getByTestId('text-diff')).toBeVisible();
+    expect(button('Split')).not.toHaveAttribute('aria-disabled');
+    expect(button('Next change')).not.toBeDisabled();
+  });
+
+  it("an added page's old side says there is none", async () => {
+    renderPanel(targetFor(change('new.html', { kind: 'absent' }, at(C)), spec), async () => contents(null, blob('<p>New</p>')));
+    await waitFor(() => expect(frames()).toHaveLength(1));
+    expect(screen.getByText('No old version')).toBeInTheDocument();
   });
 });
 

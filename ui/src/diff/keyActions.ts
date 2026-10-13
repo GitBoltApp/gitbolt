@@ -7,8 +7,8 @@ import type { DiffTarget, FileSection, PanelContent } from '../repo/store';
 import { isTypingTarget } from '../ui/keys';
 import { changeKeysOn } from './changeKeysOn';
 import { useDiffPrefs, type DiffMode } from './diffPrefs';
-import { isMarkdownTarget } from './markdownFiles';
-import { clearMarkdownOverride, markdownViewOf } from './markdownOverride';
+import { viewKindOfTarget } from './markdownFiles';
+import { markdownViewOf, pickViewFor } from './markdownOverride';
 import { withBlockComment } from './review/blockComment';
 import { isMac } from '../ui/platformKeys';
 
@@ -58,16 +58,14 @@ const actions: Action[] = [
     run: () => useDiffPrefs.getState().set({ mode }),
   })),
   {
-    id: 'diff.toggleRendered', label: 'Toggle Source / Rendered', group: 'View', section: 'Diff', icon: Type, tooltip: 'Switch the open Markdown file between its source and its rendered view', shortcuts: ['Mod+Shift+V'], menu: false,
-    when: () => { const d = openDiff(); return !!d && isMarkdownTarget(d); },
+    id: 'diff.toggleRendered', label: 'Toggle Source / Rendered', group: 'View', section: 'Diff', icon: Type, tooltip: 'Switch the open Markdown or HTML file between its source and its rendered view, or a CSV or TSV file between its source and its table', shortcuts: ['Mod+Shift+V'], menu: false,
+    when: () => { const d = openDiff(); return !!d && viewKindOfTarget(d) !== null; },
     // In a text box (or the editable working copy) it's Paste as plain text.
     yieldsTo: isTypingTarget,
     run: () => {
       const d = openDiff();
       if (!d) return;
-      const next = markdownViewOf(d.path) === 'source' ? 'rendered' : 'source';
-      clearMarkdownOverride();
-      useDiffPrefs.getState().set({ markdownView: next });
+      pickViewFor(d.path, markdownViewOf(d.path) === 'source' ? 'rendered' : 'source');
     },
   },
   // `useChangeKeys` takes their keys (ahead of Monaco, synchronously); these are for the palette

@@ -6,7 +6,7 @@ import { discardPaths, pathsOf, stagePaths, unstageFiles } from '../stage/action
 import { COMMIT_QUEUED, stagingKey, useStaging } from '../stage/store';
 import { refTokenFromLabel } from '../details/messageLinks';
 import { branchUrl, commitUrl, fileUrl, repoUrl, type ProjectRemote } from '../forge/urls';
-import { defaultOpener, openerRowId, openInSubmenuRows } from '../openIn/openerRows';
+import { defaultOpener, isSubmodule, openerRowId, openInSubmenuRows } from '../openIn/openerRows';
 import { shortSha } from '../format/sha';
 import { removeRemote } from '../remotes/remove';
 import { ICONS } from './icons';
@@ -98,9 +98,10 @@ registerMenu<FileTarget, MenuEnv>({
     const { list, error, last } = env.openers;
     const copy = t.openIn.source?.kind === 'object' || t.openIn.source?.kind === 'atCommit';
     const initial = list ? defaultOpener(list, last) : null;
+    const submodule = t.wip?.submodule === true || isSubmodule(t.diff);
     return [{
       kind: 'submenu', id: 'file.openIn', label: 'Open in', icon: ICONS.editor, tooltip: 'Open the file in another application',
-      rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn), { copy }),
+      rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn), { copy, submodule, path: t.openIn.path }),
       initial: initial ? openerRowId(initial) : undefined,
     }];
   },
@@ -304,7 +305,7 @@ registerMenu<MonacoTarget, MenuEnv>({
   id: 'monaco.open', kind: 'monaco', group: 'open', order: 0,
   rows: (t, env) => {
     const { list, error } = env.openers;
-    return [{ kind: 'submenu', id: 'monaco.openIn', label: 'Open in', icon: ICONS.editor, tooltip: `Open the file in another application at line ${t.lines[0]}`, rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn)) }];
+    return [{ kind: 'submenu', id: 'monaco.openIn', label: 'Open in', icon: ICONS.editor, tooltip: `Open the file in another application at line ${t.lines[0]}`, rows: openInSubmenuRows(list, error, (o) => env.act.openIn(o, t.openIn), { path: t.openIn.path }) }];
   },
 });
 

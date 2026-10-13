@@ -20,6 +20,29 @@ function resizablePng(w: number, h: number): Buffer {
 
 // The `details` fixture's "Rename guide and update assets" commit changes logo.png from a 4×4 red
 // PNG to a 6×4 blue one, and icon.svg from a rect to a circle (fixtures.rs).
+/** A one-page PDF, fictional, written by hand (plain ASCII, so the backend sniffs it as text: it's
+ * still sent as bytes): a heading in Helvetica and a red square, with a correct xref table. */
+function surveyPdf(): Buffer {
+  const content = 'BT /F1 24 Tf 72 700 Td (Lighthouse Survey) Tj ET 1 0 0 rg 250 300 100 100 re f';
+  const objects = [
+    '<< /Type /Catalog /Pages 2 0 R >>',
+    '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
+    '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+  ];
+  let pdf = '%PDF-1.4\n';
+  const offsets = objects.map((o, i) => {
+    const at = pdf.length;
+    pdf += `${i + 1} 0 obj\n${o}\nendobj\n`;
+    return at;
+  });
+  const xref = pdf.length;
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map((o) => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`;
+  pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(pdf, 'latin1');
+}
+
 const COMMIT = 'Rename guide and update assets';
 
 const fileRow = (page: Page, path: string) => page.getByRole('option').and(page.locator(`[data-path="${path}"]`));
@@ -563,6 +586,9 @@ test.describe('image diff', () => {
     git(repo, 'rm', '-q', 'docs/images/screenshot.png');
     git(repo, 'add', 'docs/images/screenshot.webp');
     git(repo, 'commit', '-m', 'Screenshot as WebP');
+    writeFileSync(join(repo, 'survey.pdf'), surveyPdf());
+    git(repo, 'add', 'survey.pdf');
+    git(repo, 'commit', '-m', 'Add the lighthouse survey');
     writeFileSync(join(repo, 'viewbox.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#15a0bf"/><circle cx="256" cy="256" r="200" fill="#f25d2e"/></svg>\n');
     git(repo, 'add', 'viewbox.svg', 'shot.png');
     git(repo, 'commit', '-m', 'Add viewbox svg, resize shot');
@@ -618,6 +644,23 @@ test.describe('image diff', () => {
       await expect(d.getByTestId('diff-path')).toHaveText('docs/images/screenshot.png ⇒ screenshot.webp');
       await expect(d.locator('img.image-layer')).toHaveCount(2);
       await expect(d.getByTestId('image-dims')).toHaveText(/40×30\s*→\s*48×30/);
+    });
+
+    await test.step('a PDF shows its pages, drawn by pdf.js in its worker under the app\'s CSP, with its text selectable', async () => {
+      await d.getByRole('button', { name: 'Close diff' }).click();
+      await page.getByRole('row').filter({ hasText: 'Add the lighthouse survey' }).click();
+      await fileRow(page, 'survey.pdf').click();
+      await expect(d.getByTestId('diff-path')).toContainText('survey.pdf');
+      await expect(d.getByTestId('pdf-meta')).toHaveText(/^Page 1 · 1 page · \d+ B \(added\)$/);
+      await expect(d.locator('.pdf-page .textLayer')).toContainText('Lighthouse Survey', { timeout: 15_000 });
+      // The canvas has the page's pixels: the red square, not just white paper.
+      await expect.poll(() => d.locator('.pdf-page canvas').evaluate((c: HTMLCanvasElement) => {
+        if (!c.width) return 0;
+        const px = c.getContext('2d')!.getImageData(0, 0, c.width, c.height).data;
+        let red = 0;
+        for (let i = 0; i < px.length; i += 4) if (px[i] > 200 && px[i + 1] < 60 && px[i + 2] < 60) red++;
+        return red;
+      })).toBeGreaterThan(100);
     });
   });
 });

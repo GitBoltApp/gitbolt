@@ -16,6 +16,11 @@ import { RenamePaths } from '../files/RenamePaths';
 import { StatusIcon } from '../files/StatusIcon';
 import { ImageDiff } from '../image/ImageDiff';
 import { useImageSources } from '../image/sources';
+import { mediaOf, showsMedia } from '../media/kind';
+import { MediaDiff } from '../media/MediaDiff';
+import { useMediaSources } from '../media/sources';
+import { isPdf } from '../pdf/kind';
+import { PdfBody } from '../pdf/PdfBody';
 import { useEscapeOwner } from '../repo/escape';
 import { useFocusZone } from '../repo/focus';
 import { HoverTooltip } from '../ui/HoverTooltip';
@@ -29,10 +34,12 @@ import type { FileCommit } from '../nav/history';
 import { fileCommitOf, filePlaceKey } from '../nav/repoPlaces';
 import { FileBody, MarkdownViewToggle } from './FileBody';
 import { FileView } from './FileView';
-import { isMarkdownPath, isMarkdownTarget, TOO_LARGE_TO_RENDER, useDiffTooLarge, useTooLargeToRender } from './markdownFiles';
+import { isRenderedPath, isRenderedTarget, renderedKindOf, TOO_LARGE_TO_RENDER, useDiffTooLarge, useTooLargeToRender } from './markdownFiles';
 import { DiffTextBody } from './DiffTextBody';
 import { oldCommitOf } from './markdownDiffSides';
 import { useMarkdownView } from './markdownOverride';
+import { delimiterOf, tableDelimiterOf } from '../table/csv';
+import { useTableView } from './tableView';
 import { firstChangedLine } from './firstChange';
 import { eolLabel, formatBytes } from './format';
 import { BinaryNote, fileSideOf, HexBody, HexView } from './hex';
@@ -183,26 +190,29 @@ export const isImage = (target: DiffTarget, c: DiffContentsPayload) =>
 function showsEditor(target: DiffTarget, contents: Loadable<DiffContentsPayload>): boolean {
   if (contents.status !== 'ready') return false;
   const c = contents.data;
-  return !c.tooLarge && !isImage(target, c) && !isHex(target, c);
+  return !c.tooLarge && !isImage(target, c) && !isMedia(target, c) && !isPdf(c) && !isHex(target, c);
 }
 
 /** Whether the body shows a text diff, which is what F7 and Previous/Next change step through.
- * Mirrors `Body`: an image diff (even an SVG's Source view) isn't one. */
+ * Mirrors `Body`: an image or media diff (even an SVG's Source view) isn't one. */
 function showsTextDiff(target: DiffTarget, contents: Loadable<DiffContentsPayload>): boolean {
   if (target.view !== 'diff' || contents.status !== 'ready') return false;
   const c = contents.data;
   // A binary's hex diff steps through its changed rows too.
-  return !c.tooLarge && !isImage(target, c);
+  return !c.tooLarge && !isImage(target, c) && !isMedia(target, c) && !isPdf(c);
 }
 
-/** A binary that isn't shown as an image: its hex dump (hex.tsx), with its sizes in the file bar. */
-/** A Markdown file in File View, with the commit its relative links resolve against; `null`
- * for any other file, or a Markdown file with no commit (a deletion: Source only). */
+/** Audio, video or a font with its bytes (media/kind.ts): `Body` plays or previews it. */
+export const isMedia = (target: DiffTarget, c: DiffContentsPayload) => !isImage(target, c) && showsMedia(c) && mediaOf(target.path) !== null;
+
+/** A Markdown (or HTML) file in File View, with the commit its relative links resolve against;
+ * `null` for any other file, or one with no commit (a deletion: Source only). */
 const markdownOf = (selection: Selection, t: DiffTarget): { commit: FileCommit } | null => {
-  const commit = isMarkdownPath(t.path) ? fileCommitOf({ selection }, t) : null;
+  const commit = isRenderedPath(t.path) ? fileCommitOf({ selection }, t) : null;
   return commit === null ? null : { commit };
 };
-export const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !!(c.old?.binary || c.new?.binary);
+/** A binary that isn't shown as an image, media or a PDF: its hex dump (hex.tsx), with its sizes in the file bar. */
+export const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !isMedia(target, c) && !isPdf(c) && !!(c.old?.binary || c.new?.binary);
 
 /**
  * The image diff (spec §10.4). `contents` is the loader's cached object, so its identity holds
@@ -230,13 +240,26 @@ export function ImageBody({ target, contents: c, onSourceChange, onHex }: { targ
   return <ImageDiff key={target.key} fileKey={target.key} old={old} new={neu} source={source} sourceLabel={svg ? 'Source' : 'Hex'} onSourceChange={onSourceChange} single={single} />;
 }
 
+/** Audio, video or a font (media/): played or previewed from its bytes, laid out as `ImageBody`'s
+ * image, with its hex dump behind the Hex toggle. */
+export function MediaBody({ target, contents: c, onSourceChange, onHex }: { target: DiffTarget; contents: DiffContentsPayload; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void }) {
+  const sources = useMediaSources(c, target.path, target.oldPath);
+  if (!sources) return <div className="diff-message" aria-busy="true">Loading…</div>;
+  const fileView = target.view === 'file';
+  const old = fileView && c.new ? null : sources.old;
+  const neu = fileView && !c.new ? null : sources.new;
+  const single = fileView ? null : !c.old ? 'added' : !c.new ? 'deleted' : null;
+  const hex = <HexBody target={target} contents={c} onLoaded={(h) => onHex?.(target.key, h)} />;
+  return <MediaDiff key={target.key} old={old} new={neu} single={single} source={hex} onSourceChange={onSourceChange} openIn={<OpenInButton target={target} />} />;
+}
+
 /** `banner`: whether the line-endings banner may show. Not while the header (and so the editor)
  * still shows the previous file: it's this file's (K7). */
 function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourceChange, onHex, editable = false, onEdit, draft }: { target: DiffTarget; contents: Loadable<DiffContentsPayload>; forced: boolean; banner: boolean; onLoadAnyway: () => void; onShown: () => void; onSourceChange?: (on: boolean) => void; onHex?: (key: string, hex: HexDumpPayload) => void; editable?: boolean; onEdit?: () => void; draft?: string }) {
   const { repoId } = useRepoContext();
   const selection = useRepoView((s) => s.selection);
-  // 5C: a Markdown file's diff, and the commit its old side's links and images resolve against (R9).
-  const mdDiff = target.view === 'diff' && isMarkdownTarget(target);
+  // 5C: a Markdown (or HTML) file's diff, and the commit its old side's links and images resolve against (R9).
+  const mdDiff = target.view === 'diff' && isRenderedTarget(target);
   const oldSide = useRepoView((s) => (mdDiff ? oldCommitOf(s, target) : null));
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
@@ -259,6 +282,8 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     );
   }
   if (isImage(target, c)) return <ImageBody target={target} contents={c} onSourceChange={onSourceChange} onHex={onHex} />;
+  if (isMedia(target, c)) return <MediaBody target={target} contents={c} onSourceChange={onSourceChange} onHex={onHex} />;
+  if (isPdf(c)) return <PdfBody target={target} contents={c} onSourceChange={onSourceChange} onHex={onHex} />;
   // A binary: its hex view. The dumps load with the contents (hexContents.ts), so it shows in the
   // render that presents the file; contents without them load them here.
   if (isHex(target, c)) {
@@ -278,7 +303,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     <>
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} <ArrowGlyph /> {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
-        ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} line={target.line} />
+        ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} table={delimiterOf(target.path)} line={target.line} target={target} />
         : (
           <DiffTextBody
             identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language} line={target.line}
@@ -287,6 +312,8 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
             // 2026-10-08 §2: review mode on an MR's Compare.
             after={wip ? <HunkActions target={target} /> : <ReviewMode target={target} />}
             markdown={mdDiff ? { old: oldSide, new: fileCommitOf({ selection }, target) } : null}
+            target={target}
+            table={tableDelimiterOf(target)}
           />
         )}
     </>
@@ -318,16 +345,16 @@ export const editorOwnsEscape = () =>
     .some((root) => [...root.querySelectorAll<HTMLElement>(ESCAPE_OWNERS)].some(isShown));
 
 /** Targets inside the zone that use ← themselves. */
-const OWNS_ARROWS = '.monaco-host, .review-layer, .hex-view, input, textarea, select, [role="slider"]';
+const OWNS_ARROWS = '.monaco-host, .review-layer, .hex-view, input, textarea, select, audio, video, [role="slider"]';
 /** Targets a click leaves alone: controls, and the editor (Monaco focuses itself). */
 /** Alt+4 (`repo/focusActions.ts`): the editor, when one shows, so the keys scroll and select in
- * it; else the panel. */
+ * it (or a CSV file's table); else the panel. */
 const focusEditor = (el: HTMLElement): HTMLElement => {
   if (el.querySelector('.monaco-host')?.checkVisibility?.()) void loadMonacoHost().then((h) => h.focus());
-  return el;
+  return el.querySelector<HTMLElement>('.csv-table') ?? el;
 };
 
-const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .review-layer, .hex-view, .md-rendered, .md-diff-ruler';
+const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .review-layer, .hex-view, .md-rendered, .html-rendered, .md-diff-ruler, .csv-table';
 
 /**
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.
@@ -424,29 +451,36 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // Spec #5 §3.3: the toggle for a Markdown file's text in File View (not a large-file prompt, a
   // hex view or an image); §3.1: it says why Rendered can't be picked for a file too large.
   const tooLarge = useTooLargeToRender(filePlaceKey({ selection }, shown), loaded?.new?.text ?? loaded?.old?.text ?? '');
-  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isHex(shown, loaded);
+  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isMedia(shown, loaded) && !isPdf(loaded) && !isHex(shown, loaded);
   // 5C: the same toggle for a Markdown file's text diff (R2); while Rendered, the toolbar's text-diff
-  // tools say why they're off (R3).
-  const mdDiff = shown.view === 'diff' && textBody && isMarkdownTarget(shown);
+  // tools say why they're off (R3). An HTML file's the same, its pages side by side (`pageDiff`).
+  const mdDiff = shown.view === 'diff' && textBody && isRenderedTarget(shown);
   const diffTooLarge = useDiffTooLarge(shown.key, mdDiff ? loaded?.old?.text ?? '' : '', mdDiff ? loaded?.new?.text ?? '' : '').tooLarge;
   const mdPicked = useMarkdownView(mdDiff ? shown.path : null);
   const renderedDiff = mdDiff && mdPicked === 'rendered' && !diffTooLarge;
+  const pageDiff = renderedDiff && renderedKindOf(shown) === 'html';
+  // A CSV or TSV file's text: `Source | Table`, its own pick; in Diff View, the table diff, or
+  // why it's Source (too large).
+  const table = useTableView(shown, textBody ? loaded : null);
   const markdownToggle = shown.view === 'file' && textBody && markdownOf(selection, shown)
-    ? <MarkdownViewToggle path={shown.path} forced={tooLarge ? TOO_LARGE_TO_RENDER : null} />
-    : mdDiff ? <MarkdownViewToggle path={shown.path} forced={diffTooLarge ? TOO_LARGE_TO_RENDER : null} /> : null;
+    ? <MarkdownViewToggle path={shown.path} kind={renderedKindOf(shown) ?? undefined} forced={tooLarge ? TOO_LARGE_TO_RENDER : null} />
+    : mdDiff ? <MarkdownViewToggle path={shown.path} kind={renderedKindOf(shown) ?? undefined} forced={diffTooLarge ? TOO_LARGE_TO_RENDER : null} /> : table.toggle;
   const openLine = useMemo(() => openInLine(loaded), [loaded]);
-  // An SVG's Source toggle, per file: its text diff gets the text-diff controls (H26).
+  // An SVG's Source toggle, or an image's, media's or a PDF's Hex, per file: its text or hex diff
+  // gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
   const imageDiff = contents.status === 'ready' && isImage(shown, contents.data) && !contents.data.tooLarge;
-  const svgSource = imageDiff && sourceOf === shown.key;
-  const textDiff = showsTextDiff(shown, contents) || (svgSource && shown.view === 'diff');
-  // A binary's sizes (and the hex cap) in the file bar; an image's Hex view, the cap only.
-  const hexImage = svgSource && !shown.path.toLowerCase().endsWith('.svg');
+  const mediaDiff = contents.status === 'ready' && isMedia(shown, contents.data);
+  const pdfView = contents.status === 'ready' && isPdf(contents.data);
+  const sourceOn = (imageDiff || mediaDiff || pdfView) && sourceOf === shown.key;
+  const textDiff = showsTextDiff(shown, contents) || (sourceOn && shown.view === 'diff');
+  // A binary's sizes (and the hex cap) in the file bar; an image's, media's or a PDF's Hex view, the cap only.
+  const hexImage = sourceOn && (mediaDiff || pdfView || !shown.path.toLowerCase().endsWith('.svg'));
   // The dumps: loaded with the contents, or by the body itself (an image's Hex view).
   const [bodyHex, setBodyHex] = useState<{ key: string; hex: HexDumpPayload } | null>(null);
   const dumps = (loaded && hexOf(loaded)) ?? (bodyHex?.key === shown.key ? bodyHex.hex : null);
   const note = loaded && (isHex(shown, loaded) || hexImage) ? <BinaryNote target={shown} contents={loaded} hex={dumps} summary={!hexImage} /> : null;
-  useChangeKeys(textDiff);
+  useChangeKeys(textDiff && !pageDiff);
   const encoding = contents.status === 'ready' ? (contents.data.new?.encoding || contents.data.old?.encoding || '') : '';
   // An unchanged file from "View all files" has nothing to diff against.
   const canDiff = !(shown.status === '' && shown.old.kind === 'absent');
@@ -456,10 +490,11 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // Ctrl+W (I1) always closes, editor overlay or not: it's the app's shortcut, in the key
   // router's `app` layer, which runs ahead of this component's own handlers and stops the event.
   // ← goes back to the file list (the mirror of → there), unless the editor or a control in the
-  // zone uses the key.
+  // zone uses the key: a CSV file's table, while it's scrolled right (← scrolls it back first).
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== 'ArrowLeft' || e.defaultPrevented || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     if (e.target instanceof Element && e.target.closest(OWNS_ARROWS)) return;
+    if (e.target instanceof Element && (e.target.closest('.csv-table')?.scrollLeft ?? 0) > 0) return;
     e.preventDefault();
     setFocus('files');
   };
@@ -477,10 +512,12 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
       <DiffToolbar
         target={shown}
         canDiff={canDiff}
-        canStep={textDiff}
-        textTools={!imageDiff || svgSource}
+        canStep={textDiff && !pageDiff}
+        textTools={!(imageDiff || mediaDiff || pdfView) || sourceOn}
         binary={!!loaded && (isHex(shown, loaded) || hexImage)}
         rendered={renderedDiff}
+        page={pageDiff}
+        table={table.diff}
         leading={<OpenInButton target={shown} line={openLine} />}
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
         history={<HistoryButtons target={shown} binary={!!loaded && !!(loaded.old?.binary || loaded.new?.binary)} />}

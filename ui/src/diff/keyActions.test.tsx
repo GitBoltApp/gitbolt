@@ -66,7 +66,28 @@ describe('Source / Rendered: Ctrl+Shift+V', () => {
     expect(useDiffPrefs.getState().prefs.markdownView).toBe('rendered');
   });
 
-  it('only for Markdown, and not while typing (paste as plain text)', () => {
+  it("toggles a CSV or TSV file's Source / Table, its own pick, leaving Markdown's alone", () => {
+    open(target('data/plants.tsv', 'file'));
+    expect(actionForCombo('Ctrl+Shift+V')?.id).toBe('diff.toggleRendered');
+    runAction('diff.toggleRendered');
+    expect(useDiffPrefs.getState().prefs.tableView).toBe('source');
+    expect(useDiffPrefs.getState().prefs.markdownView).toBe('rendered');
+    open(target('data/plants.csv'));
+    runAction('diff.toggleRendered');
+    expect(useDiffPrefs.getState().prefs.tableView).toBe('rendered');
+    expect(getAction('diff.toggleRendered')!.tooltip).toMatch(/CSV or TSV/);
+  });
+
+  it("toggles an HTML file's own pick (Source first), leaving Markdown's alone", () => {
+    open(target('site/index.html', 'file'));
+    expect(actionForCombo('Ctrl+Shift+V')?.id).toBe('diff.toggleRendered');
+    runAction('diff.toggleRendered');
+    expect(useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'rendered', markdownView: 'rendered' });
+    runAction('diff.toggleRendered');
+    expect(useDiffPrefs.getState().prefs).toMatchObject({ htmlView: 'source', markdownView: 'rendered' });
+  });
+
+  it('only for Markdown, HTML, CSV and TSV files, and not while typing (paste as plain text)', () => {
     open(target('a.txt'));
     expect(actionForCombo('Ctrl+Shift+V')).toBeUndefined();
     const yields = getAction('diff.toggleRendered')!.yieldsTo!;

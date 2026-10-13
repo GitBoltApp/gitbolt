@@ -150,10 +150,24 @@ video) follows the same rules, up to 100 MB, and is never cached on disk.
 - **Open with default app**, offered for a video the app can't play: the core fetches the video
   again, saves it in `~/.cache/gitbolt/open/` and opens it with your default video player.
 
+### Rendered HTML files
+
+An HTML file in File View or Diff View shows with nothing fetched: its relative images and
+stylesheets are read from the repository, and its scripts and anything on http(s) (a CDN library,
+web fonts) don't load. A bar names those hosts; **Open in browser** opens the file in the browser
+you pick, which then loads them.
+
 ### Links
 
 Clicking a link (`http`, `https` or `mailto`) opens it in your default browser. GitBolt itself
 makes no request for it.
+
+### Open in browser
+
+**Open in browser** on an HTML file (**Open in default app** on any other file) hands the file to
+your system's default app for it. The browser then loads whatever the page refers to (images,
+scripts, fonts, trackers) from wherever it points, outside GitBolt and its rules. GitBolt makes
+no request for it.
 
 ### The embedded Chromium
 

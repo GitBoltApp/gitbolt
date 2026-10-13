@@ -1,0 +1,19 @@
+/* A CSV or TSV file as a table (TableGrid.tsx). */
+.csv-table { flex: 1; min-height: 0; overflow: auto; background: var(--app-bg0); color: var(--text-normal); font-family: var(--font-ui); font-size: var(--md-font-size, 13px); outline: none; }
+.csv-table[hidden] { display: none; }
+.csv-rows { position: relative; }
+.csv-row { display: grid; grid-template-columns: var(--csv-cols); width: max-content; min-width: 100%; height: var(--csv-row-h); line-height: var(--csv-row-h); --csv-tint: transparent; background: var(--csv-tint); }
+.csv-rows > .csv-row { position: absolute; top: 0; left: 0; border-bottom: 1px solid var(--section-border); box-sizing: border-box; }
+.csv-head { position: sticky; top: 0; z-index: 2; background: linear-gradient(var(--csv-tint), var(--csv-tint)), var(--panel-bg0); color: var(--text-selected); font-weight: 600; border-bottom: 1px solid var(--section-border); box-sizing: border-box; }
+.csv-cell { padding: 0 8px; overflow: hidden; white-space: pre; text-overflow: ellipsis; border-right: 1px solid var(--section-border); }
+.csv-cell.csv-num { font-family: var(--font-mono); text-align: right; }
+/* The row numbers stay at the left as the table scrolls sideways. */
+.csv-gutter { position: sticky; left: 0; z-index: 1; display: flex; gap: 8px; padding: 0 4px 0 8px; background: linear-gradient(var(--csv-tint), var(--csv-tint)), var(--app-bg0); color: var(--text-disabled); font-family: var(--font-mono); text-align: right; user-select: none; border-right: 1px solid var(--section-border); }
+.csv-head > .csv-gutter { background: var(--panel-bg0); }
+.csv-gutter > span { flex: none; }
+/* A diff: added rows green, removed red, and the cells a changed row changed brighter. */
+.csv-row[data-kind="added"] { --csv-tint: var(--diff-inserted-line); }
+.csv-row[data-kind="removed"] { --csv-tint: var(--diff-removed-line); }
+.csv-row[data-kind="added"] > .csv-changed, .csv-head > .csv-changed { background: var(--md-diff-ins-text); }
+.csv-row[data-kind="removed"] > .csv-changed { background: var(--md-diff-del-text); }
+.csv-old-head { font-weight: 600; }

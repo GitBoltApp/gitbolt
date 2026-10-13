@@ -1,0 +1,21 @@
+/* Audio, video and font previews (MediaDiff.tsx). The toolbar, the side divider and the hex view's
+   box are the image diff's (image.css). */
+.media-diff { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+.media-stage { position: relative; display: flex; gap: 2px; flex: 1; min-height: 0; }
+.media-pane { position: relative; flex: 1; min-width: 0; overflow: auto; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 16px; background: var(--app-bg0); }
+.media-label { font-size: 11px; letter-spacing: 0.03em; text-transform: uppercase; color: var(--text-secondary); }
+.media-audio { width: min(100%, 480px); }
+.media-video { max-width: 100%; max-height: calc(100% - 32px); min-height: 0; }
+.media-unplayable { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; color: var(--text-secondary); }
+.media-actions { display: flex; align-items: center; gap: 8px; }
+.media-loading { color: var(--text-secondary); }
+/* A font: its name, then its samples, from the top. */
+.media-font-pane { justify-content: flex-start; align-items: stretch; }
+.media-font-pane > .media-label { align-self: center; }
+.font-name { color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.font-sample { display: flex; flex-direction: column; gap: 10px; color: var(--text-normal); }
+.font-line { display: flex; align-items: baseline; gap: 10px; white-space: nowrap; }
+/* The size, in the UI's own font (the sample's family is on the parent). */
+.font-size { flex: none; width: 2ch; font-family: var(--font-ui); font-size: 10px; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
+.font-glyphs { display: grid; grid-template-columns: repeat(auto-fill, minmax(2.2em, 1fr)); gap: 2px; margin-top: 8px; font-size: 22px; }
+.font-glyphs > span { display: flex; align-items: center; justify-content: center; height: 1.8em; border: 1px solid var(--section-border); border-radius: 3px; }

@@ -15,7 +15,7 @@ const { markdownViewOf, clearMarkdownOverride } = await import('../diff/markdown
 const ctx = { tabId: 't1', repoId: 3, worktree: '/r' };
 
 describe('createFile opens the new file to type into (UX round 3 O.1)', () => {
-  beforeEach(() => { openFile.mockReset(); useDiffPrefs.getState().set({ markdownView: 'rendered' }); clearMarkdownOverride(); });
+  beforeEach(() => { openFile.mockReset(); useDiffPrefs.getState().set({ markdownView: 'rendered', tableView: 'rendered' }); clearMarkdownOverride(); });
 
   it('a new Markdown file opens in Source, not an empty Rendered page over a hidden editor; only it', async () => {
     expect(await createFile(ctx, 'docs/new.md')).toBe(true);
@@ -24,6 +24,13 @@ describe('createFile opens the new file to type into (UX round 3 O.1)', () => {
     expect(useDiffPrefs.getState().prefs.markdownView).toBe('rendered');
     expect(markdownViewOf('README.md')).toBe('rendered');
     expect(openFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'docs/new.md', view: 'file' }));
+  });
+
+  it('a new CSV or TSV file opens in Source too, the Table pick left as it is', async () => {
+    expect(await createFile(ctx, 'data/new.csv')).toBe(true);
+    expect(markdownViewOf('data/new.csv')).toBe('source');
+    expect(useDiffPrefs.getState().prefs.tableView).toBe('rendered');
+    expect(markdownViewOf('data/old.csv')).toBe('rendered');
   });
 
   it('another file leaves the Markdown view as it was', async () => {
