@@ -5,6 +5,111 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Audio, video and font previews** in the diff and File View, in place of a hex dump: a player
+  for each side (old and new side by side, as images are), and for a font its name, a pangram at
+  a few sizes and its Basic Latin glyphs. A format the app can't play says so, with Open in and
+  the hex view; the **Hex** toggle shows the bytes any time.
+- **PDFs show as pages** instead of a hex dump: File View shows the file's pages, with selectable
+  text; Diff View shows the old and new versions side by side, scrolled in step, page beside page.
+  Fit width or zoom (the slider, Ctrl+wheel); **Hex** still shows the bytes. A PDF over 2 MB asks
+  before it loads, as a large image does.
+- **CSV and TSV files as a table.** File View shows a `.csv` or `.tsv` file as a table, its
+  header row and row numbers staying in view as you scroll, numbers right-aligned; Diff View lines
+  the rows up, added rows green, removed red, a changed row's cells marked. **Source | Table** (or
+  Mod+Shift+V) switches, remembered apart from Markdown's. A very large file shows its source.
+- **Rendered HTML files.** An `.html`, `.htm` or `.xhtml` file gets a **Source | Rendered**
+  toggle in File View and Diff View (its own pick, Source by default). Rendered shows the page as
+  a static preview in a sandbox: its scripts don't run and nothing is fetched, with its relative
+  images and stylesheets read from the repository. A diff shows the old and new pages side by
+  side. When a page uses scripts or files from other hosts, a bar names them, with **Open in
+  browser**.
+- **Submodules**, in repositories that use them: a submodule's row in the changes says
+  "submodule: new commits" (or "modified content" when that's all, or "not initialised"), and its
+  diff names each commit's subject. Staged, it's one row on the staged side: edits left inside it
+  are committed in the submodule, not split into an unstaged row.
+  From the command palette, **Submodules: Update** (Mod+Alt+B; it asks before leaving commits on
+  no branch behind), **Submodules: Sync URLs** and **Submodules: Open in a tab…** (Mod+Alt+O); a
+  submodule row's menu has Open in a tab and Update this submodule. Each says the git command it
+  ran.
+- **Git LFS**, in repositories that use it: diffs, File View, image diffs and File History show
+  an LFS file's real contents from the local LFS store, never its pointer. One that isn't
+  downloaded says so, with its size, **Download** and **Show pointer**. File lists mark LFS files;
+  the palette has **LFS: Pull** and **LFS: Fetch**; a file's menu has **Track \*.ext with LFS**
+  and **Stop tracking \*.ext** (undoable). Without git-lfs installed, the status bar says so.
+
+- **Apply a suggested change** to your working copy: a review comment's suggestion, in the diff's
+  cards or on the MR timeline, has **Apply** when the MR's branch is checked out at its head and
+  the lines it replaces are unchanged. It edits the file (no commit, nothing sent to the forge),
+  and Undo takes it back. Otherwise Apply says why it can't: another branch or commit, the lines
+  changed since, a comment on an older version, or already applied.
+- **Open in default app** in a file's **Open in** menus: the file in the app your system opens it
+  with, or **Open in browser** for an HTML file. A commit's version opens as the file itself when
+  it hasn't changed since (an HTML page's stylesheets and images load), and as a temporary
+  read-only copy when it has. A file the system would run as a program is never opened this way.
+- **A note when committing to main in your fork.** Above Commit: changes for a pull request
+  usually go on their own branch. **Create branch…** makes one at HEAD, carrying what's staged;
+  **Dismiss** hides the note for that repository.
+- **Go to the clipboard.** Press Ctrl+V (Cmd+V) outside a text field to go to what's on the clipboard: a
+  commit hash selects the commit (in another open tab if it's there); an MR or PR link, `!12` or
+  `#12` opens its view; a forge's commit or file link, or a file path with `:12` or `#L12-20`,
+  opens it at those lines with the file selected; a branch or tag name selects its tip.
+- **`.rpm` package** for Fedora 40 or later and openSUSE Tumbleweed, beside the `.deb` and the Arch package:
+  `sudo dnf install ./GitBolt-<version>-1.x86_64.rpm`. It's the `.deb`'s files (the setuid
+  `chrome-sandbox`, icons, desktop entry, license notices) with Requires in rpm's own form, so
+  dnf and zypper fetch what it needs. GitBolt updates it itself, through dnf (zypper on openSUSE)
+  and your password prompt, as it does the `.deb`.
+- **Your repos filter and sort** on the Open screen: a filter box (by name or path) and a toggle
+  between most recently changed first and A–Z, and one between one list and a list under each
+  directory, both remembered. With more than one directory scanned,
+  each repository is tagged with the one it was found in. A linked worktree has a tree icon, and
+  its tooltip names the repository it belongs to.
+- **Home folder as `~`** in the paths the Open screen and a worktree's card show (`~/repos/app`);
+  tooltips keep the full path. Windows paths are left as they are.
+
+### Changed
+
+- **Push tags with branches** is turned on for existing settings once; turn it off again in
+  Settings › Fetch › Push tags with branches.
+- **Bringing an MR's or PR's branch up to date** is one split button in the merge panel: it runs
+  the way you last chose in that repository (on GitHub, a rebase when the repository allows
+  rebase merges, else a merge; on GitLab, Rebase), and its menu has the other way. It's offered
+  whenever the branch is behind its target, worked out from your fetched commits, and not only
+  when GitHub requires branches to be up to date.
+- **In a fork, the graph pins the original project's trunk** (`upstream/main`) with your local
+  main, even when main tracks your fork; your fork's own main is no longer pinned by default.
+  The pin's Default tooltip says how the fork was told (the forge, or the `upstream` remote).
+- **Open screen** sections no longer stretch across a very wide window: the layout is capped at
+  1440 px and centred.
+- **Clear button in filter boxes:** an × inside the right edge clears the filter, in the sidebar,
+  file lists, pickers, the Open screen, Keyboard Shortcuts and the debug logs.
+- **Overview ruler on every scrolling diff view:** CSV and TSV tables (with their changes marked)
+  and PDFs get the 30px ruler the Source and rendered Markdown diffs have, in place of the slim
+  scrollbar. The rendered Markdown diff keeps it even when nothing changed, while it scrolls.
+
+### Fixed
+
+- Go to the clipboard: View all files turns back off when the pasted file is closed, if the paste
+  turned it on.
+- Clicking or dragging on a rendered Markdown diff's ruler centres the view on the pointer; it
+  settled too high while long documents finished rendering.
+- Ctrl+Enter (Cmd+Enter) inside a dialog or popover submits the form you're typing in; it did
+  nothing there before.
+- On Windows, AltGr no longer triggers Ctrl+Alt shortcuts while typing (for example `{` on Czech,
+  Hungarian or Polish layouts).
+- **Compare** on a merged MR/PR shows the commit it landed as on the target (its merge or squash
+  commit) against that commit's parent, fetching the remote when needed, and says so when it can't
+  find it. It used to fetch the MR's own head as `origin/mr/<n>`, which the next fetch deleted.
+  An open MR's head, fetched for Compare, now stays through later fetches too.
+- A long MR/PR's discussion renders in faster: each step that renders a few more comment bodies
+  redraws only those threads, not every thread on the timeline.
+
+### Security
+
+- Background workers (the code editor's, the Markdown parser's, PDFs') now run under the app's
+  Content Security Policy too; before, only the page did.
+
 ## [0.5.0] - 2026-10-09
 
 ### Added

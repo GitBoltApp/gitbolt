@@ -43,7 +43,7 @@
     "category": "DeveloperTool",
     "homepage": "https://github.com/GitBoltApp/gitbolt",
     "shortDescription": "Fast, keyboard-friendly Git client",
-    "longDescription": "GitBolt is a fast, keyboard-friendly desktop Git client with a commit graph\nat its heart: the lane graph down the middle, the branch and remote sidebar,\nthe commit details on the right, and workflows driven from context menus and\nthe keyboard.\n\nIt reads repositories with gitoxide and writes through the git command line,\nso your hooks, config and credentials behave exactly as they do in a terminal.\n\nStaging of files, hunks and lines; an undo history of the last 50 operations;\ninteractive rebase; merge and pull requests on GitLab and GitHub, stacks\nincluded. No account and no telemetry.",
+    "longDescription": "GitBolt is a fast, keyboard-friendly desktop Git client with a commit graph\nat its heart: the lane graph down the middle, the branch and remote sidebar,\nthe commit details on the right, and workflows driven from context menus and\nthe keyboard.\n\nIt reads repositories with gitoxide and writes through the git command line,\nso your hooks, config and credentials behave exactly as they do in a terminal.\n\nStaging of files, hunks and lines; an undo history of the last 50 operations;\ninteractive rebase; merge and pull requests on GitLab and GitHub, stacks\nincluded, with inline code review; rendered Markdown diffs, and previews of\nHTML, CSV, PDF, audio, video and font files. No account and no telemetry.",
     "icon": ["icons/128x128@2x.png", "icons/32x32.png", "icons/64x64.png", "icons/128x128.png", "icons/icon.png"],
     "linux": {
       "deb": { "depends": ["libgtk-4-1", "git (>= 1:2.40)"], "section": "vcs",

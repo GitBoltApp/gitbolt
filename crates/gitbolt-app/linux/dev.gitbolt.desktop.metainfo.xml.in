@@ -31,6 +31,8 @@
       <li>Undo history: the last 50 operations of each worktree, across restarts</li>
       <li>Interactive rebase with fixup, edit and conflict prediction</li>
       <li>Merge requests and pull requests on GitLab and GitHub, stacks included</li>
+      <li>Inline code review on GitLab and GitHub, with suggested changes you can apply</li>
+      <li>Rendered Markdown diffs, and previews of HTML, CSV, PDF, audio, video and font files</li>
       <li>No account and no telemetry</li>
     </ul>
   </description>
