@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-app"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "gitbolt-core",
  "gitbolt-forge",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-core"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
@@ -2085,7 +2085,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-forge"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
  "gitbolt-core",
@@ -2103,7 +2103,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-graph"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2112,7 +2112,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-graph-wasm"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "gitbolt-graph",
  "serde_json",
@@ -2121,7 +2121,7 @@ dependencies = [
 
 [[package]]
 name = "gitbolt-harness"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "axum",
  "base64 0.23.1",

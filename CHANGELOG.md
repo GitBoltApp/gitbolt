@@ -5,6 +5,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-13
+
 ### Changed
 
 - **Updates** also look for the project under its new name, GitVolt (`GitVoltApp/gitvolt` on
