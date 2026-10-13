@@ -197,6 +197,10 @@ That is a trust boundary.
 
 - **Writes run hooks.** A commit runs `pre-commit`, `commit-msg` and the other commit hooks.
   Merge, rebase, checkout and push run theirs. GitBolt has no option to skip them.
+- **Submodules: Update runs hooks inside the submodules.** `git submodule update` checks out each
+  submodule, which runs that submodule's own `post-checkout` hook and reads its own config, and it
+  clones from the URLs in `.gitmodules`, which the repository chooses. Update only repositories
+  whose submodules you trust, as in a terminal.
 - **Opening a repository runs no commit hooks, but it does run git in it.** What runs:
   - Read commands: `git worktree list` and `git status` as soon as the tab opens, then, as you
     browse, `git log`, `git diff`, `git show`, `git blame` and the like. git reads the repository's own `.git/config` for each of them, so a command it

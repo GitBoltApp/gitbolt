@@ -65,7 +65,7 @@ async fn at_commit(root: &Path, sha: &str, path: &str) -> Result<AtCommit, GbErr
 
 /// `[path]` when a file stands at `path` that the index doesn't have (untracked or ignored): the
 /// snapshot's untracked part, so Undo brings its bytes back.
-fn untracked_of(root: &Path, path: &str) -> Result<Vec<String>, GbError> {
+pub(crate) fn untracked_of(root: &Path, path: &str) -> Result<Vec<String>, GbError> {
     use gix::bstr::ByteSlice;
     if root.join(path).symlink_metadata().is_err() {
         return Ok(Vec::new());

@@ -40,6 +40,9 @@ pub struct RepoInfoPayload {
     /// Set when the open repo is a linked worktree: its main worktree (spec §13).
     pub main_worktree: Option<String>,
     pub common_dir: String,
+    /// The worktrees (canonical paths) that use submodules, `submodules::support`: the UI offers
+    /// its submodule actions there.
+    pub submodules: std::collections::BTreeMap<String, crate::submodules::SubmoduleSupport>,
 }
 
 #[derive(Debug, Clone, Serialize, TS)]
@@ -683,12 +686,20 @@ pub async fn repo_info(repo: &gix::ThreadSafeRepository, workdir: &Path) -> Resu
             .collect::<Vec<_>>();
         (remotes, canonical(local.common_dir()), canonical(local.git_dir()) != canonical(local.common_dir()))
     };
-    let main_worktree = if linked {
-        list_worktrees(workdir).await?.into_iter().find(|w| w.is_main).map(|w| canonical(&w.path).display().to_string())
-    } else {
-        None
+    // Only a linked worktree needs the list to answer; the submodule check falls back to this one.
+    let worktrees = match list_worktrees(workdir).await {
+        Ok(list) => list,
+        Err(e) if linked => return Err(e),
+        Err(_) => Vec::new(),
     };
-    Ok(RepoInfoPayload { remotes, main_worktree, common_dir: common_dir.display().to_string() })
+    let main_worktree = if linked { worktrees.iter().find(|w| w.is_main).map(|w| canonical(&w.path).display().to_string()) } else { None };
+    // Each worktree's own index and `.gitmodules`, off the runtime.
+    let mut paths: Vec<std::path::PathBuf> = worktrees.into_iter().filter(|w| !w.bare && !w.prunable).map(|w| canonical(&w.path)).collect();
+    if paths.is_empty() {
+        paths.push(canonical(workdir));
+    }
+    let submodules = crate::api::blocking(move || Ok(paths.into_iter().filter_map(|p| Some((p.display().to_string(), crate::submodules::support(&p)?))).collect())).await?;
+    Ok(RepoInfoPayload { remotes, main_worktree, common_dir: common_dir.display().to_string(), submodules })
 }
 
 /// `AppInfoPayload` for a git version already known (e.g. `Api`'s cached `check_version`).

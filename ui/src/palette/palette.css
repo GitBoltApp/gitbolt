@@ -7,4 +7,4 @@
 .palette-item[aria-selected="true"] { background: var(--selected-row); color: var(--text-selected); }
 .palette-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-detail { font-size: 11px; color: var(--text-secondary); max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.palette-loading, .palette-empty { padding: 6px 14px; color: var(--text-disabled); display: flex; align-items: center; gap: 6px; }
+.palette-loading, .palette-empty, .palette-more { padding: 6px 14px; color: var(--text-disabled); display: flex; align-items: center; gap: 6px; }

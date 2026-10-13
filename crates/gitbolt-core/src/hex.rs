@@ -56,12 +56,14 @@ fn read_head(repo: &gix::Repository, path: &str, side: &Side, cap: u64) -> Resul
         Resolved::Blob(oid) if size > cap => return Ok(Some(Head::LargeBlob { size, oid })),
         Resolved::Blob(oid) => repo.find_object(oid).map_err(gix_err)?.detach().data,
         Resolved::Text(t) => t.into_bytes(),
-        Resolved::File { path, .. } => {
+        Resolved::File { path, .. } | Resolved::Lfs { file: path, .. } => {
             let mut bytes = Vec::new();
             std::fs::File::open(path)?.take(cap).read_to_end(&mut bytes)?;
             bytes
         }
         Resolved::Link(path) => std::fs::read_link(path)?.to_string_lossy().into_owned().into_bytes(),
+        // Not downloaded: the diff shows that instead of any dump.
+        Resolved::LfsMissing { raw, .. } => raw,
     };
     Ok(Some(Head::Bytes { size, bytes }))
 }
@@ -182,7 +184,7 @@ mod tests {
         // A sparse worktree file far past any limit: only the head is read.
         let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         std::fs::File::create(r.path().join("huge.bin")).unwrap().set_len(8 * 1024 * 1024 * 1024).unwrap();
-        let wt = Side::Worktree { root, encoding: None, converts: false };
+        let wt = Side::Worktree { root, encoding: None, converts: false, lfs: false };
         let h = hex_dump(&repo, &cli(), r.path(), "huge.bin", Side::Absent, wt, HEX_CAP).await.unwrap().new.unwrap();
         assert_eq!((h.size, h.shown), (8 * 1024 * 1024 * 1024, HEX_CAP));
         assert_eq!(h.dump.lines().count(), (HEX_CAP / 16) as usize);
@@ -230,7 +232,7 @@ mod tests {
         // A large worktree binary (sparse: zeros), on the old side, against the text.
         let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         std::fs::File::create(r.path().join("wt.bin")).unwrap().set_len(3 * 1024 * 1024).unwrap();
-        let wt = Side::Worktree { root, encoding: None, converts: false };
+        let wt = Side::Worktree { root, encoding: None, converts: false, lfs: false };
         let mut c = diff_contents(&local, "wt.bin", &wt, &Side::Absent, false).unwrap();
         ungate_binary(&repo, &cli(), r.path(), "wt.bin", &wt, &Side::Absent, &mut c).await.unwrap();
         assert!(!c.too_large && c.old.unwrap().binary);

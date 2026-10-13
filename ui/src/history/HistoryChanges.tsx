@@ -5,7 +5,7 @@ import { errorMessage } from '../api/client';
 import type { FileChange } from '../api/gen/FileChange';
 import type { FileHistoryRow } from '../api/gen/FileHistoryRow';
 import { useChangeKeys } from '../diff/changeKeys';
-import { FORCED_CEILING_LABEL, ImageBody, isHex, isImage, isMedia, MediaBody, useContents, usePresented } from '../diff/DiffPanel';
+import { FORCED_CEILING_LABEL, ImageBody, isHex, isImage, isMedia, MediaBody, showable, useContents, usePresented } from '../diff/DiffPanel';
 import { DiffTextBody } from '../diff/DiffTextBody';
 import { DiffToolbar } from '../diff/DiffToolbar';
 import { MarkdownViewToggle } from '../diff/FileBody';
@@ -14,6 +14,7 @@ import { tableDelimiterOf } from '../table/csv';
 import { formatBytes } from '../diff/format';
 import { HexBody, HexView } from '../diff/hex';
 import { hexOf } from '../diff/hexContents';
+import { LfsPlaceholder, lfsMissing } from '../lfs/LfsPlaceholder';
 import { highlightLanguage } from '../diff/language';
 import { isRenderedTarget, renderedKindOf, TOO_LARGE_TO_RENDER, useDiffTooLarge } from '../diff/markdownFiles';
 import { useMarkdownView } from '../diff/markdownOverride';
@@ -83,7 +84,7 @@ function ChangesBody({ target, views }: { target: ChangesTarget; views: ReactNod
   const shown = body.target as ChangesTarget;
   const contents = body.contents;
   const loaded = contents.status === 'ready' ? contents.data : null;
-  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isMedia(shown, loaded) && !isHex(shown, loaded);
+  const textBody = !!loaded && showable(loaded) && !isImage(shown, loaded) && !isMedia(shown, loaded) && !isHex(shown, loaded);
   const mdDiff = textBody && isRenderedTarget(shown);
   const diffTooLarge = useDiffTooLarge(shown.key, mdDiff ? loaded?.old?.text ?? '' : '', mdDiff ? loaded?.new?.text ?? '' : '').tooLarge;
   const picked = useMarkdownView(mdDiff ? shown.path : null);
@@ -93,10 +94,10 @@ function ChangesBody({ target, views }: { target: ChangesTarget; views: ReactNod
   // An SVG's Source toggle (or a raster image's or media's Hex), per file: a text (or hex) diff to
   // step through.
   const [sourceOf, setSourceOf] = useState<string | null>(null);
-  const imageDiff = !!loaded && !loaded.tooLarge && isImage(shown, loaded);
-  const mediaDiff = !!loaded && isMedia(shown, loaded);
+  const imageDiff = !!loaded && showable(loaded) && isImage(shown, loaded);
+  const mediaDiff = !!loaded && showable(loaded) && isMedia(shown, loaded);
   const sourceOn = (imageDiff || mediaDiff) && sourceOf === shown.key;
-  const textDiff = (!!loaded && !loaded.tooLarge && !imageDiff && !mediaDiff) || sourceOn;
+  const textDiff = (!!loaded && showable(loaded) && !imageDiff && !mediaDiff) || sourceOn;
   const hexImage = sourceOn && (mediaDiff || !shown.path.toLowerCase().endsWith('.svg'));
   useChangeKeys(textDiff && !page);
   const table = useTableView(shown, textBody ? loaded : null);
@@ -127,6 +128,7 @@ function Body({ target, contents, forced, onLoadAnyway, onSourceChange }: { targ
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
+  if (lfsMissing(c).length) return <LfsPlaceholder target={target} contents={c} sides={target.sides} />;
   if (c.tooLarge) {
     return (
       <div className="diff-message">

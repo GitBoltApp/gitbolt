@@ -76,6 +76,10 @@ pub enum ErrorDetail {
     /// replace your changes to <path>", then send again with `confirm`.
     RestoreOverChanges { path: Box<str> },
     // --- end 3A T3 ---
+    /// Submodules: Update over submodules whose HEAD has commits on no branch (`commits` in all):
+    /// the update checks out the recorded commit and leaves them behind, in the reflog only. The
+    /// message asks; send again with `confirm`.
+    SubmoduleOrphans { paths: Vec<String>, commits: u32 },
     // --- 3B T2 ---
     /// Undo of a "without committing" pick that stopped on conflicts discards its changes, a
     /// resolution included: ask (`message`), arm in place with `arm`, then send again with

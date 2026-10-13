@@ -82,6 +82,9 @@
 
 .file-conflict { margin-left: auto; color: var(--status-conflicted); font-size: 11px; }
 .file-conflict + .row-actions { margin-left: 0; }
+/* A submodule row's state ("new commits, modified content", "not initialised"): always shown, in the stats' place. */
+.file-submodule { margin-left: auto; padding-left: 8px; flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--status-modified); font-size: 11px; }
+.file-submodule + .row-actions { margin-left: 0; }
 /* A conflicted row's tooltip: under its path, the conflict with its sides named. */
 .conflict-tip { margin-top: 3px; color: var(--status-conflicted); }
 /* WIP: the mode's tool (Collapse all / Sort by status) on a slim line above the list, left with its content. */

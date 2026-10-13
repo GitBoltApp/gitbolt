@@ -1,10 +1,11 @@
 import fuzzysort from 'fuzzysort';
 
-export type PaletteGroup = 'action' | 'ref' | 'file' | 'setting' | 'tab';
+/** `choice`: the entries of a picker an action opened (`usePalette.choose`), alone. */
+export type PaletteGroup = 'action' | 'ref' | 'file' | 'setting' | 'tab' | 'choice';
 export interface PaletteEntry { id: string; group: PaletteGroup; label: string; detail?: string; run(): void; /** Shift+Enter: an @ ref's checkout. */ alt?(): void }
 
-export const GROUP_ORDER: readonly PaletteGroup[] = ['action', 'ref', 'file', 'setting', 'tab'];
-export const GROUP_LABEL: Record<PaletteGroup, string> = { action: 'Actions', ref: 'Branches & tags', file: 'Files at HEAD', setting: 'Settings', tab: 'Tabs & recent repos' };
+export const GROUP_ORDER: readonly PaletteGroup[] = ['action', 'ref', 'file', 'setting', 'tab', 'choice'];
+export const GROUP_LABEL: Record<PaletteGroup, string> = { action: 'Actions', ref: 'Branches & tags', file: 'Files at HEAD', setting: 'Settings', tab: 'Tabs & recent repos', choice: 'Choose' };
 const PREFIX: Record<string, PaletteGroup> = { '>': 'action', '@': 'ref', '/': 'file', '#': 'setting' };
 
 export function parseQuery(q: string): { group: PaletteGroup | null; text: string } {
@@ -46,4 +47,13 @@ export function searchPalette(query: string, entries: PaletteEntry[], perGroup =
     if (!text) return list.slice(0, limit);
     return fuzzysort.go(text, list, { key: (e: PaletteEntry) => prepared.get(e), limit, threshold: 0.3 }).map((r) => r.obj);
   });
+}
+
+/** A picker's entries (`usePalette.choose`) matching `query`, best first, every match (the
+ * palette shows the first ones and counts the rest). No group prefixes: `>` or `/` is text. */
+export function searchChoices(query: string, entries: PaletteEntry[]): PaletteEntry[] {
+  const text = query.trim();
+  if (!text) return entries;
+  groupsOf(entries);
+  return fuzzysort.go(text, entries, { key: (e: PaletteEntry) => prepared.get(e), threshold: 0.3 }).map((r) => r.obj);
 }

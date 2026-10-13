@@ -7,8 +7,8 @@ use crate::commit::{parse_commit, parse_oid};
 use crate::details::read_commit;
 use crate::error::{GbError, GbErrorKind};
 use crate::git::{GitCli, GitInvocation};
-use crate::payload::{BlobSource, FileChange, FileListPayload};
-use crate::status::{status, EntryKind, StatusEntry};
+use crate::payload::{BlobSource, FileChange, FileListPayload, SubmoduleState};
+use crate::status::{status, EntryKind, StatusEntry, SubmoduleFlags};
 use serde::Deserialize;
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -145,6 +145,7 @@ fn to_changes(repo: &gix::Repository, raw: Vec<RawChange>, worktree: Option<&str
         .map(|c| FileChange {
             submodule: c.old_mode == SUBMODULE_MODE || c.new_mode == SUBMODULE_MODE,
             conflict: None,
+            submodule_state: None,
             old: side(repo, &c.old_oid, c.old_mode, false, worktree),
             new: side(repo, &c.new_oid, c.new_mode, true, worktree),
             status: c.status.to_string(),
@@ -214,6 +215,33 @@ fn resolve_dirty_submodules(wt: &Path, files: &mut [FileChange]) {
             f.new = resolve_submodule_head(wt, &f.path);
         }
     }
+}
+
+/// A WIP submodule row's state: `flags` from `git status`, and whether anything is checked out
+/// at its path. `None` for any other row, a removed submodule, or when there's nothing to say.
+fn submodule_state(wt: &Path, f: &FileChange, flags: Option<SubmoduleFlags>) -> Option<SubmoduleState> {
+    if !f.submodule || f.status == "D" {
+        return None;
+    }
+    let flags = flags.unwrap_or_default();
+    let uninitialized = resolve_submodule_head(wt, &f.path) == BlobSource::Absent;
+    let s = SubmoduleState { new_commits: flags.commit, modified_content: flags.modified, untracked_content: flags.untracked, uninitialized };
+    (s != SubmoduleState::default()).then_some(s)
+}
+
+/// Each submodule row's `submodule_state`, off the runtime (each submodule is opened).
+async fn with_submodule_states(wt: &Path, mut files: Vec<FileChange>, flags: HashMap<String, SubmoduleFlags>) -> Result<Vec<FileChange>, GbError> {
+    if !files.iter().any(|f| f.submodule) {
+        return Ok(files);
+    }
+    let wt = wt.to_path_buf();
+    off_runtime(move || {
+        for f in files.iter_mut() {
+            f.submodule_state = submodule_state(&wt, f, flags.get(&f.path).copied());
+        }
+        files
+    })
+    .await
 }
 
 fn diff_tree(tail: &[String]) -> Vec<String> {
@@ -367,7 +395,7 @@ fn totals(files: Vec<FileChange>) -> FileListPayload {
 /// A worktree's staged changes: index vs HEAD.
 async fn wip_staged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path) -> Result<Vec<FileChange>, GbError> {
     let raw = run(cli, wt, diff_porcelain(&["-M", "--cached"])).await?;
-    changes(repo, raw, None).await
+    with_submodule_states(wt, changes(repo, raw, None).await?, HashMap::new()).await
 }
 
 /// A worktree's unstaged changes (worktree vs index, minus stat-dirty phantoms) plus its
@@ -382,7 +410,13 @@ async fn wip_unstaged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path,
         .filter(|e| e.kind == EntryKind::Unmerged)
         .filter_map(|e| Some((e.path.clone(), crate::payload::ConflictKind::from_xy(e.index, e.worktree)?)))
         .collect();
-    let mut files = changes(repo, raw, Some((wt.to_path_buf(), name.clone()))).await?;
+    let flags: HashMap<String, SubmoduleFlags> = entries.iter().filter_map(|e| Some((e.path.clone(), e.submodule?))).collect();
+    let staged_subs: std::collections::HashSet<String> = entries.iter().filter(|e| e.submodule.is_some() && e.index != '.').map(|e| e.path.clone()).collect();
+    let changed = changes(repo, raw, Some((wt.to_path_buf(), name.clone()))).await?;
+    let mut files = with_submodule_states(wt, changed, flags).await?;
+    // A staged submodule whose only unstaged change is inside it (edits the superproject can't
+    // stage: they're committed in the submodule) stays on the staged side alone, not split in two.
+    files.retain(|f| !(staged_subs.contains(&f.path) && f.submodule_state.is_some_and(|s| !s.new_commits && !s.uninitialized)));
     for f in files.iter_mut().filter(|f| f.status == "U") {
         f.conflict = conflicts.get(&f.path).copied();
     }
@@ -407,6 +441,7 @@ async fn wip_unstaged(repo: &gix::ThreadSafeRepository, cli: &GitCli, wt: &Path,
                         new: BlobSource::Worktree { worktree: name.clone() },
                         submodule: false,
                         conflict: None,
+                        submodule_state: None,
                     }
                 })
                 .collect::<Vec<_>>()
@@ -825,6 +860,60 @@ mod tests {
         assert_eq!(f.new, BlobSource::Submodule { oid: oid2 }, "resolved to what's actually checked out, not the null oid git printed");
     }
 
+    /// A WIP submodule row says what `git status` says of it, and an uninitialised one says so.
+    #[tokio::test]
+    async fn wip_submodule_rows_carry_their_state() {
+        let r = TestRepo::new();
+        fixtures::submodules(&r);
+        let parser = r.path().join("vendor/parser");
+        r.git_in(&parser, &["checkout", "-q", "HEAD~1"]);
+        std::fs::write(parser.join("part_0.txt"), "edited\n").unwrap();
+        std::fs::write(parser.join("scratch.txt"), "new\n").unwrap();
+        let older = r.git_in(&parser, &["rev-parse", "HEAD"]);
+        // The theme isn't initialised; a commit staged for it shows in the staged list.
+        r.git(&["update-index", "--cacheinfo", &format!("160000,{older},vendor/theme")]);
+        let repo = gix::ThreadSafeRepository::open(r.path()).unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
+        let name = wt.display().to_string();
+        let unstaged = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name.clone(), staged: false }, Some(&wt)).await.unwrap();
+        let p = unstaged.files.iter().find(|f| f.path == "vendor/parser").unwrap();
+        assert_eq!(p.submodule_state, Some(SubmoduleState { new_commits: true, modified_content: true, untracked_content: true, uninitialized: false }));
+        assert!(unstaged.files.iter().all(|f| f.path != "vendor/theme"), "an uninitialised submodule isn't changed: {:?}", unstaged.files);
+        let staged = file_list(&repo, &cli(), r.path(), &DiffSpec::Wip { worktree: name, staged: true }, Some(&wt)).await.unwrap();
+        let t = staged.files.iter().find(|f| f.path == "vendor/theme").unwrap();
+        assert_eq!(t.submodule_state, Some(SubmoduleState { uninitialized: true, ..Default::default() }));
+        // Only a submodule row has a state.
+        assert!(staged.files.iter().chain(&unstaged.files).filter(|f| !f.submodule).all(|f| f.submodule_state.is_none()));
+    }
+
+    /// A submodule whose new commit is staged, with edits inside it left over, shows on the staged
+    /// side only; with nothing staged, the edits inside it still show as unstaged.
+    #[tokio::test]
+    async fn a_staged_submodule_with_only_edits_inside_isnt_listed_as_unstaged_too() {
+        let r = TestRepo::new();
+        fixtures::submodules(&r);
+        let parser = r.path().join("vendor/parser");
+        std::fs::write(parser.join("part_0.txt"), "edited\n").unwrap();
+        let repo = gix::ThreadSafeRepository::open(r.path()).unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
+        async fn list(repo: &gix::ThreadSafeRepository, root: &Path, wt: &Path, staged: bool) -> FileListPayload {
+            file_list(repo, &cli(), root, &DiffSpec::Wip { worktree: wt.display().to_string(), staged }, Some(wt)).await.unwrap()
+        }
+        let unstaged = list(&repo, r.path(), &wt, false).await;
+        let p = unstaged.files.iter().find(|f| f.path == "vendor/parser").expect("edits inside, nothing staged: listed");
+        assert_eq!(p.submodule_state, Some(SubmoduleState { modified_content: true, ..Default::default() }));
+        // A new commit checked out and staged: the edits inside stay, but the row is staged only.
+        r.git_in(&parser, &["checkout", "-q", "HEAD~1"]);
+        std::fs::write(parser.join("part_0.txt"), "edited\n").unwrap();
+        r.git(&["add", "vendor/parser"]);
+        assert!(list(&repo, r.path(), &wt, true).await.files.iter().any(|f| f.path == "vendor/parser"));
+        assert!(list(&repo, r.path(), &wt, false).await.files.iter().all(|f| f.path != "vendor/parser"), "not split across both lists");
+        // Moved again past what's staged: that's an unstaged change of its own.
+        r.git_in(&parser, &["checkout", "-q", "--detach", "HEAD@{1}"]);
+        let again = list(&repo, r.path(), &wt, false).await;
+        assert!(again.files.iter().find(|f| f.path == "vendor/parser").is_some_and(|f| f.submodule_state.is_some_and(|s| s.new_commits)));
+    }
+
     #[test]
     fn submodule_head_is_absent_when_not_checked_out() {
         // Inside a real superproject (not a bare tempdir): an empty submodule directory must
@@ -855,7 +944,7 @@ mod tests {
             "A" => (BlobSource::Absent, blob),
             _ => (blob.clone(), blob),
         };
-        FileChange { path: path.into(), old_path: None, status: status.into(), additions: None, deletions: None, old, new, submodule: false, conflict: None }
+        FileChange { path: path.into(), old_path: None, status: status.into(), additions: None, deletions: None, old, new, submodule: false, conflict: None, submodule_state: None }
     }
 
     fn rows(files: &[FileChange]) -> Vec<(&str, Option<&str>, &str)> {

@@ -222,6 +222,23 @@ pub enum Request {
     /// `git remote remove <name>` (the Remote panel's right-click): `WriteResult<null>`. Journaled:
     /// Undo puts its config, its remote-tracking refs and the upstreams it took back.
     RemoveRemote { repo: u32, worktree: String, name: String },
+    /// `git submodule status --recursive` in `worktree`: `SubmoduleInfo[]`.
+    Submodules { repo: u32, worktree: String },
+    /// `git submodule update --init --recursive`, of the submodule at `path` only when given:
+    /// `WriteResult<SubmoduleOutcome>`. A network command, as a push; not journaled.
+    SubmoduleUpdate {
+        repo: u32,
+        worktree: String,
+        #[serde(default)]
+        #[ts(optional)]
+        path: Option<String>,
+        /// Leave commits on no branch behind: a failure with `SubmoduleOrphans` asked.
+        #[serde(default)]
+        #[ts(optional)]
+        confirm: Option<bool>,
+    },
+    /// `git submodule sync --recursive`: `WriteResult<SubmoduleOutcome>`. Not journaled.
+    SubmoduleSync { repo: u32, worktree: String },
     /// Clones `url` into the absolute `dest` (spec §13) and opens it: `RepoSummary`.
     Clone { url: String, dest: String },
     /// Every remote with its redacted URL, and the main worktree of a linked one: `RepoInfoPayload`.
@@ -812,6 +829,34 @@ pub enum Request {
         confirm: Option<bool>,
     },
     // --- end 3A T3 ---
+    // --- Git LFS ---
+    /// Whether the repository uses LFS, git-lfs's version, whether it's set up here and the top
+    /// `.gitattributes`' LFS patterns (read): `LfsStatusPayload`. git-lfs's version is read once
+    /// per session; `recheck` reads it again (git-lfs installed meanwhile, an LFS op failed).
+    LfsStatus {
+        repo: u32,
+        #[serde(default)]
+        #[ts(optional)]
+        recheck: Option<bool>,
+    },
+    /// Which of `paths` LFS stores, by `worktree`'s attributes (read): `string[]`.
+    LfsTracked { repo: u32, worktree: String, paths: Vec<String> },
+    /// `git lfs fetch`: `WriteResult<LfsTransferOutcome>`, not journaled.
+    LfsFetch { repo: u32, worktree: String },
+    /// `git lfs fetch`, then `git lfs checkout` (skipped, `notSetUp`, without `git lfs install`):
+    /// `WriteResult<LfsTransferOutcome>`, not journaled.
+    LfsPull { repo: u32, worktree: String },
+    /// One file's LFS objects at `refs` (commit ids; none: HEAD's), its path escaped as a git-lfs
+    /// pattern (a comma is refused), then its checkout if the working tree has it as a pointer.
+    /// `oids`: the objects the diff lacks; the outcome lists those still missing.
+    /// `WriteResult<LfsTransferOutcome>`, not journaled.
+    LfsDownload { repo: u32, worktree: String, path: String, refs: Vec<String>, oids: Vec<String> },
+    /// `git lfs track <pattern>` (`*.<ext>` only): `.gitattributes` edited, journaled
+    /// (`WriteResult<null>`).
+    LfsTrack { repo: u32, worktree: String, pattern: String },
+    /// `git lfs untrack <pattern>`: as `LfsTrack`.
+    LfsUntrack { repo: u32, worktree: String, pattern: String },
+    // --- end Git LFS ---
     // --- 3B T3: tags ---
     /// Create tag here (spec #3 §3.9): lightweight, or annotated with `message`: `WriteResult<null>`.
     CreateTag {
@@ -1163,6 +1208,8 @@ impl Request {
             // --- 4A T7 ---
             Request::AddRemote { .. } | Request::RemoveRemote { .. } => true,
             // --- end 4A T7 ---
+            Request::SubmoduleUpdate { .. } | Request::SubmoduleSync { .. } => true,
+            Request::Submodules { .. } => false,
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
             Request::WriteWorktreeFile { .. } | Request::CreateWorktreeFile { .. } | Request::ApplySuggestion { .. } => true,
             // 2B T1.
@@ -1190,6 +1237,8 @@ impl Request {
             // --- 3A T3 ---
             Request::RestoreFile { .. } => true,
             // --- end 3A T3 ---
+            Request::LfsStatus { .. } | Request::LfsTracked { .. } => false,
+            Request::LfsFetch { .. } | Request::LfsPull { .. } | Request::LfsDownload { .. } | Request::LfsTrack { .. } | Request::LfsUntrack { .. } => true,
             // --- end 2D T12 ---
             // --- 2D T15 ---
             Request::ResolveFile { .. } => true,
@@ -1375,6 +1424,9 @@ pub struct Api {
     pub(crate) next_id: AtomicU32,
     /// git's version, checked (and cached) by the first `openRepo` (or `appInfo`).
     pub(crate) version: OnceCell<(u32, u32, u32)>,
+    /// git-lfs's version for the session (`None` inside: not installed), read by the first
+    /// `lfsStatus` and again only when one asks to `recheck`.
+    pub(crate) lfs_version: std::sync::Mutex<Option<Option<String>>>,
     /// Signature verdicts per (git directory, commit id), spec §9.1: a settled one for the
     /// session, an unknown key or untrusted one briefly and only while the config files are
     /// unchanged (`signature::SignatureCache`).
@@ -1606,6 +1658,7 @@ impl Api {
             repos: Mutex::new(HashMap::new()),
             next_id: AtomicU32::new(1),
             version: OnceCell::new(),
+            lfs_version: std::sync::Mutex::new(None),
             signatures: Mutex::new(crate::signature::SignatureCache::new(SIGNATURE_CACHE_MAX)),
             avatars: None,
             forge: None,
@@ -2596,6 +2649,9 @@ impl Api {
                 }
                 to_json(done?)
             }
+            Request::Submodules { repo, worktree } => to_json(self.submodules(repo, &worktree).await?),
+            Request::SubmoduleUpdate { repo, worktree, path, confirm } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::submodules::UpdateSubmodules { path, confirm: confirm.unwrap_or(false) }).await?),
+            Request::SubmoduleSync { repo, worktree } => to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::submodules::SyncSubmodules).await?),
             // --- 4A T5 ---
             Request::ForgeAccounts => to_json(self.forge.as_ref().map(|f| f.accounts(&self.store)).unwrap_or_default()),
             Request::AddForgeAccount { host, kind, token } => to_json(self.forge_hub()?.add_account(&self.store, &host, kind, token).await?),
@@ -2943,6 +2999,34 @@ impl Api {
             // --- end 3A T2 ---
             // --- 3A T3 ---
             Request::RestoreFile { repo, worktree, sha, path, confirm } => to_json(crate::write::restore::restore_file(self, repo, &worktree, sha, path, confirm.unwrap_or(false)).await?),
+            Request::LfsStatus { repo, recheck } => {
+                let h = self.handle(repo)?;
+                let r = h.repo.clone();
+                let used = blocking(move || Ok(crate::lfs::uses_lfs(&r.to_thread_local()))).await?;
+                let cached = if recheck.unwrap_or(false) { None } else { self.lfs_version.lock().unwrap_or_else(|e| e.into_inner()).clone() };
+                let version = match cached {
+                    Some(v) => v,
+                    None => {
+                        let v = crate::lfs::installed(&self.cli, &h.workdir).await;
+                        *self.lfs_version.lock().unwrap_or_else(|e| e.into_inner()) = Some(v.clone());
+                        v
+                    }
+                };
+                let patterns = crate::lfs::top_patterns(&h.workdir);
+                // A fresh read of the config: `git lfs install` may have run since the repo opened.
+                let filter = gix::open(&h.workdir).is_ok_and(|r| crate::lfs::filter_configured(&r));
+                to_json(crate::lfs::LfsStatusPayload { used, version, install_url: crate::lfs::INSTALL_URL.into(), patterns, filter })
+            }
+            Request::LfsTracked { repo, worktree, paths } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(crate::lfs::tracked(&self.cli, &root, &paths).await?)
+            }
+            Request::LfsFetch { repo, worktree } => to_json(crate::write::lfs::lfs_fetch(self, repo, &worktree).await?),
+            Request::LfsPull { repo, worktree } => to_json(crate::write::lfs::lfs_pull(self, repo, &worktree).await?),
+            Request::LfsDownload { repo, worktree, path, refs, oids } => to_json(crate::write::lfs::lfs_download(self, repo, &worktree, path, refs, oids).await?),
+            Request::LfsTrack { repo, worktree, pattern } => to_json(crate::write::lfs::lfs_track(self, repo, &worktree, pattern, false).await?),
+            Request::LfsUntrack { repo, worktree, pattern } => to_json(crate::write::lfs::lfs_track(self, repo, &worktree, pattern, true).await?),
             // --- end 3A T3 ---
             // --- 2D T15 ---
             Request::ResolveFile { repo, worktree, path, resolution, base, confirm_markers, confirm_discard } => {
@@ -3337,8 +3421,8 @@ impl Api {
                 // Reject escaping paths before git sees them (`check-attr` would fail with a
                 // generic error); `diff_contents` joins the path again when it reads the file.
                 safe_join(&root, path)?;
-                let (encoding, converts) = worktree_attrs(&self.cli, &root, path).await?;
-                Side::Worktree { root, encoding, converts }
+                let (encoding, converts, lfs) = worktree_attrs(&self.cli, &root, path).await?;
+                Side::Worktree { root, encoding, converts, lfs }
             }
         })
     }
@@ -4954,6 +5038,7 @@ mod tests {
             json!({"method": "authAnswer", "params": {"prompt": 1, "answer": null}}),
             json!({"method": "cancelOp", "params": {"op": 1}}),
             json!({"method": "repoInfo", "params": {"repo": id}}),
+            json!({"method": "submodules", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "commitIdentity", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "sidebar", "params": {"repo": id}}),
             json!({"method": "lastPush", "params": {"repo": id, "remoteRef": "refs/remotes/origin/main"}}),
@@ -5006,6 +5091,8 @@ mod tests {
             // --- 3A T2 ---
             json!({"method": "fileHistory", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "skip": 0, "limit": 200}}),
             json!({"method": "blame", "params": {"repo": id, "worktree": wt, "rev": head, "path": "file_0.txt"}}),
+            json!({"method": "lfsStatus", "params": {"repo": id}}),
+            json!({"method": "lfsTracked", "params": {"repo": id, "worktree": wt, "paths": ["file_0.txt"]}}),
             // --- end 3A T2 ---
             // --- 3C T7 ---
             json!({"method": "predictRebase", "params": {"repo": id, "worktree": wt, "base": "v1.0", "rows": [{"oid": login, "action": "pick"}]}}),
@@ -5017,6 +5104,7 @@ mod tests {
     const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "undoEntry","applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "createWorktreeFile", "applySuggestion", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
         // 4A T7
         "addRemote", "removeRemote",
+        "submoduleUpdate", "submoduleSync",
         // --- 2C T5: checkout ---
         "checkout",
         // --- end 2C T5 ---
@@ -5043,6 +5131,7 @@ mod tests {
         // --- 3A T3 ---
         "restoreFile",
         // --- end 3A T3 ---
+        "lfsFetch", "lfsPull", "lfsDownload", "lfsTrack", "lfsUntrack",
         // --- 3B T3 ---
         "createTag", "deleteTag", "pushTags",
         // --- end 3B T3 ---
@@ -5068,6 +5157,8 @@ mod tests {
             json!({"method": "addRemote", "params": {"repo": id, "worktree": wt, "name": "x", "url": "/nonexistent/x.git"}}),
             json!({"method": "removeRemote", "params": {"repo": id, "worktree": wt, "name": "nonexistent-remote"}}),
             // --- end 4A T7 ---
+            json!({"method": "submoduleUpdate", "params": {"repo": id, "worktree": wt, "path": "nope"}}),
+            json!({"method": "submoduleSync", "params": {"repo": id, "worktree": wt}}),
             json!({"method": "clone", "params": {"url": "https://example.com/x.git", "dest": "/nonexistent/x"}}),
             json!({"method": "testWrite", "params": {"repo": id, "worktree": wt, "intent": {"op": "barrier", "label": "x"}}}),
             // Undo / redo (2A T10).
@@ -5144,6 +5235,12 @@ mod tests {
             // --- end 2D T15 ---
             // --- 3A T3 ---
             json!({"method": "restoreFile", "params": {"repo": id, "worktree": wt, "sha": "0000000000000000000000000000000000000000", "path": "file_1.txt"}}),
+            // Git LFS (write samples are only parsed, never sent).
+            json!({"method": "lfsFetch", "params": {"repo": id, "worktree": wt}}),
+            json!({"method": "lfsPull", "params": {"repo": id, "worktree": wt}}),
+            json!({"method": "lfsDownload", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "refs": ["HEAD"], "oids": []}}),
+            json!({"method": "lfsTrack", "params": {"repo": id, "worktree": wt, "pattern": "--x"}}),
+            json!({"method": "lfsUntrack", "params": {"repo": id, "worktree": wt, "pattern": "--x"}}),
             // --- end 3A T3 ---
             // 3B T3: refused (a bad name, no such tag) before writing.
             json!({"method": "createTag", "params": {"repo": id, "worktree": wt, "name": "a..b", "target": "0000000000000000000000000000000000000000"}}),

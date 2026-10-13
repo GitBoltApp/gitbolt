@@ -24,12 +24,14 @@ import { useWipFilter, wipFilterOf } from '../details/wipFilter';
 import { PathTooltip } from './RenamePaths';
 import { PathTreeToggle } from './PathTreeToggle';
 import { StatusIcon } from './StatusIcon';
+import { LfsMark } from '../lfs/LfsMark';
 // --- UX round 3 O.1 ---
 import { createFileCtx, createFileRow, useCreateFileInput } from './createFile';
 import { CreateFileInput } from './CreateFileInput';
 import { tabIdOf } from '../app/tabStores';
 import type { MenuRow } from '../menu/types';
 // --- end UX round 3 O.1 ---
+import { submoduleStateText } from '../submodules/labels';
 import './files.css';
 
 /** A file-list row's height, CSS px: the density preset's (feedback H1; `--file-row-h` on :root
@@ -160,6 +162,7 @@ const Row = memo(function Row({ id, index, row, mode, active, context, top, heig
   }
   const c = row.change;
   const s = stats(c);
+  const sub = c?.submodule ? submoduleStateText(c.submoduleState) : '';
   return (
     <div
       id={id}
@@ -181,7 +184,8 @@ const Row = memo(function Row({ id, index, row, mode, active, context, top, heig
       {c ? <StatusIcon status={c.status} size={TREE.icon} /> : <span className="status-spacer" style={{ width: TREE.icon }} aria-hidden="true" />}
       {mode === 'path' && row.dir && <span className="file-dir">{highlightMatch(row.dir, filterQuery)}/</span>}
       <span className="file-name">{highlightMatch(row.name, filterQuery)}</span>
-      {c?.conflict ? <span className="file-conflict">{CONFLICT_LABEL[c.conflict]}</span> : s && (
+      <LfsMark path={row.target.path} />
+      {c?.conflict ? <span className="file-conflict">{CONFLICT_LABEL[c.conflict]}</span> : sub ? <span className="file-submodule">{sub}</span> : s && (
         <span className="file-stats">
           {c?.additions === null ? 'binary' : <><span className="added">+{c?.additions}</span> <span className="deleted">−{c?.deletions}</span></>}
         </span>

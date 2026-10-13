@@ -9,7 +9,8 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   // 5): spec §7 wins over 1B's own order here — Copy name, then Forge link.
   tag: ['sync', 'manage', 'copy', 'forge', 'view'],
   // 3A: 'restore' (from a commit) after the WIP groups, 'history' (File history, Blame) last.
-  file: ['stage', 'conflict', 'restore', 'copy', 'forge', 'open', 'view', 'history'],
+  // A submodule's row: Open in a tab, Update this submodule ('submodule').
+  file: ['stage', 'conflict', 'submodule', 'restore', 'copy', 'forge', 'open', 'view', 'history'],
   folder: ['copy', 'open'],
   monaco: ['copy', 'forge', 'open'],
   tab: ['edit', 'group', 'close', 'restore', 'repo'],

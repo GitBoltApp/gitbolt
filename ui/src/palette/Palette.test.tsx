@@ -69,3 +69,35 @@ describe('Palette keys', () => {
     }
   });
 });
+
+describe('Palette pickers', () => {
+  it("an action's picker lists only its entries, under its title, and Enter runs the one typed", async () => {
+    const picked = vi.fn();
+    const entries = ['vendor/parser', 'vendor/theme', 'lib/icons'].map((label) => ({ id: `submodule:${label}`, group: 'choice' as const, label, detail: 'checked out', run: () => picked(label) }));
+    render(<Palette />);
+    act(() => usePalette.getState().choose({ title: 'Submodules', placeholder: 'Open a submodule in a tab', entries }));
+    const input = await screen.findByPlaceholderText('Open a submodule in a tab');
+    expect(screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent)).toEqual(['vendor/parser', 'vendor/theme', 'lib/icons']);
+    expect(screen.getByText('Submodules')).toBeTruthy();
+    expect(screen.queryByText('Do thing')).toBeNull();
+    fireEvent.change(input, { target: { value: 'theme' } });
+    await vi.waitFor(() => expect(screen.getAllByRole('option')).toHaveLength(1));
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(picked).toHaveBeenCalledWith('vendor/theme');
+    expect(usePalette.getState().open).toBe(false);
+    act(() => usePalette.getState().close());
+    // A prefix is only text in a picker; past 50 matches, the rest are counted.
+    const many = Array.from({ length: 60 }, (_, i) => ({ id: `c${i}`, group: 'choice' as const, label: `vendor/lib${i}`, run: () => {} }));
+    act(() => usePalette.getState().choose({ title: 'Submodules', placeholder: 'Pick', entries: [...many, ...entries] }));
+    const pickInput = await screen.findByPlaceholderText('Pick');
+    expect(screen.getAllByRole('option')).toHaveLength(50);
+    expect(screen.getByText('13 more: type to narrow them down')).toBeTruthy();
+    fireEvent.change(pickInput, { target: { value: '/theme' } });
+    await vi.waitFor(() => expect(screen.getAllByRole('option').map((o) => o.querySelector('.palette-label')?.textContent)).toEqual(['vendor/theme']));
+    expect(screen.queryByText(/more: type to narrow/)).toBeNull();
+    act(() => usePalette.getState().close());
+    // Ctrl+P afterwards is the whole palette again.
+    act(() => usePalette.getState().show());
+    expect(await screen.findByText('Do thing')).toBeTruthy();
+  });
+});

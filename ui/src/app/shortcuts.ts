@@ -19,8 +19,11 @@ const FUNCTION_KEY = /^F([1-9]|1[0-2])$/;
  * Letters follow the layout the way 1B's `matchesLetter` does (`letterOf`: by character, else by
  * key position); digits and punctuation by key position, so Shift (or Option) doesn't rename them.
  */
-export function comboOf(e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey' | 'key' | 'code'> & { isComposing?: boolean }): string {
+export function comboOf(e: Pick<KeyboardEvent, 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey' | 'key' | 'code'> & { isComposing?: boolean; getModifierState?: (key: string) => boolean }): string {
   if (e.isComposing || MODIFIERS.has(e.key)) return '';
+  // AltGr types a character (Windows reports it as Ctrl+Alt): never a chord, so `Ctrl+Alt+…` bindings
+  // don't steal `@`, `{`, `€` from AltGr layouts.
+  if (e.getModifierState?.('AltGraph')) return '';
   if (e.metaKey && (e.ctrlKey || !isMac())) return '';
   const mod = e.metaKey ? 'Cmd' : e.ctrlKey ? 'Ctrl' : null;
   const digit = /^Digit\d$/.test(e.code) ? e.code.slice(5) : null;

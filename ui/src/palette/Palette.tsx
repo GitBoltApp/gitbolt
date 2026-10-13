@@ -5,23 +5,35 @@ import { activeTab } from '../app/actions';
 import { isTopModal, useModalKeys } from '../app/modalKeys';
 import { registerKeys } from '../ui/keyRouter';
 import { actionEntries, fileEntries, refEntries, settingEntries, tabEntries } from './sources';
-import { GROUP_LABEL, parseQuery, searchPalette, type PaletteEntry } from './search';
+import { GROUP_LABEL, parseQuery, searchChoices, searchPalette, type PaletteEntry } from './search';
 import './palette.css';
 
-export const usePalette = create<{ open: boolean; initial: string; show(prefix?: string): void; close(): void }>((set) => ({
+/** A picker an action opens in the palette ("Submodules: Open in a tab…"): only its entries, under
+ * `title`, searched as the palette searches. */
+export interface PaletteChoices { title: string; placeholder: string; entries: PaletteEntry[] }
+
+export const usePalette = create<{ open: boolean; initial: string; choices: PaletteChoices | null; show(prefix?: string): void; choose(c: PaletteChoices): void; close(): void }>((set) => ({
   open: false,
   initial: '',
-  show: (prefix = '') => set({ open: true, initial: prefix }),
-  close: () => set({ open: false, initial: '' }),
+  choices: null,
+  show: (prefix = '') => set({ open: true, initial: prefix, choices: null }),
+  choose: (choices) => set({ open: true, initial: '', choices }),
+  close: () => set({ open: false, initial: '', choices: null }),
 }));
 
 export function Palette() {
   const open = usePalette((s) => s.open);
-  return open ? <PaletteDialog /> : null;
+  // A picker remounts the dialog: a fresh query and highlight.
+  const choices = usePalette((s) => s.choices);
+  return open ? <PaletteDialog key={choices?.title ?? ''} /> : null;
 }
+
+/** How many of a picker's entries show at most. */
+const CHOICES_SHOWN = 50;
 
 function PaletteDialog() {
   const initial = usePalette((s) => s.initial);
+  const choices = usePalette((s) => s.choices);
   const close = usePalette((s) => s.close);
   const [query, setQuery] = useState(initial);
   const [files, setFiles] = useState<PaletteEntry[] | null>(null);
@@ -29,17 +41,19 @@ function PaletteDialog() {
   const tab = activeTab();
   const tabId = tab?.kind === 'repo' ? tab.id : null;
   // Sources are read once on open: the palette is modal, so nothing changes under it.
-  const base = useMemo(() => [...actionEntries(), ...(tabId ? refEntries(tabId) : []), ...settingEntries(), ...tabEntries()], [tabId]);
+  const base = useMemo(() => choices?.entries ?? [...actionEntries(), ...(tabId ? refEntries(tabId) : []), ...settingEntries(), ...tabEntries()], [tabId, choices]);
   useEffect(() => {
     let live = true;
-    if (tabId) void fileEntries(tabId).then((f) => { if (live) setFiles(f); });
+    if (tabId && !choices) void fileEntries(tabId).then((f) => { if (live) setFiles(f); });
     else setFiles([]);
     return () => { live = false; };
-  }, [tabId]);
+  }, [tabId, choices]);
   // One stable array per (base, files): its targets are prepared once, not per keystroke.
   const all = useMemo(() => (files ? [...base, ...files] : base), [base, files]);
   const deferred = useDeferredValue(query);
-  const results = useMemo(() => searchPalette(deferred, all), [deferred, all]);
+  // A picker: every match, the first `CHOICES_SHOWN` shown and the rest counted.
+  const matched = useMemo(() => (choices ? searchChoices(deferred, all) : null), [deferred, all, choices]);
+  const results = useMemo(() => matched?.slice(0, CHOICES_SHOWN) ?? searchPalette(deferred, all), [matched, deferred, all]);
   // The highlight restarts whenever the results change (typing, or the file list arriving): it's
   // an index into the results it was picked in, the top row in any others. Worked out in render,
   // not reset by an effect: new results commit (and paint) ahead of their effects, and a deferred
@@ -56,11 +70,11 @@ function PaletteDialog() {
   const ref = useModalKeys<HTMLDivElement>(true, close, 'Mod+P');
   // What's on screen: set on commit, so a render React set aside (or hasn't committed yet) never
   // stands in for the list Enter acts on.
-  const live = useRef({ results, cursor, run, query, deferred, all });
-  useLayoutEffect(() => { live.current = { results, cursor, run, query, deferred, all }; });
+  const live = useRef({ results, cursor, run, query, deferred, all, picker: !!choices });
+  useLayoutEffect(() => { live.current = { results, cursor, run, query, deferred, all, picker: !!choices }; });
   useEffect(() => registerKeys('menu', (e) => {
     if (!isTopModal(ref)) return; // a prompt over the palette owns Enter and the arrows
-    const { results: rs, cursor: c, run: go, query: q, deferred: d, all: entries } = live.current;
+    const { results: rs, cursor: c, run: go, query: q, deferred: d, all: entries, picker } = live.current;
     if (e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
     if (e.shiftKey && e.key !== 'Enter') return;
     if (e.key === 'ArrowDown') setPicked({ results: rs, index: Math.min(rs.length - 1, c + 1) });
@@ -68,7 +82,7 @@ function PaletteDialog() {
     // The shown results can lag the input (`useDeferredValue` on a busy main thread): Enter then
     // answers the query as typed, its best match (the cursor restarts at the top for new results).
     else if (e.key === 'Enter') {
-      const pick = q === d ? rs[c] : searchPalette(q, entries)[0];
+      const pick = q === d ? rs[c] : (picker ? searchChoices(q, entries) : searchPalette(q, entries))[0];
       if (e.shiftKey) {
         // Shift+Enter: the entry's alternative (an @ ref's checkout); one without does nothing.
         if (pick?.alt) { close(); pick.alt(); }
@@ -79,7 +93,7 @@ function PaletteDialog() {
     return 'handled';
   }), [ref]);
 
-  const wantsFiles = parseQuery(query).group === 'file' || parseQuery(query).group === null;
+  const wantsFiles = !choices && (parseQuery(query).group === 'file' || parseQuery(query).group === null);
   return (
     <div className="modal-backdrop palette-backdrop" onPointerDown={close}>
       <div ref={ref} className="palette" role="dialog" aria-label="Command palette" onPointerDown={(e) => e.stopPropagation()}>
@@ -87,14 +101,14 @@ function PaletteDialog() {
           autoFocus
           className="palette-input"
           aria-label="Command palette query"
-          placeholder="Type to search · > actions · @ branches · / files · # settings"
+          placeholder={choices?.placeholder ?? 'Type to search · > actions · @ branches · / files · # settings'}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
         <div ref={listRef} className="palette-list" role="listbox" aria-label="Results">
           {results.map((r, i) => (
             <div key={r.id}>
-              {(i === 0 || results[i - 1].group !== r.group) && <div className="palette-group" role="presentation">{GROUP_LABEL[r.group]}</div>}
+              {(i === 0 || results[i - 1].group !== r.group) && <div className="palette-group" role="presentation">{r.group === 'choice' && choices ? choices.title : GROUP_LABEL[r.group]}</div>}
               <div role="option" aria-selected={i === cursor} className="palette-item" onPointerEnter={() => setCursor(i)} onClick={() => run(r)}>
                 <span className="palette-label">{r.label}</span>
                 {r.detail && <span className="palette-detail">{r.detail}</span>}
@@ -103,6 +117,7 @@ function PaletteDialog() {
           ))}
           {files === null && wantsFiles && <div className="palette-loading"><LoaderCircle size={12} className="spin" /> Loading files…</div>}
           {results.length === 0 && files !== null && <div className="palette-empty">No matches</div>}
+          {matched && matched.length > CHOICES_SHOWN && <div className="palette-more">{matched.length - CHOICES_SHOWN} more: type to narrow them down</div>}
         </div>
       </div>
     </div>

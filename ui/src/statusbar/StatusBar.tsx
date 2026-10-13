@@ -13,6 +13,7 @@ import { QueueChip } from '../queue/QueueChip';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { setZoom, useZoom, ZOOM_STEPS } from '../ui/zoom';
 import { UpdatePill } from '../updates/UpdatePill';
+import { LfsNotice } from '../lfs/LfsNotice';
 import './statusbar.css';
 import { displayChord, resolveChord } from '../ui/platformKeys';
 
@@ -132,6 +133,7 @@ export function StatusBar() {
         </span>
       ) : null}
       {skipped && <span className="sb-item sb-warn"><TriangleAlert size={12} aria-hidden /> {skipped}</span>}
+      <LfsNotice />
       <span className="sb-spacer" />
       <UpdatePill />
       <HoverTooltip content={`Keyboard shortcuts (${displayChord('Mod+/')})`}>

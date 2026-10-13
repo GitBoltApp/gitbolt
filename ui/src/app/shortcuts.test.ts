@@ -19,6 +19,15 @@ describe('comboOf', () => {
     expect(comboOf(ev({ key: 'z', code: 'KeyW', ctrlKey: true }))).toBe('Ctrl+Z'); // AZERTY
     expect(comboOf(ev({ key: 'ц', code: 'KeyW', ctrlKey: true }))).toBe('Ctrl+W'); // Russian
   });
+  it('AltGr typing a character is never a chord, though Windows reports it as Ctrl+Alt', () => {
+    const altGr = (key: string, code: string) => ({ ...ev({ key, code, ctrlKey: true, altKey: true }), getModifierState: (m: string) => m === 'AltGraph' }) as KeyboardEvent;
+    expect(comboOf(altGr('@', 'KeyQ'))).toBe(''); // German Q
+    expect(comboOf(altGr('€', 'KeyE'))).toBe('');
+    expect(comboOf(altGr('{', 'Digit7'))).toBe('');
+    // A real event, as the browser makes it.
+    expect(comboOf(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', ctrlKey: true, altKey: true, modifierAltGraph: true } as KeyboardEventInit))).toBe('');
+    expect(comboOf(new KeyboardEvent('keydown', { key: 'b', code: 'KeyB', ctrlKey: true, altKey: true }))).toBe('Ctrl+Alt+B');
+  });
   it('names function keys and Alt+digit without Ctrl too', () => {
     expect(comboOf(ev({ key: 'F8', code: 'F8' }))).toBe('F8');
     expect(comboOf(ev({ key: 'F7', code: 'F7', shiftKey: true }))).toBe('Shift+F7');

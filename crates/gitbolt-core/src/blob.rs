@@ -8,6 +8,7 @@ use crate::error::{gix_err, GbError, GbErrorKind};
 use crate::git::{GitCli, GitInvocation};
 use crate::payload::{BlobPayload, DiffContentsPayload, Eol};
 use base64::Engine as _;
+use gix::bstr::ByteSlice;
 use gix::ObjectId;
 use std::path::{Component, Path, PathBuf};
 
@@ -26,7 +27,8 @@ pub enum Side {
     /// A working-tree file. `converts`: a `text`, `eol`, `crlf`, `ident` or `filter` attribute is
     /// set, so git's clean conversion may change its bytes (as may `core.autocrlf`, read when the
     /// file is): a diff against a stored version then compares its clean form (`clean_bytes`).
-    Worktree { root: PathBuf, encoding: Option<String>, converts: bool },
+    /// `lfs`: its `filter` is `lfs` (stored with Git LFS).
+    Worktree { root: PathBuf, encoding: Option<String>, converts: bool, lfs: bool },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -193,6 +195,9 @@ pub fn side_bytes(repo: &gix::Repository, path: &str, side: &Side, limit: u64) -
         _ => return Err(GbError::new(GbErrorKind::InvalidInput, format!("{path}: only a stored version can be copied"))),
     }
     let resolved = resolve(repo, path, side)?.ok_or_else(|| not_found(format!("{path} has no stored version")))?;
+    if let Resolved::LfsMissing { .. } = resolved {
+        return Err(not_found(format!("{path} is stored with Git LFS and isn't downloaded")));
+    }
     let size = resolved.size(repo)?;
     if size > limit {
         let mib = |n: u64| n.div_ceil(1024 * 1024);
@@ -219,24 +224,28 @@ const CONVERTING_ATTRS: [&str; 5] = ["text", "eol", "crlf", "ident", "filter"];
 
 /// What `git check-attr -z working-tree-encoding text eol crlf ident filter -- <path>` says
 /// (`path NUL attr NUL value NUL`, per attribute): the declared encoding, and whether any
-/// converting attribute is set to something other than `unset`.
-pub fn parse_worktree_attrs(out: &[u8]) -> (Option<String>, bool) {
+/// converting attribute is set to something other than `unset`. `filter=lfs` isn't one here:
+/// its clean form is the pointer, and the stored side reads as the real file (`lfs_real`), so
+/// the file is compared as it is (and git-lfs isn't run to hash it on every read); the third
+/// value says it's set.
+pub fn parse_worktree_attrs(out: &[u8]) -> (Option<String>, bool, bool) {
     let fields: Vec<&[u8]> = out.split(|b| *b == 0).collect();
-    let (mut encoding, mut converts) = (None, false);
+    let (mut encoding, mut converts, mut lfs) = (None, false, false);
     for triple in fields.chunks(3).filter(|t| t.len() == 3) {
         let value = String::from_utf8_lossy(triple[2]).trim().to_string();
         match &*String::from_utf8_lossy(triple[1]) {
             "working-tree-encoding" => encoding = (!matches!(value.as_str(), "" | "unspecified" | "unset" | "set")).then_some(value),
+            "filter" if value == "lfs" => lfs = true,
             attr if CONVERTING_ATTRS.contains(&attr) => converts |= !matches!(value.as_str(), "" | "unspecified" | "unset"),
             _ => {}
         }
     }
-    (encoding, converts)
+    (encoding, converts, lfs)
 }
 
-/// A worktree path's declared `working-tree-encoding`, and whether a converting attribute is set
-/// (`Side::Worktree`'s `converts`). One `check-attr` for both.
-pub async fn worktree_attrs(cli: &GitCli, root: &Path, path: &str) -> Result<(Option<String>, bool), GbError> {
+/// A worktree path's declared `working-tree-encoding`, whether a converting attribute is set
+/// (`Side::Worktree`'s `converts`), and whether LFS stores it. One `check-attr` for all three.
+pub async fn worktree_attrs(cli: &GitCli, root: &Path, path: &str) -> Result<(Option<String>, bool, bool), GbError> {
     let args = ["check-attr", "-z", "working-tree-encoding"].into_iter().chain(CONVERTING_ATTRS).chain(["--", path]);
     let out = cli.run(GitInvocation::new(root, args)).await?;
     Ok(parse_worktree_attrs(&out.stdout))
@@ -274,6 +283,8 @@ pub fn clean_bytes(repo: &gix::Repository, path: &str, bytes: &[u8]) -> Result<O
 /// own text.
 fn clean_text(root: &Path, converts: bool, path: &str, bytes: &[u8], text: String) -> (String, bool) {
     let clean = match gix::open(root).map_err(gix_err).and_then(|repo| if converts || autocrlf_on(&repo) { clean_bytes(&repo, path, bytes) } else { Ok(None) }) {
+        // An LFS file cleans to its pointer, while the other side shows the real file (`lfs_real`).
+        Ok(Some(clean)) if crate::lfs::parse_pointer(&clean).is_some() => return (text, false),
         Ok(Some(clean)) => clean,
         Ok(None) => return (text, false),
         Err(e) => {
@@ -295,8 +306,35 @@ fn not_found(msg: String) -> GbError {
     GbError::new(GbErrorKind::NotFound, msg)
 }
 
-fn submodule_text(oid: &str) -> String {
-    format!("Subproject commit {oid}\n")
+/// A gitlink's side as git shows it, `Subproject commit <oid>`, then the commit's subject when
+/// the submodule's own repository has that commit.
+fn submodule_text(repo: &gix::Repository, path: &str, oid: &str) -> String {
+    match submodule_subject(repo, path, oid) {
+        Some(subject) => format!("Subproject commit {oid}\n{subject}\n"),
+        None => format!("Subproject commit {oid}\n"),
+    }
+}
+
+/// The repository of the submodule at `path`: the one `.gitmodules` registers (its checkout, or
+/// `.git/modules/<name>` when the folder is empty), else a repository checked out at `path`. Never
+/// the superproject: `gix::open` doesn't search upward. Only that last fallback refuses a symlinked
+/// folder (`safe_join` and the `is_dir` check); gix opens a registered submodule's repository
+/// where git keeps it, through whatever its folder is. Either way, only a commit's subject is read.
+fn open_submodule(repo: &gix::Repository, path: &str) -> Option<gix::Repository> {
+    let registered = repo.submodules().ok().flatten().and_then(|mut subs| subs.find(|s| s.path().is_ok_and(|p| p.as_slice() == path.as_bytes())));
+    if let Some(sub) = registered.and_then(|s| s.open().ok().flatten()) {
+        return Some(sub);
+    }
+    let dir = safe_join(repo.workdir()?, path).ok()?;
+    std::fs::symlink_metadata(&dir).ok()?.is_dir().then(|| gix::open(&dir).ok()).flatten()
+}
+
+fn submodule_subject(repo: &gix::Repository, path: &str, oid: &str) -> Option<String> {
+    let id = ObjectId::from_hex(oid.as_bytes()).ok()?;
+    let sub = open_submodule(repo, path)?;
+    let commit = sub.find_commit(id).ok()?;
+    let summary = commit.message().ok()?.summary().to_str_lossy().trim().to_string();
+    (!summary.is_empty()).then_some(summary)
 }
 
 /// A side reduced to where its bytes live.
@@ -305,17 +343,58 @@ pub(crate) enum Resolved {
     Text(String),
     File { path: PathBuf, encoding: Option<String> },
     Link(PathBuf),
+    /// An LFS pointer (a blob, or a working-tree file checked out as one) whose real file is in
+    /// the local LFS store: the side reads as that file. `raw`: the pointer's bytes.
+    Lfs { file: PathBuf, pointer: crate::lfs::Pointer, raw: Vec<u8> },
+    /// An LFS pointer whose real file isn't downloaded: the side has no contents to show.
+    LfsMissing { pointer: crate::lfs::Pointer, raw: Vec<u8> },
 }
 
+/// `side` reduced to where its bytes live; an LFS pointer, to its real file (`lfs_real`).
 pub(crate) fn resolve(repo: &gix::Repository, path: &str, side: &Side) -> Result<Option<Resolved>, GbError> {
+    resolve_stored(repo, path, side)?.map(|r| lfs_real(repo, r)).transpose()
+}
+
+/// A small blob or regular file that is an LFS pointer, as its real file in the local store
+/// (`Lfs`) or as missing (`LfsMissing`); anything else as it is. Only sides under
+/// `lfs::POINTER_MAX` are read for this, so a repository without LFS pays one header read per
+/// small blob (and `uses_lfs` only for a blob that parses as a pointer).
+fn lfs_real(repo: &gix::Repository, r: Resolved) -> Result<Resolved, GbError> {
+    let raw = match &r {
+        Resolved::Blob(oid) => {
+            let Ok(h) = repo.find_header(*oid) else { return Ok(r) };
+            if h.kind() != gix::object::Kind::Blob || h.size() >= crate::lfs::POINTER_MAX {
+                return Ok(r);
+            }
+            repo.find_object(*oid).map_err(gix_err)?.detach().data
+        }
+        Resolved::File { path, .. } => match read_bounded(path, crate::lfs::POINTER_MAX - 1) {
+            Ok(Some(bytes)) => bytes,
+            _ => return Ok(r),
+        },
+        _ => return Ok(r),
+    };
+    let Some(pointer) = crate::lfs::parse_pointer(&raw) else { return Ok(r) };
+    // Only in a repository that uses LFS: elsewhere a pointer is a file like any other (a sample
+    // in git-lfs's own docs, a test fixture), shown as its text.
+    if !crate::lfs::uses_lfs(repo) {
+        return Ok(r);
+    }
+    Ok(match crate::lfs::cached(repo, &pointer) {
+        Some(file) => Resolved::Lfs { file, pointer, raw },
+        None => Resolved::LfsMissing { pointer, raw },
+    })
+}
+
+fn resolve_stored(repo: &gix::Repository, path: &str, side: &Side) -> Result<Option<Resolved>, GbError> {
     Ok(Some(match side {
         Side::Absent => return Ok(None),
         Side::Object(oid) => Resolved::Blob(*oid),
-        Side::Submodule(oid) => Resolved::Text(submodule_text(oid)),
+        Side::Submodule(oid) => Resolved::Text(submodule_text(repo, path, oid)),
         Side::AtCommit(commit) => {
             let tree = repo.find_commit(*commit).map_err(|_| not_found(format!("commit {commit} not found")))?.tree().map_err(gix_err)?;
             let entry = tree.lookup_entry_by_path(path).map_err(gix_err)?.ok_or_else(|| not_found(format!("{path} does not exist at {commit}")))?;
-            if entry.mode().is_commit() { Resolved::Text(submodule_text(&entry.object_id().to_string())) } else { Resolved::Blob(entry.object_id()) }
+            if entry.mode().is_commit() { Resolved::Text(submodule_text(repo, path, &entry.object_id().to_string())) } else { Resolved::Blob(entry.object_id()) }
         }
         Side::Worktree { root, encoding, .. } => {
             let file = safe_join(root, path)?;
@@ -347,7 +426,20 @@ impl Resolved {
             Resolved::Text(t) => t.len() as u64,
             Resolved::File { path, .. } => std::fs::metadata(path)?.len(),
             Resolved::Link(path) => std::fs::read_link(path)?.as_os_str().len() as u64,
+            Resolved::Lfs { file, .. } => std::fs::metadata(file)?.len(),
+            // What's loaded is the pointer: no large-file prompt stands before "not downloaded".
+            Resolved::LfsMissing { raw, .. } => raw.len() as u64,
         })
+    }
+
+    /// The side's LFS object, for `BlobPayload::lfs`.
+    pub(crate) fn lfs_side(&self) -> Option<crate::lfs::LfsSide> {
+        let (pointer, raw, downloaded) = match self {
+            Resolved::Lfs { pointer, raw, .. } => (pointer, raw, true),
+            Resolved::LfsMissing { pointer, raw } => (pointer, raw, false),
+            _ => return None,
+        };
+        Some(crate::lfs::LfsSide { oid: pointer.oid.clone(), size: pointer.size, downloaded, pointer: String::from_utf8_lossy(raw).into_owned() })
     }
 
     /// The bytes and declared encoding; `None` if a working-tree file has grown past `limit` since
@@ -361,6 +453,11 @@ impl Resolved {
                 None => return Ok(None),
             },
             Resolved::Link(path) => (std::fs::read_link(path)?.to_string_lossy().into_owned().into_bytes(), None),
+            Resolved::Lfs { file, .. } => match read_bounded(&file, limit)? {
+                Some(bytes) => (bytes, None),
+                None => return Ok(None),
+            },
+            Resolved::LfsMissing { raw, .. } => (raw, None),
         }))
     }
 }
@@ -391,14 +488,19 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
     let old = resolve(repo, path, old)?;
     let new = resolve(repo, path, new)?;
     // A working-tree file compared with a stored version is compared as git compares it: in its
-    // clean form (a symlink never goes through the filters).
+    // clean form (a symlink never goes through the filters). Not an LFS file: its clean form is
+    // its pointer, and git-lfs's clean would hash it and write it into the store, during a read.
     let clean_at = |side: &Side, this: &Option<Resolved>, other: &Option<Resolved>| match side {
-        Side::Worktree { root, converts, .. } if matches!(this, Some(Resolved::File { .. })) && other.is_some() => Some((root.clone(), *converts)),
+        Side::Worktree { root, converts, lfs: false, .. } if matches!(this, Some(Resolved::File { .. })) && other.is_some() => Some((root.clone(), *converts)),
         _ => None,
     };
     let (old_clean, new_clean) = (clean_at(old_side, &old, &new), clean_at(new_side, &new, &old));
     let old_size = old.as_ref().map(|r| r.size(repo)).transpose()?;
     let new_size = new.as_ref().map(|r| r.size(repo)).transpose()?;
+    // An LFS side is its real file (or, not downloaded, nothing to show). A working-tree file
+    // checked out as a pointer then shows text that isn't the file's: read-only (`filtered`).
+    let lfs_of = |side: &Side, r: &Option<Resolved>| r.as_ref().and_then(Resolved::lfs_side).map(|l| (l, matches!(side, Side::Worktree { .. })));
+    let (old_lfs, new_lfs) = (lfs_of(old_side, &old), lfs_of(new_side, &new));
     let limit = if force { MAX_FORCED_BYTES } else { LARGE_FILE_BYTES };
     let mut too_large = [old_size, new_size].into_iter().flatten().any(|s| s > limit);
     // Both sides' bytes first: a working-tree file that grew past `limit` since its size was
@@ -407,18 +509,30 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
     let read = |r: Option<Resolved>| r.filter(|_| !too_large).map(|r| r.bytes(repo, limit)).transpose();
     let (old_bytes, new_bytes) = (read(old)?, read(new)?);
     too_large |= matches!(old_bytes, Some(None)) || matches!(new_bytes, Some(None));
-    // Media plays only when every side is binary: against a text side (a Git LFS pointer) the
-    // diff is text or hex, so no side's bytes are sent.
+    // Media plays only when every side is binary: against a text side (an LFS pointer that isn't
+    // downloaded; a downloaded one was resolved to its real file above) the diff is text or hex,
+    // so no side's bytes are sent.
     let text_side = [&old_bytes, &new_bytes].into_iter().any(|b| matches!(b, Some(Some((bytes, declared))) if !is_binary_head(bytes, declared.as_deref())));
     let media_bytes = media && !text_side;
-    let load = |bytes: Option<Option<Loaded>>, size: Option<u64>, clean: Option<(PathBuf, bool)>| -> Option<BlobPayload> {
+    let load = |bytes: Option<Option<Loaded>>, size: Option<u64>, clean: Option<(PathBuf, bool)>, lfs: Option<(crate::lfs::LfsSide, bool)>| -> Option<BlobPayload> {
         let size = size?;
+        let (lfs, pointer_file) = match lfs {
+            Some((l, worktree)) => (Some(l), worktree),
+            None => (None, false),
+        };
+        if let Some(l) = lfs.as_ref().filter(|l| !l.downloaded) {
+            let hash = match &bytes {
+                Some(Some((raw, _))) => Some(worktree_id(raw)),
+                _ => None,
+            };
+            return Some(BlobPayload { size: l.size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None, hash, filtered: pointer_file, lfs });
+        }
         let (bytes, declared) = match bytes {
             Some(Some(read)) if !too_large => read,
             // A grown file is at least one byte past the limit now.
             grown_or_skipped => {
                 let size = if matches!(grown_or_skipped, Some(None)) { size.max(limit + 1) } else { size };
-                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None, hash: None, filtered: false });
+                return Some(BlobPayload { size, binary: false, encoding: String::new(), eol: Eol::None, text: None, base64: None, hash: None, filtered: pointer_file, lfs });
             }
         };
         let d = decode_blob(&bytes, declared.as_deref());
@@ -435,12 +549,13 @@ pub fn diff_contents_renamed(repo: &gix::Repository, path: &str, old_path: Optio
             }
             (text, _) => (text, false),
         };
-        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text, base64, hash: Some(worktree_id(&bytes)), filtered })
+        Some(BlobPayload { size, binary: d.binary, encoding: d.encoding, eol: d.eol, text, base64, hash: Some(worktree_id(&bytes)), filtered: filtered || pointer_file, lfs })
     };
-    let old = load(old_bytes, old_size, old_clean);
-    let new = load(new_bytes, new_size, new_clean);
+    let old = load(old_bytes, old_size, old_clean, old_lfs);
+    let new = load(new_bytes, new_size, new_clean, new_lfs);
     let eol_only = matches!((&old, &new), (Some(BlobPayload { text: Some(a), .. }), Some(BlobPayload { text: Some(b), .. })) if eol_only_change(a, b));
-    Ok(DiffContentsPayload { old, new, too_large, eol_only, image, media, pdf })
+    let lfs = [&old, &new].into_iter().flatten().any(|b| b.lfs.is_some()) || [old_side, new_side].into_iter().any(|s| matches!(s, Side::Worktree { lfs: true, .. }));
+    Ok(DiffContentsPayload { old, new, too_large, eol_only, image, media, pdf, lfs })
 }
 
 #[cfg(test)]
@@ -497,11 +612,12 @@ mod tests {
             assert_eq!(parse_check_attr(format!("a.txt\0working-tree-encoding\0{v}\0").as_bytes()), None);
         }
         let attrs = |text: &str, filter: &str| format!("a.txt\0working-tree-encoding\0UTF-16LE\0a.txt\0text\0{text}\0a.txt\0eol\0unspecified\0a.txt\0crlf\0unspecified\0a.txt\0ident\0unspecified\0a.txt\0filter\0{filter}\0");
-        assert_eq!(parse_worktree_attrs(attrs("unspecified", "unspecified").as_bytes()), (Some("UTF-16LE".into()), false));
+        assert_eq!(parse_worktree_attrs(attrs("unspecified", "unspecified").as_bytes()), (Some("UTF-16LE".into()), false, false));
         assert!(!parse_worktree_attrs(attrs("unset", "unspecified").as_bytes()).1, "-text converts nothing");
-        for (text, filter) in [("set", "unspecified"), ("auto", "unspecified"), ("unspecified", "lfs")] {
+        for (text, filter) in [("set", "unspecified"), ("auto", "unspecified"), ("unspecified", "redact")] {
             assert!(parse_worktree_attrs(attrs(text, filter).as_bytes()).1, "{text} {filter}");
         }
+        assert_eq!(parse_worktree_attrs(attrs("unset", "lfs").as_bytes()), (Some("UTF-16LE".into()), false, true), "an LFS file is compared as it is");
     }
 
     #[test]
@@ -638,11 +754,35 @@ mod tests {
         assert_eq!(c.old.unwrap().text, Some(format!("Subproject commit {a}\n")));
     }
 
+    /// Each side names its commit's subject, read from the submodule's own repository; a commit
+    /// it doesn't have (or a submodule never cloned) shows the commit alone.
+    #[test]
+    fn submodule_sides_name_their_commits_subjects() {
+        let r = TestRepo::new();
+        fixtures::submodules(&r);
+        let repo = gix::open(r.path()).unwrap();
+        let parser = r.path().join("vendor/parser");
+        let (new, old) = (r.git_in(&parser, &["rev-parse", "HEAD"]), r.git_in(&parser, &["rev-parse", "HEAD~1"]));
+        let c = diff_contents(&repo, "vendor/parser", &Side::Submodule(old.clone()), &Side::Submodule(new.clone()), false).unwrap();
+        assert_eq!(c.old.unwrap().text, Some(format!("Subproject commit {old}\nStart the parser\n")));
+        assert_eq!(c.new.unwrap().text, Some(format!("Subproject commit {new}\nParse the header\n")));
+        // At a commit: the gitlink in its tree.
+        let head = ObjectId::from_hex(r.git(&["rev-parse", "HEAD"]).as_bytes()).unwrap();
+        let c = diff_contents(&repo, "vendor/parser", &Side::Absent, &Side::AtCommit(head), false).unwrap();
+        assert_eq!(c.new.unwrap().text, Some(format!("Subproject commit {new}\nParse the header\n")));
+        let missing = "c".repeat(40);
+        let c = diff_contents(&repo, "vendor/parser", &Side::Submodule(missing.clone()), &Side::Absent, false).unwrap();
+        assert_eq!(c.old.unwrap().text, Some(format!("Subproject commit {missing}\n")));
+        let theme = r.git(&["rev-parse", "HEAD:vendor/theme"]);
+        let c = diff_contents(&repo, "vendor/theme", &Side::Submodule(theme.clone()), &Side::Absent, false).unwrap();
+        assert_eq!(c.old.unwrap().text, Some(format!("Subproject commit {theme}\n")), "never cloned: no subject");
+    }
+
     #[test]
     fn worktree_side_reads_files_and_rejects_escapes() {
         let (r, repo) = setup();
         let root = crate::platform::fs::canonicalize(r.path()).unwrap();
-        let wt = |enc: Option<&str>| Side::Worktree { root: root.clone(), encoding: enc.map(str::to_string), converts: false };
+        let wt = |enc: Option<&str>| Side::Worktree { root: root.clone(), encoding: enc.map(str::to_string), converts: false, lfs: false };
         let manual = diff_contents(&repo, "docs/manual.txt", &Side::Absent, &wt(None), false).unwrap();
         assert!(manual.new.unwrap().text.unwrap().contains("Step four (unstaged)."));
 
@@ -677,7 +817,7 @@ mod tests {
         #[cfg(unix)]
         {
             std::os::unix::fs::symlink(".git", r.path().join("x")).unwrap();
-            let wt = Side::Worktree { root: root.clone(), encoding: None, converts: false };
+            let wt = Side::Worktree { root: root.clone(), encoding: None, converts: false, lfs: false };
             let err = diff_contents(&repo, "x/config", &Side::Absent, &wt, false).unwrap_err();
             assert_eq!(err.kind, GbErrorKind::InvalidInput, "a symlink to .git must not expose it");
             let err = safe_join(&root, "x/config").unwrap_err();
@@ -851,6 +991,53 @@ mod tests {
             assert_eq!(c["new"].get("filtered"), None);
         }
 
+        /// An LFS file in the working tree (its real bytes) against its staged pointer: both sides
+        /// are the real file, so only the edit shows, and the side stays editable.
+        #[tokio::test]
+        async fn an_lfs_files_worktree_side_is_compared_as_it_is() {
+            use crate::lfs::tests::{pointer_text, OID};
+            let r = repo();
+            r.write(".gitattributes", "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+            r.write("art.psd", &pointer_text(OID, 5));
+            r.git(&["add", "."]);
+            r.git(&["commit", "-q", "-m", "lfs"]);
+            let store = r.path().join(".git/lfs/objects/4d/7a");
+            std::fs::create_dir_all(&store).unwrap();
+            std::fs::write(store.join(OID), "hello").unwrap();
+            r.write("art.psd", "hello, edited");
+            let c = wip_contents(&r, "art.psd").await;
+            assert_eq!((c["old"]["text"].as_str(), c["new"]["text"].as_str()), (Some("hello"), Some("hello, edited")));
+            assert_eq!(c["old"]["lfs"]["downloaded"], true);
+            assert_eq!((c["new"].get("lfs"), c["new"].get("filtered")), (None, None));
+        }
+
+        /// With `core.autocrlf` on, an LFS file still isn't run through a clean filter (git-lfs
+        /// would hash it and write it into the store during a read): a stand-in `filter.lfs.clean`
+        /// that leaves a mark shows it never runs.
+        #[cfg(unix)]
+        #[tokio::test]
+        async fn an_lfs_file_is_never_cleaned_even_with_autocrlf() {
+            use crate::lfs::tests::{pointer_text, OID};
+            let r = repo();
+            let mark = r.root().join("cleaned");
+            r.write(".gitattributes", "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+            r.write("art.psd", &pointer_text(OID, 5));
+            r.git(&["add", "."]);
+            r.git(&["commit", "-q", "-m", "lfs"]);
+            r.git(&["config", "core.autocrlf", "true"]);
+            r.git(&["config", "filter.lfs.clean", &format!("tee {}", mark.display())]);
+            let store = r.path().join(".git/lfs/objects/4d/7a");
+            std::fs::create_dir_all(&store).unwrap();
+            std::fs::write(store.join(OID), "hello").unwrap();
+            r.write("art.psd", "hello\r\nedited\r\n");
+            let c = wip_contents(&r, "art.psd").await;
+            assert_eq!(c["new"]["text"], "hello\r\nedited\r\n", "compared as it is");
+            assert!(!mark.exists(), "the clean filter never ran");
+            // The stand-in does run when the pipeline is asked: the check above means something.
+            let _ = super::clean_bytes(&gix::open(r.path()).unwrap(), "art.psd", b"x\r\n");
+            assert!(mark.exists(), "the stand-in filter leaves its mark when it runs");
+        }
+
         /// The WIP lists are git's: a CRLF-only file isn't listed, the edited one is +1 −1.
         #[tokio::test]
         async fn the_unstaged_list_agrees_with_git_status() {
@@ -865,13 +1052,102 @@ mod tests {
         }
     }
 
+    /// LFS and media together: a pointer that isn't downloaded carries no bytes (the UI shows
+    /// "not downloaded", never a player for the pointer); a downloaded one carries its real bytes.
+    #[test]
+    fn an_lfs_media_file_carries_its_real_bytes_only() {
+        use crate::lfs::tests::{pointer_text, OID};
+        let r = TestRepo::new();
+        let real = b"ID3\x00\x01real audio";
+        r.write(".gitattributes", "*.mp3 filter=lfs diff=lfs merge=lfs -text\n");
+        r.write("song.mp3", &pointer_text(OID, real.len() as u64));
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "song"]);
+        let repo = gix::open(r.path()).unwrap();
+        let stored = object(&r, "HEAD:song.mp3");
+        let missing = diff_contents(&repo, "song.mp3", &Side::Absent, &stored, false).unwrap();
+        let side = missing.new.unwrap();
+        assert!(missing.media && missing.lfs);
+        assert_eq!((side.base64, side.text, side.lfs.map(|l| l.downloaded)), (None, None, Some(false)));
+        let object = crate::lfs::object_path(&crate::lfs::storage_dir(&repo), OID);
+        std::fs::create_dir_all(object.parent().unwrap()).unwrap();
+        std::fs::write(&object, real).unwrap();
+        let got = diff_contents(&repo, "song.mp3", &Side::Absent, &stored, false).unwrap().new.unwrap();
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(got.base64.unwrap()).unwrap(), real);
+        assert!(got.binary && got.lfs.unwrap().downloaded);
+    }
+
+    /// LFS and PDFs: a downloaded LFS PDF is its real file (bytes, pages); one that isn't
+    /// downloaded carries nothing but its LFS facts.
+    #[test]
+    fn an_lfs_pdf_carries_its_real_bytes_only() {
+        use crate::lfs::tests::{pointer_text, OID};
+        let r = TestRepo::new();
+        let real = b"%PDF-1.4\n%\xe2\xe3\xcf\xd3\n1 0 obj\n<<>>\nendobj\n";
+        r.write(".gitattributes", "*.pdf filter=lfs diff=lfs merge=lfs -text\n");
+        r.write("survey.pdf", &pointer_text(OID, real.len() as u64));
+        r.git(&["add", "."]);
+        r.git(&["commit", "-q", "-m", "pdf"]);
+        let repo = gix::open(r.path()).unwrap();
+        let stored = object(&r, "HEAD:survey.pdf");
+        let missing = diff_contents(&repo, "survey.pdf", &Side::Absent, &stored, false).unwrap();
+        assert!(missing.pdf && missing.lfs);
+        let side = missing.new.unwrap();
+        assert_eq!((side.base64, side.text, side.lfs.map(|l| l.downloaded)), (None, None, Some(false)));
+        let object = crate::lfs::object_path(&crate::lfs::storage_dir(&repo), OID);
+        std::fs::create_dir_all(object.parent().unwrap()).unwrap();
+        std::fs::write(&object, real).unwrap();
+        let got = diff_contents(&repo, "survey.pdf", &Side::Absent, &stored, false).unwrap().new.unwrap();
+        assert_eq!(base64::engine::general_purpose::STANDARD.decode(got.base64.unwrap()).unwrap(), real);
+    }
+
+    /// Git LFS: a pointer blob (or a working-tree file checked out as one) reads as its real file
+    /// from the local store; not downloaded, it has no contents, only its LFS facts.
+    #[test]
+    fn lfs_pointers_read_as_their_real_files() {
+        use crate::lfs::tests::{pointer_text, OID};
+        let r = TestRepo::new();
+        let real = "the real file\n";
+        r.write("art.psd", &pointer_text(OID, real.len() as u64));
+        r.git(&["add", "art.psd"]);
+        r.git(&["commit", "-q", "-m", "pointer"]);
+        let stored = object(&r, "HEAD:art.psd");
+        // A repository that doesn't use LFS: a pointer is just a file, shown as its text.
+        let plain = diff_contents(&gix::open(r.path()).unwrap(), "art.psd", &Side::Absent, &stored, false).unwrap().new.unwrap();
+        assert_eq!((plain.text, plain.lfs), (Some(pointer_text(OID, real.len() as u64)), None));
+        r.write(".gitattributes", "*.psd filter=lfs diff=lfs merge=lfs -text\n");
+        r.git(&["add", ".gitattributes"]);
+        r.git(&["commit", "-q", "-m", "lfs"]);
+        let repo = gix::open(r.path()).unwrap();
+        let root = crate::platform::fs::canonicalize(r.path()).unwrap();
+        let wt = Side::Worktree { root, encoding: None, converts: false, lfs: false };
+
+        let missing = diff_contents(&repo, "art.psd", &Side::Absent, &stored, false).unwrap().new.unwrap();
+        assert_eq!((missing.text.as_deref(), missing.size, missing.filtered), (None, real.len() as u64, false));
+        let lfs = missing.lfs.unwrap();
+        assert_eq!((lfs.oid.as_str(), lfs.downloaded), (OID, false));
+        assert!(lfs.pointer.contains(&format!("oid sha256:{OID}")));
+        assert_eq!(side_bytes(&repo, "art.psd", &Side::AtCommit(oid(&r.git(&["rev-parse", "HEAD"]))), 1024).unwrap_err().kind, GbErrorKind::NotFound, "never the pointer as the file");
+
+        let object = crate::lfs::object_path(&crate::lfs::storage_dir(&repo), OID);
+        std::fs::create_dir_all(object.parent().unwrap()).unwrap();
+        std::fs::write(&object, real).unwrap();
+        let got = diff_contents(&repo, "art.psd", &Side::Absent, &stored, false).unwrap().new.unwrap();
+        assert_eq!((got.text.as_deref(), got.filtered), (Some(real), false));
+        assert!(got.lfs.unwrap().downloaded);
+        assert_eq!(side_bytes(&repo, "art.psd", &Side::AtCommit(oid(&r.git(&["rev-parse", "HEAD"]))), 1024).unwrap(), real.as_bytes());
+        // The working tree has the pointer (git-lfs isn't installed): the real file, read-only.
+        let file = diff_contents(&repo, "art.psd", &stored, &wt, false).unwrap().new.unwrap();
+        assert_eq!((file.text.as_deref(), file.filtered), (Some(real), true));
+    }
+
     #[test]
     fn forced_reads_have_a_hard_ceiling() {
         let (r, repo) = setup();
         let root = crate::platform::fs::canonicalize(r.path()).unwrap();
         let huge = std::fs::File::create(r.path().join("huge.txt")).unwrap();
         huge.set_len(MAX_FORCED_BYTES + 1).unwrap(); // sparse: no bytes are written
-        let wt = Side::Worktree { root, encoding: None, converts: false };
+        let wt = Side::Worktree { root, encoding: None, converts: false, lfs: false };
         let c = diff_contents(&repo, "huge.txt", &Side::Absent, &wt, true).unwrap();
         assert!(c.too_large, "even `force` refuses a side over MAX_FORCED_BYTES");
         let side = c.new.unwrap();

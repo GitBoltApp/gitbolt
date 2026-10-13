@@ -1,0 +1,11 @@
+/* Git LFS: the file-list mark and the diff's "not downloaded" placeholder. */
+.lfs-mark { flex: none; padding: 0 4px; border: 1px solid var(--section-border); border-radius: 3px; font-size: 9px; line-height: 13px; font-weight: 600; letter-spacing: 0.02em; color: var(--text-secondary); }
+/* A row of a repository that uses LFS keeps the mark's space, so nothing moves once it's known. */
+.lfs-mark-off { visibility: hidden; }
+.lfs-actions { display: flex; gap: 8px; justify-content: center; }
+/* Its label changes while it runs; the width doesn't. */
+.lfs-download { min-width: 12ch; }
+.lfs-install { all: unset; margin-left: 6px; color: var(--blue); cursor: pointer; }
+.lfs-install:hover { text-decoration: underline; }
+.lfs-install:focus-visible { outline: 1px solid var(--blue); }
+.lfs-pointer { margin: 8px 0 0; padding: 6px 8px; text-align: left; font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); background: var(--toolbar-bg0); border: 1px solid var(--section-border); border-radius: 3px; white-space: pre-wrap; overflow-wrap: anywhere; }

@@ -152,6 +152,13 @@ agents are used as usual.
 9. **Announce**: `repoChanged` (and `refsUpdated` if a ref moved) to every tab of the repository,
    whatever the outcome.
 
+**Submodules** are offered only in a worktree that uses them (`submodules.rs`: a `.gitmodules` or
+a gitlink in its index, reported per worktree by `repoInfo`). A WIP submodule row carries
+`git status`'s state of it, and its diff sides name each commit's subject from the submodule's
+own repository. Update (`git submodule update --init --recursive`) and Sync URLs are writes like
+any other (`write/submodules.rs`); Update runs as a network command, as a push, and asks first
+when it would leave a submodule's commits on no branch behind. Neither is journaled.
+
 ### Undo and redo
 
 The journal (`journal/`) records GitBolt's own operations, one file per worktree in the data dir
@@ -240,7 +247,8 @@ maintenance. A successful background fetch shows only in the activity log.
 with GitBolt's own hunk and line staging actions. Syntax highlighting is Shiki's TextMate grammars
 bridged into Monaco (`diff/monaco/shiki.ts`, `@shikijs/monaco`), with the Oniguruma WASM loaded on
 the first diff. The core supplies changed-file lists and both sides' contents; the UI never
-re-derives which blobs to compare.
+re-derives which blobs to compare. A side that is a Git LFS pointer is read as its real file from
+the local LFS store (`lfs.rs`, `blob::resolve`), or comes back marked as not downloaded.
 
 **Images** (`ui/src/image/`) compare side by side, with a swipe, as onion skin, or as a pixel
 difference, with zoom. **Binary** files show in a hex view: the core makes capped hex dumps

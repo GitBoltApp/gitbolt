@@ -20,6 +20,25 @@ pub struct StatusEntry {
     pub index: char,
     pub worktree: char,
     pub kind: EntryKind,
+    /// A submodule's own state (porcelain v2's `S<c><m><u>` field); `None` for any other path.
+    pub submodule: Option<SubmoduleFlags>,
+}
+
+/// What `git status` says about a submodule: `S<c><m><u>`.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct SubmoduleFlags {
+    /// `C`: checked out at another commit than the index records ("new commits").
+    pub commit: bool,
+    /// `M`: tracked changes inside it ("modified content").
+    pub modified: bool,
+    /// `U`: untracked files inside it ("untracked content").
+    pub untracked: bool,
+}
+
+/// `S<c><m><u>` as flags; `N...` (not a submodule) is `None`.
+fn submodule_flags(field: &str) -> Option<SubmoduleFlags> {
+    let b = field.as_bytes();
+    (b.len() == 4 && b[0] == b'S').then(|| SubmoduleFlags { commit: b[1] == b'C', modified: b[2] == b'M', untracked: b[3] == b'U' })
 }
 
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -57,7 +76,7 @@ pub fn parse_porcelain_v2(out: &[u8]) -> Vec<StatusEntry> {
                 let f: Vec<&str> = line.splitn(9, ' ').collect();
                 (f.len() == 9).then(|| {
                     let (x, y) = xy(f[1]);
-                    StatusEntry { path: f[8].to_string(), orig_path: None, index: x, worktree: y, kind: EntryKind::Ordinary }
+                    StatusEntry { path: f[8].to_string(), orig_path: None, index: x, worktree: y, kind: EntryKind::Ordinary, submodule: submodule_flags(f[2]) }
                 })
             }
             b'2' => {
@@ -65,18 +84,18 @@ pub fn parse_porcelain_v2(out: &[u8]) -> Vec<StatusEntry> {
                 let orig = tokens.next().map(|o| String::from_utf8_lossy(o).into_owned());
                 (f.len() == 10).then(|| {
                     let (x, y) = xy(f[1]);
-                    StatusEntry { path: f[9].to_string(), orig_path: orig, index: x, worktree: y, kind: EntryKind::Renamed }
+                    StatusEntry { path: f[9].to_string(), orig_path: orig, index: x, worktree: y, kind: EntryKind::Renamed, submodule: submodule_flags(f[2]) }
                 })
             }
             b'u' => {
                 let f: Vec<&str> = line.splitn(11, ' ').collect();
                 (f.len() == 11).then(|| {
                     let (x, y) = xy(f[1]);
-                    StatusEntry { path: f[10].to_string(), orig_path: None, index: x, worktree: y, kind: EntryKind::Unmerged }
+                    StatusEntry { path: f[10].to_string(), orig_path: None, index: x, worktree: y, kind: EntryKind::Unmerged, submodule: submodule_flags(f[2]) }
                 })
             }
-            b'?' => Some(StatusEntry { path: line[2..].to_string(), orig_path: None, index: '?', worktree: '?', kind: EntryKind::Untracked }),
-            b'!' => Some(StatusEntry { path: line[2..].to_string(), orig_path: None, index: '!', worktree: '!', kind: EntryKind::Ignored }),
+            b'?' => Some(StatusEntry { path: line[2..].to_string(), orig_path: None, index: '?', worktree: '?', kind: EntryKind::Untracked, submodule: None }),
+            b'!' => Some(StatusEntry { path: line[2..].to_string(), orig_path: None, index: '!', worktree: '!', kind: EntryKind::Ignored, submodule: None }),
             _ => None, // `# ...` headers
         };
         entries.extend(entry);
@@ -211,5 +230,16 @@ mod tests {
         assert_eq!(e.len(), 1);
         assert_eq!(e[0].path, "x y.txt");
         assert_eq!(e[0].kind, super::EntryKind::Unmerged);
+        assert_eq!(e[0].submodule, None);
+    }
+
+    #[test]
+    fn reads_a_submodules_state_field() {
+        let h = "0".repeat(40);
+        let raw = format!("1 .M SCMU 160000 160000 160000 {h} {h} vendor/lib\x001 .M S.M. 160000 160000 160000 {h} {h} vendor/other\x001 .M N... 100644 100644 100644 {h} {h} a.txt\0");
+        let e = super::parse_porcelain_v2(raw.as_bytes());
+        assert_eq!(e[0].submodule, Some(super::SubmoduleFlags { commit: true, modified: true, untracked: true }));
+        assert_eq!(e[1].submodule, Some(super::SubmoduleFlags { commit: false, modified: true, untracked: false }));
+        assert_eq!(e[2].submodule, None);
     }
 }

@@ -227,7 +227,7 @@ pub(crate) const NO_EXT: [&str; 2] = ["-c", "protocol.ext.allow=never"];
 
 /// The command as the activity log shows it (K101): `git` and its argv (no environment), through
 /// the redactor so a URL's credentials never reach the log.
-fn display_command(args: &[&str]) -> String {
+pub(crate) fn display_command(args: &[&str]) -> String {
     crate::redact::redact(&format!("git {}", args.join(" ")))
 }
 

@@ -55,11 +55,15 @@ import { installLeaveGuard, installWindowCloseGuard, isEditableTarget, markDirty
 import './diff.css';
 import { ArrowGlyph } from '../ui/ArrowGlyph';
 import { displayChord, resolveChord } from '../ui/platformKeys';
+import { LfsPlaceholder, lfsMissing } from '../lfs/LfsPlaceholder';
+import { useLfsEpoch } from '../lfs/store';
 
 /** The target's contents. A cached (e.g. prefetched) file is ready on the first render, so
  * Up/Down through prefetched files never shows a loading frame. */
 export function useContents(services: RepoServices, target: DiffTarget, force: boolean, epoch: number | string = 0): Loadable<DiffContentsPayload> {
   const key = contentKey(contentsRequest(target, force));
+  // An LFS download empties the caches: read again (`lfs/store.ts`).
+  const lfsEpoch = useLfsEpoch();
   const [state, setState] = useState<{ key: string; value: Loadable<DiffContentsPayload> }>({ key: '', value: { status: 'idle' } });
   useEffect(() => {
     let live = true;
@@ -74,7 +78,7 @@ export function useContents(services: RepoServices, target: DiffTarget, force: b
       (e: unknown) => { if (live) setState({ key, value: { status: 'error', message: errorMessage(e) } }); },
     );
     return () => { live = false; };
-  }, [services, key, epoch]);
+  }, [services, key, epoch, lfsEpoch]);
   if (state.key === key) return state.value;
   const hit = services.contents.peek(key);
   return hit ? { status: 'ready', data: hit } : { status: 'loading' };
@@ -166,10 +170,14 @@ export function DiffHeader({ target, encoding, note, onClose, busy = false, dirt
   );
 }
 
+/** The contents have a body to show: not held back as too large, and no LFS side left to
+ * download (the "not downloaded" placeholder isn't text, an image or hex). */
+export const showable = (c: DiffContentsPayload) => !c.tooLarge && lfsMissing(c).length === 0;
+
 /** Where "Open in…" puts the cursor: the diff's first change (a plain line compare), when the
  * new side is text. */
 function openInLine(c: DiffContentsPayload | null): number | null {
-  if (!c || c.tooLarge) return null;
+  if (!c || !showable(c)) return null;
   const neu = c.new?.text;
   return neu == null ? null : firstChangedLine(c.old?.text ?? '', neu);
 }
@@ -190,7 +198,7 @@ export const isImage = (target: DiffTarget, c: DiffContentsPayload) =>
 function showsEditor(target: DiffTarget, contents: Loadable<DiffContentsPayload>): boolean {
   if (contents.status !== 'ready') return false;
   const c = contents.data;
-  return !c.tooLarge && !isImage(target, c) && !isMedia(target, c) && !isPdf(c) && !isHex(target, c);
+  return showable(c) && !isImage(target, c) && !isMedia(target, c) && !isPdf(c) && !isHex(target, c);
 }
 
 /** Whether the body shows a text diff, which is what F7 and Previous/Next change step through.
@@ -199,7 +207,7 @@ function showsTextDiff(target: DiffTarget, contents: Loadable<DiffContentsPayloa
   if (target.view !== 'diff' || contents.status !== 'ready') return false;
   const c = contents.data;
   // A binary's hex diff steps through its changed rows too.
-  return !c.tooLarge && !isImage(target, c) && !isMedia(target, c) && !isPdf(c);
+  return showable(c) && !isImage(target, c) && !isMedia(target, c) && !isPdf(c);
 }
 
 /** Audio, video or a font with its bytes (media/kind.ts): `Body` plays or previews it. */
@@ -212,7 +220,7 @@ const markdownOf = (selection: Selection, t: DiffTarget): { commit: FileCommit }
   return commit === null ? null : { commit };
 };
 /** A binary that isn't shown as an image, media or a PDF: its hex dump (hex.tsx), with its sizes in the file bar. */
-export const isHex = (target: DiffTarget, c: DiffContentsPayload) => !c.tooLarge && !isImage(target, c) && !isMedia(target, c) && !isPdf(c) && !!(c.old?.binary || c.new?.binary);
+export const isHex = (target: DiffTarget, c: DiffContentsPayload) => showable(c) && !isImage(target, c) && !isMedia(target, c) && !isPdf(c) && !!(c.old?.binary || c.new?.binary);
 
 /**
  * The image diff (spec §10.4). `contents` is the loader's cached object, so its identity holds
@@ -264,6 +272,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
   if (contents.status === 'error') return <div role="alert" className="diff-message">{contents.message}</div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true">Loading…</div>;
   const c = contents.data;
+  if (lfsMissing(c).length) return <LfsPlaceholder target={target} contents={c} />;
   if (c.tooLarge && forced) {
     return (
       <div className="diff-message">
@@ -297,6 +306,9 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
   const modified = draft ?? c.new?.text ?? '';
   const language = highlightLanguage(target.path, modified || original);
   const wip = wipSideOf(target);
+  // An LFS file (an LFS side, or a working-tree file with `filter=lfs`): git's hunks are of its
+  // pointers, so it's staged whole.
+  const hunks = !!wip && !c.lfs;
   // The banner's slot stays in place while it's absent, so moving between files never remounts
   // (detaches and re-attaches) the editor.
   return (
@@ -307,10 +319,10 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
         : (
           <DiffTextBody
             identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language} line={target.line}
-            onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={wip ? () => wipHunkZones(repoId, target) : undefined}
+            onShown={onShown} editable={editable} onEdit={onEdit} hunkZones={hunks ? () => wipHunkZones(repoId, target) : undefined}
             // Spec #2 §7.3: hunk and line buttons on a WIP text diff (in Source only, R8); spec
             // 2026-10-08 §2: review mode on an MR's Compare.
-            after={wip ? <HunkActions target={target} /> : <ReviewMode target={target} />}
+            after={wip ? (hunks ? <HunkActions target={target} /> : null) : <ReviewMode target={target} />}
             markdown={mdDiff ? { old: oldSide, new: fileCommitOf({ selection }, target) } : null}
             target={target}
             table={tableDelimiterOf(target)}
@@ -451,7 +463,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // Spec #5 §3.3: the toggle for a Markdown file's text in File View (not a large-file prompt, a
   // hex view or an image); §3.1: it says why Rendered can't be picked for a file too large.
   const tooLarge = useTooLargeToRender(filePlaceKey({ selection }, shown), loaded?.new?.text ?? loaded?.old?.text ?? '');
-  const textBody = !!loaded && !loaded.tooLarge && !isImage(shown, loaded) && !isMedia(shown, loaded) && !isPdf(loaded) && !isHex(shown, loaded);
+  const textBody = !!loaded && showable(loaded) && !isImage(shown, loaded) && !isMedia(shown, loaded) && !isPdf(loaded) && !isHex(shown, loaded);
   // 5C: the same toggle for a Markdown file's text diff (R2); while Rendered, the toolbar's text-diff
   // tools say why they're off (R3). An HTML file's the same, its pages side by side (`pageDiff`).
   const mdDiff = shown.view === 'diff' && textBody && isRenderedTarget(shown);
@@ -469,9 +481,9 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
   // An SVG's Source toggle, or an image's, media's or a PDF's Hex, per file: its text or hex diff
   // gets the text-diff controls (H26).
   const [sourceOf, setSourceOf] = useState<string | null>(null);
-  const imageDiff = contents.status === 'ready' && isImage(shown, contents.data) && !contents.data.tooLarge;
-  const mediaDiff = contents.status === 'ready' && isMedia(shown, contents.data);
-  const pdfView = contents.status === 'ready' && isPdf(contents.data);
+  const imageDiff = contents.status === 'ready' && isImage(shown, contents.data) && showable(contents.data);
+  const mediaDiff = contents.status === 'ready' && showable(contents.data) && isMedia(shown, contents.data);
+  const pdfView = contents.status === 'ready' && showable(contents.data) && isPdf(contents.data);
   const sourceOn = (imageDiff || mediaDiff || pdfView) && sourceOf === shown.key;
   const textDiff = showsTextDiff(shown, contents) || (sourceOn && shown.view === 'diff');
   // A binary's sizes (and the hex cap) in the file bar; an image's, media's or a PDF's Hex view, the cap only.
@@ -520,7 +532,7 @@ export function DiffPanel({ target, session = 0 }: { target: DiffTarget; session
         table={table.diff}
         leading={<OpenInButton target={shown} line={openLine} />}
         staging={isWipKey(shown.key) ? <WipStagingUndo /> : null}
-        history={<HistoryButtons target={shown} binary={!!loaded && !!(loaded.old?.binary || loaded.new?.binary)} />}
+        history={<HistoryButtons target={shown} binary={!!loaded && !!(loaded.old?.binary || loaded.new?.binary)} lfs={!!loaded?.lfs} />}
         markdown={markdownToggle}
       />
       <div className="diff-body">

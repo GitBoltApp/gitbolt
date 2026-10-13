@@ -55,6 +55,8 @@ pub struct GitInvocation {
     cancel: Option<CancellationToken>,
     envs: Vec<(OsString, OsString)>,
     stderr_lines: Option<UnboundedSender<String>>,
+    /// stdout's lines go to `stderr_lines` too (`stream_stdout_too`).
+    stdout_lines: bool,
     detach: bool,
     /// Built by `GitInvocation::write`: git's normal locks (no `GIT_OPTIONAL_LOCKS=0`).
     write: bool,
@@ -151,7 +153,7 @@ impl GitInvocation {
         I: IntoIterator<Item = S>,
         S: Into<OsString>,
     {
-        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, detach: false, write: false, stdin: None, term_grace: None, ok_exit: Vec::new(), stdout_limit: None }
+        Self { cwd: cwd.into(), args: args.into_iter().map(Into::into).collect(), timeout: Some(LOCAL_TIMEOUT), cancel: None, envs: Vec::new(), stderr_lines: None, stdout_lines: false, detach: false, write: false, stdin: None, term_grace: None, ok_exit: Vec::new(), stdout_limit: None }
     }
 
     /// `None` = no timeout (network operations).
@@ -195,6 +197,13 @@ impl GitInvocation {
     /// (git progress rewrites its line with `\r`). The full stderr is still collected.
     pub fn stream_stderr(mut self, tx: UnboundedSender<String>) -> Self {
         self.stderr_lines = Some(tx);
+        self
+    }
+
+    /// With `stream_stderr`, stdout's lines are streamed on the same channel too (git-lfs prints
+    /// its progress meter on stdout). The full stdout is still collected.
+    pub fn stream_stdout_too(mut self) -> Self {
+        self.stdout_lines = true;
         self
     }
 
@@ -401,9 +410,11 @@ impl GitCli {
         let limit = inv.stdout_limit;
         // Told when `stdout_limit` bytes are in (never sent otherwise: a dropped sender isn't "full").
         let (full_tx, mut full_rx) = tokio::sync::oneshot::channel::<()>();
+        let out_lines = if inv.stdout_lines { inv.stderr_lines.clone() } else { None };
         let mut out_task = tokio::spawn(async move {
             let mut buf = Vec::new();
             match limit {
+                None if out_lines.is_some() => buf = read_lines(stdout, out_lines, usize::MAX).await,
                 None => drop(stdout.read_to_end(&mut buf).await),
                 Some(n) => {
                     let _ = (&mut stdout).take(n).read_to_end(&mut buf).await;
@@ -550,7 +561,12 @@ async fn stop_group(group: &Group, child: &mut tokio::process::Child, grace: Opt
 
 /// Collects stderr (up to `STDERR_KEEP`) and, with `lines`, streams it: see
 /// [`GitInvocation::stream_stderr`].
-async fn read_stderr(mut r: tokio::process::ChildStderr, lines: Option<UnboundedSender<String>>) -> Vec<u8> {
+async fn read_stderr(r: tokio::process::ChildStderr, lines: Option<UnboundedSender<String>>) -> Vec<u8> {
+    read_lines(r, lines, STDERR_KEEP).await
+}
+
+/// Reads `r` to the end, keeping its first `keep` bytes and, with `lines`, streaming its lines.
+async fn read_lines(mut r: impl tokio::io::AsyncRead + Unpin, lines: Option<UnboundedSender<String>>, keep_max: usize) -> Vec<u8> {
     let mut all = Vec::new();
     let mut pending = Vec::new();
     let mut chunk = [0u8; 8192];
@@ -559,7 +575,7 @@ async fn read_stderr(mut r: tokio::process::ChildStderr, lines: Option<Unbounded
             Ok(0) | Err(_) => break,
             Ok(n) => n,
         };
-        let keep = n.min(STDERR_KEEP - all.len());
+        let keep = n.min(keep_max - all.len());
         all.extend_from_slice(&chunk[..keep]);
         if let Some(tx) = &lines {
             for &b in &chunk[..n] {
@@ -976,6 +992,21 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(String::from_utf8_lossy(&out.stdout), "hello");
+    }
+
+    #[tokio::test]
+    async fn streams_stdout_lines_too_when_asked() {
+        let r = TestRepo::new();
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let alias = "alias.prog=!printf 'Downloading LFS objects:  50%%\\rDownloading LFS objects: 100%%\\n'; printf 'Fetching reference x\\n' >&2";
+        let out = cli().run(GitInvocation::new(r.path(), ["-c", alias, "prog"]).stream_stderr(tx).stream_stdout_too()).await.unwrap();
+        let mut lines = Vec::new();
+        while let Ok(l) = rx.try_recv() {
+            lines.push(l);
+        }
+        lines.sort();
+        assert_eq!(lines, vec!["Downloading LFS objects:  50%", "Downloading LFS objects: 100%", "Fetching reference x"]);
+        assert!(String::from_utf8_lossy(&out.stdout).contains("100%"), "full stdout is still collected");
     }
 
     #[tokio::test]

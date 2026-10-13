@@ -16,6 +16,7 @@ import { DiffToolbar } from '../diff/DiffToolbar';
 import { FileView } from '../diff/FileView';
 import { fileSideOf, HexBody, HexView } from '../diff/hex';
 import { hexOf } from '../diff/hexContents';
+import { LfsPlaceholder, lfsMissing } from '../lfs/LfsPlaceholder';
 import { highlightLanguage } from '../diff/language';
 import { isPdf } from '../pdf/kind';
 import { PdfBody } from '../pdf/PdfBody';
@@ -30,7 +31,7 @@ import { isEditableTarget } from '../ui/keys';
 import { useToast } from '../ui/toastStore';
 import { BlameLayer } from './BlameGutter';
 import { ChangesAtCommit } from './HistoryChanges';
-import { NO_BINARY_BLAME } from './HistoryButtons';
+import { NO_BINARY_BLAME, NO_LFS_BLAME } from './HistoryButtons';
 import { historyEnd, selectedRow, type FileHistoryArgs } from './model';
 import { clampListW, LIST_W, loadListW, saveListW } from './listWidth';
 import { createHistoryStore, HISTORY_PAGE, type HistoryStore } from './store';
@@ -63,11 +64,12 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
   const ref = useRef<HTMLElement>(null);
   const blame = useStore(store, (s) => s.blame);
   // The selected file at its commit is a binary: shown as hex, with no lines to blame (no toggle).
-  const [binary, setBinary] = useState(false);
+  const [binary, setBinary] = useState<false | 'binary' | 'lfs'>(false);
+  const onBinary = useCallback((b: boolean, lfs?: boolean) => setBinary(lfs ? 'lfs' : b ? 'binary' : false), []);
   const view = useDiffPrefs((s) => s.prefs.historyView);
   const changes = view === 'changes';
   // Blame is the file's: off (in place, saying why) for a binary and in Changes.
-  const noBlame = binary ? NO_BINARY_BLAME : changes ? NO_CHANGES_BLAME : null;
+  const noBlame = binary === 'lfs' ? NO_LFS_BLAME : binary ? NO_BINARY_BLAME : changes ? NO_CHANGES_BLAME : null;
   const [listW, setListW] = useState(loadListW);
   const changeListW = useCallback((w: number) => { setListW(w); saveListW(w); }, []);
   // The drag writes the columns straight to the section (rAF-coalesced by the resizer); React state
@@ -130,9 +132,9 @@ export function FileHistory({ tabId, props, close }: CenterViewProps<FileHistory
             ? <ChangesAtCommit row={row} views={views} />
             : (
               <>
-                <DiffToolbar target={fileTarget} canDiff canStep={false} binary={binary} views={views} />
+                <DiffToolbar target={fileTarget} canDiff canStep={false} binary={binary === 'binary'} views={views} />
                 <div className="diff-body">
-                  <FileAtCommit row={row} onBinary={setBinary}>{blame && <BlameLayer repoId={props.repoId} worktree={props.worktree} row={row} onPick={onPick} />}</FileAtCommit>
+                  <FileAtCommit row={row} onBinary={onBinary}>{blame && <BlameLayer repoId={props.repoId} worktree={props.worktree} row={row} onPick={onPick} />}</FileAtCommit>
                 </div>
               </>
             ))}
@@ -218,12 +220,12 @@ const rowTarget = (path: string, sha: string): DiffTarget => fileViewTarget(path
  * is laid over a shown text file (3A T5's blame gutter). A binary shows File View's hex panes
  * instead (lane K's), and a PDF its pages, with no `children`: blame has no lines there. `onBinary`: whether the shown
  * file is one, once its contents are in (false again when none is shown). */
-export function FileAtCommit({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean) => void }) {
+export function FileAtCommit({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean, lfs?: boolean) => void }) {
   if (row.status === 'D') return <div className="diff-message"><p>{row.path} was deleted in this commit</p></div>;
   return <FileText row={row} onBinary={onBinary}>{children}</FileText>;
 }
 
-function FileText({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean) => void }) {
+function FileText({ row, children, onBinary }: { row: FileHistoryRow; children?: ReactNode; onBinary?: (binary: boolean, lfs?: boolean) => void }) {
   const services = useRepoView((s) => s.services);
   const target = useMemo(() => rowTarget(row.path, row.sha), [row.path, row.sha]);
   const [forced, setForced] = useState<string | null>(null);
@@ -233,12 +235,15 @@ function FileText({ row, children, onBinary }: { row: FileHistoryRow; children?:
   // Reported once the contents are in, so stepping between two binaries keeps the toggle away. A
   // PDF is one, even written in plain text: it shows as pages.
   const binary = contents.status === 'ready' && !contents.data.tooLarge ? text === null || isPdf(contents.data) : null;
+  // An LFS file's lines are its pointer's to git: no blame either.
+  const lfs = contents.status === 'ready' && !!contents.data.lfs;
   const report = useRef(onBinary);
   report.current = onBinary;
-  useEffect(() => { if (binary !== null) report.current?.(binary); }, [binary]);
+  useEffect(() => { if (binary !== null) report.current?.(binary, lfs); }, [binary, lfs]);
   useEffect(() => () => report.current?.(false), []);
   if (contents.status === 'error') return <div className="diff-message"><div role="alert">Couldn't load {row.path}: {contents.message}</div></div>;
   if (contents.status !== 'ready') return <div className="diff-message" aria-busy="true" />;
+  if (lfsMissing(contents.data).length) return <LfsPlaceholder target={target} contents={contents.data} sides={{ old: null, new: row.sha }} />;
   if (contents.data.tooLarge) {
     return (
       <div className="diff-message">

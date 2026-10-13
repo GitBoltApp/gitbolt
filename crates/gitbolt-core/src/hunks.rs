@@ -62,6 +62,8 @@ pub struct HunksPayload {
 pub(crate) const HUNKS_LIMIT: u64 = 5 * 1024 * 1024;
 
 pub(crate) const TOO_LARGE: &str = "Too large for line staging; stage the whole file";
+/// Why an LFS file has no hunk or line staging.
+pub(crate) const LFS_WHOLE: &str = "Stored with Git LFS: stage the whole file";
 
 /// The path's current base (gix only). A file gone from the worktree (its folder too) has no
 /// worktree id.
@@ -162,6 +164,10 @@ pub(crate) async fn wip_diff(cli: &GitCli, root: &Path, path: &str, staged: bool
     }
     if facts.conflicted {
         return Ok(Err("Resolve the conflict first".into()));
+    }
+    // git diffs an LFS file's pointers, not the file the diff view shows.
+    if !crate::lfs::tracked(cli, root, &[path.to_string()]).await?.is_empty() {
+        return Ok(Err(LFS_WHOLE.into()));
     }
     if !staged && facts.size.is_some_and(|n| n > HUNKS_LIMIT) {
         return Ok(Err(TOO_LARGE.into()));
@@ -356,5 +362,31 @@ mod tests {
         r.git(&["update-index", "--chmod=+x", "a.txt"]);
         let h = wip_hunks(&cli(), r.path(), "a.txt", true).await.unwrap();
         assert_eq!((h.hunks.len(), h.refused), (0, None));
+    }
+
+    /// An LFS-tracked file (here untracked, so no pointer is anywhere yet) is staged whole:
+    /// no hunks, and a patch is refused.
+    #[tokio::test]
+    async fn an_lfs_file_has_no_hunk_staging() {
+        use crate::write::test_support::{api, call, open, wt};
+        use serde_json::json;
+        let r = repo();
+        r.write(".gitattributes", "*.csv filter=lfs diff=lfs merge=lfs -text\n");
+        r.git(&["add", ".gitattributes"]);
+        r.git(&["commit", "-qm", "lfs"]);
+        r.write("data.csv", "a,b\n1,2\n");
+        let h = wip_hunks(&cli(), r.path(), "data.csv", false).await.unwrap();
+        assert_eq!((h.hunks.len(), h.refused.as_deref()), (0, Some(LFS_WHOLE)));
+        let data = tempfile::tempdir().unwrap();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let base = serde_json::to_value(&h.base).unwrap();
+        let e = call(&api, "stagePatch", json!({ "repo": id, "worktree": wt(r.path()), "path": "data.csv", "staged": false, "selection": { "kind": "hunks", "hunks": [0] }, "base": base })).await.unwrap_err();
+        assert!(e.message.contains("Git LFS"), "{}", e.message);
+        assert_eq!(r.git(&["status", "--porcelain"]), "?? data.csv", "nothing staged");
+        let c = call(&api, "diffContents", json!({ "repo": id, "path": "data.csv", "old": { "kind": "absent" }, "new": { "kind": "worktree", "worktree": wt(r.path()) }, "force": false })).await.unwrap();
+        assert_eq!(c["lfs"], true, "the diff says so, for the UI's guard");
+        let plain = call(&api, "diffContents", json!({ "repo": id, "path": "a.txt", "old": { "kind": "absent" }, "new": { "kind": "worktree", "worktree": wt(r.path()) }, "force": false })).await.unwrap();
+        assert_eq!(plain.get("lfs"), None);
     }
 }

@@ -55,6 +55,10 @@ pub enum OpKind {
     Save,
     // Restore a file from a commit (3A).
     Restore,
+    // Git LFS: fetch, pull, a file's download, track and untrack.
+    Lfs,
+    // Submodule update and sync.
+    Submodule,
 }
 
 /// An autostash step (`OpStashStep`).

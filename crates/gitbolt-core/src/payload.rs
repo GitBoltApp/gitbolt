@@ -297,6 +297,27 @@ pub struct FileChange {
     #[serde(skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub conflict: Option<ConflictKind>,
+    /// A WIP submodule row's state, as `git status` words it; absent everywhere else, and when
+    /// there's nothing to say.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub submodule_state: Option<SubmoduleState>,
+}
+
+/// What a submodule row of a WIP list shows besides its status (`git status`'s "new commits,
+/// modified content, untracked content"; `git submodule status`'s `-`).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct SubmoduleState {
+    /// Checked out at another commit than the one recorded.
+    pub new_commits: bool,
+    /// Tracked files changed inside it.
+    pub modified_content: bool,
+    /// Untracked files inside it.
+    pub untracked_content: bool,
+    /// No repository is checked out at its path.
+    pub uninitialized: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -397,6 +418,11 @@ pub struct BlobPayload {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub filtered: bool,
+    /// The side is stored with Git LFS: its contents are the real file's when it's downloaded,
+    /// none when it isn't. Absent otherwise.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[ts(optional)]
+    pub lfs: Option<crate::lfs::LfsSide>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -417,6 +443,11 @@ pub struct DiffContentsPayload {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     #[ts(optional, as = "Option<bool>")]
     pub pdf: bool,
+    /// The file is stored with Git LFS (an LFS side, or a working-tree file whose `filter` is
+    /// `lfs`): git's hunks are of its pointers, so it's staged whole, never by hunk or line.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    #[ts(optional, as = "Option<bool>")]
+    pub lfs: bool,
     /// The path has an audio, video or font extension: when every side is binary, they carry their
     /// bytes, which the UI plays or previews. Like an image, it keeps the large-file gate, up to
     /// `MAX_FORCED_BYTES`: past that it shows as a binary's capped hex dump. Absent otherwise.

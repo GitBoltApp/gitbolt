@@ -113,3 +113,7 @@ import '../forge/mrview/keyActions';
 import '../updates/feature';
 // Paste anywhere to go to it: Ctrl+V outside a text field goes to what the clipboard names.
 import '../goto/feature';
+// Git LFS: LFS: Pull / Fetch, and a file row's Track / Stop tracking.
+import '../lfs/feature';
+// Submodules, for repositories that use them: the palette's Submodules: … and a submodule row's menu.
+import '../submodules/feature';

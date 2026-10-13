@@ -585,6 +585,32 @@ pub fn rebase_lab(r: &TestRepo) {
     r.switch("lab");
 }
 
+/// Submodules, from local sources beside the repository (`parser-src`, `theme-src`; git refuses
+/// a local submodule URL unless `protocol.file.allow=always`): `vendor/parser` checked out at
+/// "Parse the header", and `vendor/theme` recorded but never initialised. Uncached: the cache's
+/// copy would leave the submodule URLs naming the original sources.
+pub fn submodules(r: &TestRepo) {
+    let source = |name: &str, subjects: &[&str]| -> String {
+        let dir = r.root().join(name);
+        r.git_in(r.root(), &["init", "-q", "-b", "main", name]);
+        for (i, s) in subjects.iter().enumerate() {
+            std::fs::write(dir.join(format!("part_{i}.txt")), format!("{s}\n")).expect("write source file");
+            r.git_in(&dir, &["add", "-A"]);
+            r.git_in(&dir, &["commit", "-q", "-m", s]);
+        }
+        dir.display().to_string()
+    };
+    let parser = source("parser-src", &["Start the parser", "Parse the header"]);
+    let theme = source("theme-src", &["Dark theme"]);
+    r.commit("Initial commit");
+    for (url, path) in [(parser.as_str(), "vendor/parser"), (theme.as_str(), "vendor/theme")] {
+        r.git(&["-c", "protocol.file.allow=always", "submodule", "add", "-q", url, path]);
+    }
+    r.git(&["commit", "-q", "-m", "Add the parser and theme submodules"]);
+    r.git(&["submodule", "deinit", "-q", "-f", "vendor/theme"]);
+    std::fs::remove_dir_all(r.path().join(".git/modules/vendor/theme")).expect("remove the theme's clone");
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

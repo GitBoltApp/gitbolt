@@ -74,6 +74,12 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
     return { flag: 'discard', req: { title: 'Replace your changes?', body: `${d.path} has changes of its own. Restoring replaces them; you can undo this.`, confirmLabel: 'Restore', arm: `Click again to replace your changes to ${d.path}`, caption: `${d.path} has changes of its own.`, tone: 'warn' } };
   }
   // --- end 3A T3 ---
+  // Submodules: Update over commits made on no branch in a submodule: they'd be left behind.
+  if (d?.kind === 'submoduleOrphans' && !asked.discard) {
+    const them = d.commits === 1 ? 'its commit' : `${d.commits} commits`;
+    const arm = d.paths.length === 1 ? `Click again to update ${d.paths[0]}, leaving ${them} behind` : `Click again to update, leaving ${them} behind`;
+    return { flag: 'discard', req: { title: 'Leave commits behind?', body: err.message, confirmLabel: 'Update', arm, caption: 'They stay only in the reflog.', danger: true } };
+  }
   // --- 3B T6 ---
   // Undo of a "without committing" pick stopped on conflicts discards its changes, a resolution
   // included (3B T2): the core's own question and arm, then `confirmDiscard`.

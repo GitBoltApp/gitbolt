@@ -89,4 +89,23 @@ describe('FileList rows', () => {
     expect(screen.getByRole('listbox', { name: 'Changed files' })).toBeInTheDocument();
     for (const o of screen.getAllByRole('option')) expect(o).not.toHaveAttribute('aria-expanded');
   });
+
+  it("a submodule row says so in the line counts' place, with its state when it has one", () => {
+    useFileListPrefs.getState().set({ mode: 'path', sort: 'path', allFiles: false });
+    const sub = (path: string, state?: FileChange['submoduleState']): FileChange => ({ ...change(path), additions: 1, deletions: 1, old: { kind: 'submodule', oid: 'a'.repeat(40) }, new: { kind: 'submodule', oid: 'b'.repeat(40) }, submodule: true, ...(state && { submoduleState: state }) });
+    const files = [
+      sub('vendor/parser', { newCommits: true, modifiedContent: true, untrackedContent: false, uninitialized: false }),
+      sub('vendor/theme', { newCommits: false, modifiedContent: false, untrackedContent: false, uninitialized: true }),
+      sub('vendor/plain'),
+    ];
+    const store = createRepoViewStore(1, '/r', graph, fakeServices());
+    render(<RepoViewContext value={store}><FileList list={{ files, added: 3, deleted: 3 }} spec={spec} label="Changed files" /></RepoViewContext>);
+    const row = (p: string) => screen.getAllByRole('option').find((o) => o.dataset.path === p)!;
+    expect(row('vendor/parser').querySelector('.file-submodule')?.textContent).toBe('submodule: new commits');
+    expect(row('vendor/parser').querySelector('.file-stats')).toBeNull();
+    expect(row('vendor/theme').querySelector('.file-submodule')?.textContent).toBe('submodule: not initialised');
+    // A submodule with nothing more to say (a staged one, a commit's): "submodule", not a line count.
+    expect(row('vendor/plain').querySelector('.file-submodule')?.textContent).toBe('submodule');
+    expect(row('vendor/plain').querySelector('.file-stats')).toBeNull();
+  });
 });

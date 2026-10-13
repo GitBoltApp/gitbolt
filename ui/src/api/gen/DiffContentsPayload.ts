@@ -21,6 +21,11 @@ image: boolean,
  */
 pdf?: boolean, 
 /**
+ * The file is stored with Git LFS (an LFS side, or a working-tree file whose `filter` is
+ * `lfs`): git's hunks are of its pointers, so it's staged whole, never by hunk or line.
+ */
+lfs?: boolean, 
+/**
  * The path has an audio, video or font extension: when every side is binary, they carry their
  * bytes, which the UI plays or previews. Like an image, it keeps the large-file gate, up to
  * `MAX_FORCED_BYTES`: past that it shows as a binary's capped hex dump. Absent otherwise.

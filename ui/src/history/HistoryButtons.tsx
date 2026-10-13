@@ -8,13 +8,16 @@ import { openFileHistory } from './open';
 
 const NO_HISTORY = 'No history yet: the file is new';
 export const NO_BINARY_BLAME = "Blame isn't available for binary files";
+export const NO_LFS_BLAME = "Blame isn't available for files stored with Git LFS";
 
 /** The diff toolbar's `[Blame | History]` (spec #3 §4.2; the slot #1 reserved), for the open
  * file. A file with no history (new in the working tree) keeps the group, disabled, so the
  * toolbar's geometry never changes between files. `aria-disabled`, not `disabled`: the tooltip
  * still shows on hover. `binary`: the open file is one (hex or an image), which has no lines to
- * blame: Blame is off, History stays. */
-export function HistoryButtons({ target, binary = false }: { target: DiffTarget; binary?: boolean }) {
+ * blame: Blame is off, History stays. `lfs`: stored with Git LFS, whose lines are its pointer's
+ * to git: the same. */
+export function HistoryButtons({ target, binary: isBinary = false, lfs = false }: { target: DiffTarget; binary?: boolean; lfs?: boolean }) {
+  const binary = isBinary || lfs;
   const store = useRepoViewStore();
   const { tabId } = useRepoContext();
   // Read once per target: the selection that made it doesn't change under an open file.
@@ -28,7 +31,7 @@ export function HistoryButtons({ target, binary = false }: { target: DiffTarget;
   };
   return (
     <div className="segmented" role="group" aria-label="History">
-      <HoverTooltip content={!start ? NO_HISTORY : binary ? NO_BINARY_BLAME : `Show who last changed each line of ${start.path}`}>
+      <HoverTooltip content={!start ? NO_HISTORY : lfs ? NO_LFS_BLAME : binary ? NO_BINARY_BLAME : `Show who last changed each line of ${start.path}`}>
         <button type="button" aria-disabled={off || binary || undefined} onClick={open(true)}>Blame</button>
       </HoverTooltip>
       <HoverTooltip content={start ? `Show the commits that changed ${start.path}` : NO_HISTORY}>

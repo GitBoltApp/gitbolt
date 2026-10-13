@@ -40,6 +40,7 @@ pub(crate) mod reset;
 // --- 3A T3 ---
 pub(crate) mod restore;
 // --- end 3A T3 ---
+pub mod lfs;
 pub(crate) mod progress;
 pub mod remote_output;
 pub(crate) mod stage;
@@ -64,6 +65,7 @@ pub mod pick;
 pub(crate) mod sequence;
 // --- end 3B T1 ---
 pub(crate) mod stage_patch;
+pub(crate) mod submodules;
 // --- 2C T7: stashes ---
 pub(crate) mod stash;
 // --- end 2C T7 ---

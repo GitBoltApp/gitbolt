@@ -34,6 +34,8 @@ import type { RequestLogEntry } from './gen/RequestLogEntry';
 import type { SaveOutcome } from './gen/SaveOutcome';
 import type { ScannedRepo } from './gen/ScannedRepo';
 import type { SequenceOutcome } from './gen/SequenceOutcome';
+import type { SubmoduleInfo } from './gen/SubmoduleInfo';
+import type { SubmoduleOutcome } from './gen/SubmoduleOutcome';
 import type { QueueStatePayload } from './gen/QueueStatePayload';
 import type { JournalState } from './gen/JournalState';
 import type { HistoryRow } from './gen/HistoryRow';
@@ -61,6 +63,8 @@ import type { ResetMode } from './gen/ResetMode';
 import type { IntegrateKind } from './gen/IntegrateKind';
 import type { IntegratePreviewPayload } from './gen/IntegratePreviewPayload';
 import type { WriteResult } from './gen/WriteResult';
+import type { LfsStatusPayload } from './gen/LfsStatusPayload';
+import type { LfsTransferOutcome } from './gen/LfsTransferOutcome';
 import type { StashApplyOutcome } from './gen/StashApplyOutcome';
 import type { StashPushOutcome } from './gen/StashPushOutcome';
 import type { StagingUndoState } from './gen/StagingUndoState';
@@ -284,6 +288,13 @@ export const api = {
   addRemote: (repo: number, worktree: string, name: string, url: string) => call<WriteResult<null>>({ method: 'addRemote', params: { repo, worktree, name, url } }),
   /** `git remote remove` (journaled: Undo puts its config, remote branches and upstreams back). */
   removeRemote: (repo: number, worktree: string, name: string) => call<WriteResult<null>>({ method: 'removeRemote', params: { repo, worktree, name } }),
+  /** `git submodule status --recursive` (the Open in a tab picker). */
+  submodules: (repo: number, worktree: string) => call<SubmoduleInfo[]>({ method: 'submodules', params: { repo, worktree } }),
+  /** `git submodule update --init --recursive`, of `path` only when given (network; not journaled).
+   * `confirm`: leave commits on no branch behind (`submoduleOrphans` asked). */
+  submoduleUpdate: (repo: number, worktree: string, path?: string, confirm = false) => call<WriteResult<SubmoduleOutcome>>({ method: 'submoduleUpdate', params: { repo, worktree, ...(path !== undefined && { path }), ...(confirm && { confirm }) } }),
+  /** `git submodule sync --recursive` (not journaled). */
+  submoduleSync: (repo: number, worktree: string) => call<WriteResult<SubmoduleOutcome>>({ method: 'submoduleSync', params: { repo, worktree } }),
   // --- end 4A T12 ---
   /** The action queue (spec #2 §3.6). */
   queueState: (repo: number) => call<QueueStatePayload>({ method: 'queueState', params: { repo } }),
@@ -461,6 +472,21 @@ export const api = {
   restoreFile: (repo: number, worktree: string, sha: string, path: string, confirm: boolean) =>
     call<WriteResult<null>>({ method: 'restoreFile', params: { repo, worktree, sha, path, confirm } }),
   // --- end 3A T3 ---
+  // --- Git LFS (lfs/) ---
+  /** Whether the repository uses LFS, and git-lfs's version (null: not installed). */
+  /** `recheck`: read git-lfs's version again (else the session's). */
+  lfsStatus: (repo: number, recheck = false) => call<LfsStatusPayload>({ method: 'lfsStatus', params: { repo, ...(recheck ? { recheck } : {}) } }),
+  /** Which of `paths` LFS stores, by `worktree`'s attributes. */
+  lfsTracked: (repo: number, worktree: string, paths: string[]) => call<string[]>({ method: 'lfsTracked', params: { repo, worktree, paths } }),
+  lfsFetch: (repo: number, worktree: string) => call<WriteResult<LfsTransferOutcome>>({ method: 'lfsFetch', params: { repo, worktree } }),
+  lfsPull: (repo: number, worktree: string) => call<WriteResult<LfsTransferOutcome>>({ method: 'lfsPull', params: { repo, worktree } }),
+  /** One file's LFS objects at `refs` (commit ids; none: HEAD's); `oids`: the ones the diff lacks. */
+  lfsDownload: (repo: number, worktree: string, path: string, refs: string[], oids: string[]) =>
+    call<WriteResult<LfsTransferOutcome>>({ method: 'lfsDownload', params: { repo, worktree, path, refs, oids } }),
+  /** `git lfs track` / `untrack` of a `*.<ext>` pattern: `.gitattributes` edited, undoable. */
+  lfsTrack: (repo: number, worktree: string, pattern: string) => call<WriteResult<null>>({ method: 'lfsTrack', params: { repo, worktree, pattern } }),
+  lfsUntrack: (repo: number, worktree: string, pattern: string) => call<WriteResult<null>>({ method: 'lfsUntrack', params: { repo, worktree, pattern } }),
+  // --- end Git LFS ---
   // --- 3B T7: tags ---
   /** Create tag here (spec #3 §3.9): `message` null for a lightweight tag. */
   createTag: (repo: number, worktree: string, t: { name: string; target: string; message: string | null }) =>

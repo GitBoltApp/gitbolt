@@ -30,7 +30,11 @@ core.
 **Fetch, pull, push, clone and the rest.**
 
 - When: only when you start one: Fetch, Pull, Push (including tags, deleting a remote branch and
-  stack pushes), Clone, adding a remote, checking out an MR/PR from a fork, and a stack retarget.
+  stack pushes), Clone, adding a remote, checking out an MR/PR from a fork, a stack retarget,
+  Submodules: Update (`git submodule update --init --recursive`, which clones or fetches each
+  submodule from the URL its `.gitmodules` names), and in a repository that uses Git LFS, LFS:
+  Pull, LFS: Fetch and a file's Download (`git lfs`, which asks the remote's LFS server for the
+  files, with the same credentials).
 - Sends: what the git command sends. A push uploads your commits.
 - Turn off: don't start them.
 - Reads never fetch from a remote. They run with `GIT_NO_LAZY_FETCH=1`, so a partial clone
