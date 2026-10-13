@@ -1,4 +1,6 @@
 import { useVirtualizer } from '@tanstack/react-virtual';
+import type { RulerKind, RulerMark } from '../diff/mdRuler';
+import { RulerFrame } from '../diff/RulerFrame';
 import { useEffect, useLayoutEffect, useMemo, useRef, type ClipboardEvent, type CSSProperties } from 'react';
 import { openTop, revealTop, stepTarget, type ChangeBox } from '../diff/changeNav';
 import { setChangeStepper, STEP_MARGIN, type StepDir } from '../diff/changeStepper';
@@ -77,6 +79,11 @@ export function TableGrid({ header, headerChanged = null, rows, columns, fontPx,
   // other diffs do (`stepTarget`): from the change the last step went to while the view is still
   // there, so the changes on the last screen are reached too, wrapping at the ends.
   const boxes = useMemo(() => (changes ? changeBoxes(rows, changes, rowH) : null), [rows, changes, rowH]);
+  const marks = useMemo(() => {
+    if (!changes || !boxes) return undefined;
+    const list = rulerMarks(rows, changes, boxes, rowH);
+    return () => list;
+  }, [changes, boxes, rows, rowH]);
   const boxList = useRef(boxes);
   boxList.current = boxes;
   const lastStep = useRef<{ index: number; top: number; count: number } | null>(null);
@@ -123,6 +130,7 @@ export function TableGrid({ header, headerChanged = null, rows, columns, fontPx,
     </div>
   );
   return (
+    <RulerFrame pane={scroller} marks={marks}>
     <div ref={scroller} className="csv-table" role="table" aria-label={label} aria-rowcount={rows.length + 1} tabIndex={0} data-font-zoom="" style={style} onCopy={onCopy}>
       <div className="csv-row csv-head" role="row" aria-rowindex={1} data-r={-1}>
         {gutterOf([])}
@@ -148,7 +156,19 @@ export function TableGrid({ header, headerChanged = null, rows, columns, fontPx,
         })}
       </div>
     </div>
+    </RulerFrame>
   );
+}
+
+/** The overview ruler's marks (`RulerFrame`), in the scroller's px: each change below the header
+ * row, removed, added, or changed when its run has both. */
+export function rulerMarks(rows: GridRow[], changes: number[], boxes: ChangeBox[], rowH: number): RulerMark[] {
+  return changes.map((start, i) => {
+    const box = boxes[i]!;
+    const kinds = new Set(rows.slice(start, start + Math.max(1, Math.round((box.bottom - box.top) / rowH))).map((r) => r.kind));
+    const kind: RulerKind = kinds.has('added') && kinds.has('removed') ? 'changed' : kinds.has('added') ? 'added' : 'removed';
+    return { top: rowH + box.top, height: box.bottom - box.top, kind };
+  });
 }
 
 /** Each change's extent in the rows' own space (px): its first row to the end of its run. */

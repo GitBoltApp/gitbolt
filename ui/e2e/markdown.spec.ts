@@ -294,7 +294,7 @@ test.describe('the rendered Markdown diff (5C)', () => {
     });
 
     await test.step('the overview ruler: a mark per change on its canvas, no native scrollbar; a click scrolls the pane there', async () => {
-      const ruler = page.locator('.md-diff-ruler');
+      const ruler = page.locator('.ruler-strip');
       await expect(ruler).toBeVisible();
       await expect(ruler).toHaveAttribute('aria-hidden', 'true');
       // The changes Previous/Next step through: the heading, the words, the item, the code, the diagrams.
@@ -393,7 +393,7 @@ test.describe('the rendered Markdown diff (5C)', () => {
       await page.locator('[role="option"][data-path="spread.md"]').click();
       await expect(md.locator('.md-chunk')).not.toHaveCount(0);
       await expect(md.locator('.md-rendering')).toHaveCount(0);
-      const ruler = page.locator('.md-diff-ruler');
+      const ruler = page.locator('.ruler-strip');
       const box = (await ruler.boundingBox())!;
       // The strip spans the pane, which the pointer maps over.
       const pane = (await md.boundingBox())!;
@@ -401,8 +401,8 @@ test.describe('the rendered Markdown diff (5C)', () => {
       const y = box.y + box.height / 2;
       /** How far the view's middle (as a point on the ruler, by the real scroll height) and the slider's are from the pointer. */
       const offPointer = () => md.evaluate((el, at) => {
-        const strip = document.querySelector('.md-diff-ruler')!.getBoundingClientRect();
-        const s = document.querySelector('.md-diff-ruler-slider')!.getBoundingClientRect();
+        const strip = document.querySelector('.ruler-strip')!.getBoundingClientRect();
+        const s = document.querySelector('.ruler-slider')!.getBoundingClientRect();
         const view = strip.top + ((el.scrollTop + el.clientHeight / 2) / el.scrollHeight) * strip.height;
         return Math.max(Math.abs(view - at), Math.abs((s.top + s.bottom) / 2 - at));
       }, y);
@@ -417,7 +417,7 @@ test.describe('the rendered Markdown diff (5C)', () => {
       await page.mouse.down();
       await page.mouse.move(box.x + box.width / 2, y + 60, { steps: 3 });
       await expect.poll(() => md.evaluate((el, at) => {
-        const strip = document.querySelector('.md-diff-ruler')!.getBoundingClientRect();
+        const strip = document.querySelector('.ruler-strip')!.getBoundingClientRect();
         return Math.abs(strip.top + ((el.scrollTop + el.clientHeight / 2) / el.scrollHeight) * strip.height - at);
       }, y + 60)).toBeLessThanOrEqual(3);
       await page.mouse.up();
@@ -427,7 +427,7 @@ test.describe('the rendered Markdown diff (5C)', () => {
     await page.getByRole('group', { name: 'Markdown view' }).getByRole('button', { name: 'Source' }).click();
     await expect(page.getByTestId('text-diff')).toBeVisible();
     await expect(md).toBeHidden();
-    await expect(page.locator('.md-diff-ruler')).toHaveCount(0);
+    await expect(page.locator('.ruler-strip')).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Split' })).not.toHaveAttribute('aria-disabled', 'true');
   });
 });

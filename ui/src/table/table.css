@@ -1,6 +1,9 @@
 /* A CSV or TSV file as a table (TableGrid.tsx). */
 .csv-table { flex: 1; min-height: 0; overflow: auto; background: var(--app-bg0); color: var(--text-normal); font-family: var(--font-ui); font-size: var(--md-font-size, 13px); outline: none; }
 .csv-table[hidden] { display: none; }
+/* Room for the overview ruler (diff/RulerFrame.tsx) at the right edge, scrolled to the end: its
+   30px less the vertical scrollbar's 10 under it. */
+.ruler-ruled > .ruler-box > .csv-table { padding-right: 20px; }
 .csv-rows { position: relative; }
 /* As wide as its columns (--csv-width, TableGrid.tsx) or the pane: a max-content width would size
    the `fr` tracks from each row's own cells, and the rows' columns would no longer line up. */

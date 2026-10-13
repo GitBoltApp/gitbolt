@@ -366,7 +366,7 @@ const focusEditor = (el: HTMLElement): HTMLElement => {
   return el.querySelector<HTMLElement>('.csv-table') ?? el;
 };
 
-const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .review-layer, .hex-view, .md-rendered, .html-rendered, .md-diff-ruler, .csv-table';
+const OWNS_CLICKS = 'button, a, input, select, textarea, [role="toolbar"], [role="slider"], .monaco-host, .review-layer, .hex-view, .md-rendered, .html-rendered, .ruler-strip, .csv-table';
 
 /**
  * The center-panel takeover (spec §10.1). The graph stays mounted, hidden, underneath.

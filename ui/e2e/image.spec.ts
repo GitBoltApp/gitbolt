@@ -587,7 +587,10 @@ test.describe('image diff', () => {
     git(repo, 'add', 'docs/images/screenshot.webp');
     git(repo, 'commit', '-m', 'Screenshot as WebP');
     writeFileSync(join(repo, 'survey.pdf'), surveyPdf());
-    git(repo, 'add', 'survey.pdf');
+    // Long and wide: the table scrolls both ways.
+    const cols = Array.from({ length: 24 }, (_, c) => `reading_${c}`);
+    writeFileSync(join(repo, 'tides.csv'), [cols.join(','), ...Array.from({ length: 200 }, (_, r) => cols.map((_, c) => `station ${r}-${c}`).join(','))].join('\n') + '\n');
+    git(repo, 'add', 'survey.pdf', 'tides.csv');
     git(repo, 'commit', '-m', 'Add the lighthouse survey');
     writeFileSync(join(repo, 'viewbox.svg'), '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><rect width="512" height="512" fill="#15a0bf"/><circle cx="256" cy="256" r="200" fill="#f25d2e"/></svg>\n');
     git(repo, 'add', 'viewbox.svg', 'shot.png');
@@ -661,6 +664,27 @@ test.describe('image diff', () => {
         for (let i = 0; i < px.length; i += 4) if (px[i] > 200 && px[i + 1] < 60 && px[i + 2] < 60) red++;
         return red;
       })).toBeGreaterThan(100);
+      // Taller than its pane: the overview ruler stands in for the vertical scrollbar.
+      const pane = d.locator('.pdf-pane');
+      expect(await pane.evaluate((e) => e.scrollHeight > e.clientHeight)).toBe(true);
+      await expect(d.locator('.pdf-side .ruler-strip')).toBeVisible();
+    });
+
+    await test.step('a long, wide CSV table has the overview ruler in place of its vertical scrollbar, above the horizontal one', async () => {
+      await fileRow(page, 'tides.csv').click();
+      const table = d.locator('.csv-table');
+      await expect(table).toBeVisible();
+      const strip = d.locator('.ruler-strip');
+      await expect(strip).toBeVisible();
+      await expect(strip).toHaveAttribute('data-marks', '1'); // the whole file, added
+      // Above the horizontal scrollbar, if it's drawn (headless Playwright hides scrollbars).
+      const bar = await table.evaluate((e) => (e as HTMLElement).offsetHeight - (e as HTMLElement).clientHeight);
+      const [t, r] = [(await table.boundingBox())!, (await strip.boundingBox())!];
+      expect(Math.abs(r.y + r.height - (t.y + t.height - bar))).toBeLessThanOrEqual(1);
+      expect(Math.abs(r.x + r.width - (t.x + t.width))).toBeLessThanOrEqual(1);
+      // A press low on the strip scrolls the table there.
+      await page.mouse.click(r.x + r.width / 2, r.y + r.height - 5);
+      await expect.poll(() => table.evaluate((e) => e.scrollTop)).toBeGreaterThan(1000);
     });
   });
 });

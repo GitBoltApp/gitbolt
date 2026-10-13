@@ -13,7 +13,7 @@
 .hex-pane { position: relative; min-width: 0; overflow: hidden; box-sizing: border-box; }
 /* The view's one vertical scrollbar, at its far right (the panes' own are hidden): a native
    scroller, the changes' marks under its thumb. As wide as the other diffs' rulers (30px, the
-   rendered diff's .md-diff-ruler), with the same full-width square slider. */
+   RulerFrame's .ruler-strip), with the same full-width square slider. */
 .hex-bar { flex: none; width: 30px; margin-left: auto; position: relative; }
 .hex-scroller { position: absolute; inset: 0; overflow-x: hidden; overflow-y: auto; }
 .hex-scroller::-webkit-scrollbar { width: 30px; }

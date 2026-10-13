@@ -5,6 +5,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { nearestStepIndex, nextStepIndex, wheelAccumulator, ZOOM_STEPS } from '../image/zoom';
 import { columnHeight, currentPage, fitWidthScale, PAGE_GAP, pageTops, syncedScrollTop, visiblePages, type PageSize } from './layout';
 import { openPdf, PdfOpenError, type PdfDoc, type PdfPage, type PdfRender } from './pdfjs';
+import { RulerFrame } from '../diff/RulerFrame';
 import '../image/image.css';
 import './pdf.css';
 
@@ -108,6 +109,9 @@ const Page = memo(function Page({ doc, n, size, scale, top }: { doc: PdfDoc; n: 
   );
 });
 
+/** The pane's right padding (pdf.css): with its scrollbar's gutter, the overview ruler's room. */
+const PANE_PAD_PX = 20;
+
 const sameRange = (a: number[], b: number[]) => a.length === b.length && a[0] === b[0];
 
 /** A side's column of pages, scrolled on its own (and kept in step with the other side's). */
@@ -133,6 +137,7 @@ function Pane({ loaded, scale, label, paneRef, onScroll }: { loaded: Loaded; sca
   const widest = Math.max(0, ...sizes.map((s) => s.w));
   return (
     <div className="pdf-side">
+      <RulerFrame pane={paneRef}>
       <div
         ref={paneRef}
         className="pdf-pane"
@@ -150,6 +155,7 @@ function Pane({ loaded, scale, label, paneRef, onScroll }: { loaded: Loaded; sca
         {loaded.status === 'loading' && <div className="pdf-message">Loading…</div>}
         {loaded.status === 'error' && <div className="pdf-message" role="alert">{loaded.message}</div>}
       </div>
+      </RulerFrame>
       {label && <span className="image-label pdf-label">{label}</span>}
     </div>
   );
@@ -213,12 +219,12 @@ export function PdfView({ old, new: neu, single = null, source, onSourceChange }
     }
   }, [scale, oldSizes, newSizes]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Each pane is half the stage (side by side) or all of it, less its scroll bar's gutter.
+  // Each pane is half the stage (side by side) or all of it, less the ruler's room (pdf.css).
   const panes = !!oldDoc || !!newDoc;
   useEffect(() => {
     const pane = oldPane.current ?? newPane.current;
     if (!pane) return;
-    const measure = () => setPaneWidth(pane.clientWidth);
+    const measure = () => setPaneWidth(pane.clientWidth - PANE_PAD_PX);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(pane);

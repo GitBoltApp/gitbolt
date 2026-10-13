@@ -1,7 +1,11 @@
 /* A PDF's pages (pdf/PdfView.tsx). The toolbar is the image diff's (image.css). */
 .pdf-stage { position: relative; display: flex; gap: 2px; flex: 1; min-height: 0; }
 .pdf-side { position: relative; flex: 1; min-width: 0; display: flex; }
-.pdf-pane { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; background: var(--app-bg0); outline: none; }
+/* The overview ruler (diff/RulerFrame.tsx) stands in for the vertical scrollbar, over room always
+   kept for it (the bar's gutter and 20px more), so fitting the width never changes with whether
+   the pages scroll. */
+.pdf-pane { flex: 1; min-width: 0; overflow: auto; scrollbar-gutter: stable; padding-right: 20px; background: var(--app-bg0); outline: none; }
+.pdf-pane::-webkit-scrollbar-thumb:vertical { background-color: transparent; }
 .pdf-pane:focus-visible { box-shadow: inset 0 0 0 2px var(--blue); }
 .pdf-column { position: relative; min-width: 100%; margin: 0 auto; }
 .pdf-page { position: absolute; left: 50%; transform: translateX(-50%); /* theme-ok: paper is white in every theme */ background: #fff; box-shadow: 0 0 0 1px var(--image-frame-border); }

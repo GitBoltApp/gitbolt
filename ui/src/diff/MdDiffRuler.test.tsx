@@ -1,4 +1,4 @@
-import { act, render, waitFor } from '@testing-library/react';
+import { act, cleanup, render, waitFor } from '@testing-library/react';
 import { useRef, type ReactNode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useTheme } from '../theme/store';
@@ -60,8 +60,8 @@ function Harness({ marks, active = true, split = false, after }: { marks: M[]; a
 }
 
 const MARKS: M[] = [{ top: 0, h: 40, mark: 'removed' }, { top: 800, h: 80, mark: 'added' }, { top: 2000, h: 40, mark: 'changed' }];
-const ruler = (c: HTMLElement) => c.querySelector<HTMLElement>('.md-diff-ruler');
-const slider = (c: HTMLElement) => c.querySelector<HTMLElement>('.md-diff-ruler-slider')!;
+const ruler = (c: HTMLElement) => c.querySelector<HTMLElement>('.ruler-strip');
+const slider = (c: HTMLElement) => c.querySelector<HTMLElement>('.ruler-slider')!;
 const pane = (c: HTMLElement) => c.querySelector<HTMLElement>('[data-testid="pane"]')!;
 
 describe('the rendered Markdown diff overview ruler', () => {
@@ -77,7 +77,7 @@ describe('the rendered Markdown diff overview ruler', () => {
     expect(fills).toContainEqual({ style: c.changed, rect: [0, 500, 30, 10] });
     expect(fills).toContainEqual({ style: c.changed, rect: [0, 300, 30, 10] });
     // The native scrollbar gives way to the ruler.
-    expect(container.querySelector('.md-diff-frame')).toHaveClass('md-diff-ruled');
+    expect(container.querySelector('.ruler-frame')).toHaveClass('ruler-ruled');
   });
 
   it('Split: removed on the left lane, added on the right', async () => {
@@ -117,17 +117,27 @@ describe('the rendered Markdown diff overview ruler', () => {
     const { container } = render(<Harness marks={MARKS} after={<p role="note">Reviewing</p>} />);
     await waitFor(() => expect(ruler(container)).toHaveAttribute('data-marks', '3'));
     const box = ruler(container)!.parentElement!;
-    expect(box).toHaveClass('md-diff-box');
+    expect(box).toHaveClass('ruler-box');
     expect(box).toContainElement(pane(container));
     expect(box).not.toContainElement(container.querySelector('[role="note"]'));
     expect(box.nextElementSibling).toHaveAttribute('role', 'note');
   });
 
-  it('no changes: no strip, and the native scrollbar stays', async () => {
+  it('no changes: the strip still stands in for the scrollbar while the pane scrolls; with nothing to scroll, no strip', async () => {
     const { container } = render(<Harness marks={[]} />);
-    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
-    expect(ruler(container)).not.toBeVisible();
-    expect(container.querySelector('.md-diff-frame')).not.toHaveClass('md-diff-ruled');
+    await waitFor(() => expect(container.querySelector('.ruler-frame')).toHaveClass('ruler-ruled'));
+    expect(ruler(container)).toHaveAttribute('data-marks', '0');
+    expect(slider(container)).toBeVisible();
+    cleanup();
+    metrics.scrollHeight = 600;
+    try {
+      const short = render(<Harness marks={[]} />).container;
+      await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+      expect(ruler(short)).not.toBeVisible();
+      expect(short.querySelector('.ruler-frame')).not.toHaveClass('ruler-ruled');
+    } finally {
+      metrics.scrollHeight = 2400;
+    }
   });
 
   it('not shown (Source): no strip', () => {

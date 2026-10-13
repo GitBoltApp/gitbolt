@@ -8,7 +8,7 @@ import { changeStepper, STEP_MARGIN } from '../diff/changeStepper';
 import { CsvTable, CsvTableDiff } from './CsvTable';
 import { isTableCached, LARGE_TABLE_CHARS, parseTable, toTable } from './csv';
 import { diffTables } from './rowDiff';
-import { changeBoxes, rowHeight, selectedCells, type GridRow } from './TableGrid';
+import { changeBoxes, rowHeight, rulerMarks, selectedCells, type GridRow } from './TableGrid';
 
 afterEach(cleanup);
 
@@ -170,6 +170,19 @@ describe('selectedCells', () => {
 
 describe('CsvTableDiff', () => {
   const diffOf = (old: string[][], neu: string[][]) => diffTables(toTable(old), toTable(neu))!;
+
+  it('marks each change on the overview ruler: below the header row, changed when its run has both sides', async () => {
+    const diff = diffOf([['k', 'v'], ['a', '1'], ['b', '2'], ['x', '0']], [['k', 'v'], ['a', '9'], ['b', '2'], ['c', '3']]);
+    const { container } = render(<CsvTableDiff diff={diff} fontPx={13} />);
+    await act(() => new Promise((r) => requestAnimationFrame(() => r(undefined))));
+    expect(container.querySelector('.ruler-strip')).toHaveAttribute('data-marks', String(diff.changes.length));
+    const rows: GridRow[] = diff.rows.map((r) => ({ cells: r.cells, nums: [r.old, r.new], kind: r.kind === 'same' ? undefined : r.kind }));
+    const h = 20;
+    expect(rulerMarks(rows, diff.changes, changeBoxes(rows, diff.changes, h), h)).toEqual([
+      { top: h, height: 2 * h, kind: 'changed' },
+      { top: 4 * h, height: 2 * h, kind: 'changed' },
+    ]);
+  });
 
   it('marks added and removed rows, and the cells a changed row changed', () => {
     render(<CsvTableDiff diff={diffOf([['k', 'v'], ['a', '1'], ['b', '2']], [['k', 'v'], ['a', '9'], ['b', '2'], ['c', '3']])} fontPx={13} />);
