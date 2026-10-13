@@ -9,7 +9,7 @@ import { codeLines } from './diff/words';
 import { queueHighlight } from './highlightQueue';
 import { useNearViewport } from './nearViewport';
 import { MdContextOverride } from './sideContext';
-import { MdSuggestionBase, replacedLines } from './suggestion';
+import { MdSuggestionApply, MdSuggestionBase, replacedLines, suggestedLines, suggestionStart } from './suggestion';
 import type { MdCodeProps } from './types';
 
 /** Longer blocks stay plain: one would hold the main thread too long (ruling 21). */
@@ -119,10 +119,14 @@ function useFileLanguage(path: string | null): string | null {
  * ```suggestion:-N+M), as the forges show it: a diff of the lines it replaces (`MdSuggestionBase`,
  * from whoever renders the note) and the lines it puts in: word marks in a changed pair, a -/+
  * sign on each changed line, highlighted in the commented file's language. With the replaced
- * lines unknown, only the lines it puts in, as added lines. */
+ * lines unknown, only the lines it puts in, as added lines. With its replaced lines known, it has
+ * the Apply control its renderer supplies (`MdSuggestionApply`: a published comment's). */
 export function MdSuggestion({ code, lang }: { code: string; lang: string }) {
   const base = useContext(MdSuggestionBase);
-  const replaced = replacedLines(lang, base)?.join('\n') ?? null;
+  const apply = useContext(MdSuggestionApply);
+  const lines = useMemo(() => replacedLines(lang, base), [lang, base]);
+  const replaced = lines?.join('\n') ?? null;
+  const suggested = useMemo(() => suggestedLines(code), [code]);
   const fileLang = useFileLanguage(base?.path ?? null);
   const diff = useMemo(() => {
     if (replaced === null) return code === '' ? null : { value: code, marks: '+'.repeat(code.split('\n').length) };
@@ -132,7 +136,10 @@ export function MdSuggestion({ code, lang }: { code: string; lang: string }) {
   }, [replaced, code]);
   return (
     <figure className="md-suggestion">
-      <figcaption>Suggested change</figcaption>
+      <figcaption>
+        Suggested change
+        {apply && base?.path && lines && apply({ path: base.path, from: suggestionStart(lang, base), replaced: lines, suggested })}
+      </figcaption>
       {diff ? <MdCode code={diff.value} lang={fileLang} marks={diff.marks} words={'words' in diff ? diff.words : undefined} signs /> : <p className="md-suggestion-note">Removes these lines</p>}
     </figure>
   );

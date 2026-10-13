@@ -84,10 +84,15 @@ struct Checked {
 /// An edit of a working-tree file, saved (§7.5; UX round 2 G.2). Journaled: a `before` and an
 /// `after` snapshot of its one path, as a discard's (§5.3), so Undo puts the file back as it was
 /// and Redo as saved.
+///
+/// `suggestion`: a review comment's suggested change applied to the working copy (spec
+/// 2026-10-08): the same write, under its own label, and never merged into a save before or
+/// after it, so Undo takes back the suggestion alone.
 struct WriteWorktreeFile {
     path: String,
     text: String,
     base: String,
+    suggestion: bool,
     checked: std::sync::Mutex<Checked>,
 }
 
@@ -134,7 +139,11 @@ impl WriteIntent for WriteWorktreeFile {
         OpKind::Save
     }
     fn label(&self) -> String {
-        format!("save {}", self.path)
+        if self.suggestion {
+            format!("apply the suggestion to {}", self.path)
+        } else {
+            format!("save {}", self.path)
+        }
     }
     fn class(&self) -> WriteClass {
         WriteClass::Immediate
@@ -151,7 +160,7 @@ impl WriteIntent for WriteWorktreeFile {
     }
     /// Saves of one file in a row are one entry: Undo goes back to before the first.
     fn coalesces(&self) -> bool {
-        true
+        !self.suggestion
     }
     /// Every refusal comes before the snapshot, so a refused save leaves no journal entry: a path
     /// outside the worktree (`..`, absolute, through a symlinked folder, into `.git` or a nested
@@ -202,7 +211,14 @@ impl WriteIntent for WriteWorktreeFile {
 }
 
 pub(crate) async fn write_worktree_file(api: &Api, repo: u32, worktree: &str, path: String, text: String, base: String) -> Result<WriteResult<SaveOutcome>, GbError> {
-    run_write(api, repo, worktree, Expect::default(), WriteWorktreeFile { path, text, base, checked: Default::default() }).await
+    run_write(api, repo, worktree, Expect::default(), WriteWorktreeFile { path, text, base, suggestion: false, checked: Default::default() }).await
+}
+
+/// A review comment's suggestion applied to the working copy: `text` is the file with the
+/// suggested lines in, as the UI made it from the text it loaded (`base`, as a save's); `expect`:
+/// HEAD at the MR's head, as the UI checked it.
+pub(crate) async fn apply_suggestion(api: &Api, repo: u32, worktree: &str, path: String, text: String, base: String, expect: Expect) -> Result<WriteResult<SaveOutcome>, GbError> {
+    run_write(api, repo, worktree, expect, WriteWorktreeFile { path, text, base, suggestion: true, checked: Default::default() }).await
 }
 
 // --- UX round 3 O.1: Create file ---
@@ -440,6 +456,49 @@ mod tests {
         assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap(), "three\n");
     }
 
+    /// A suggestion applied (spec 2026-10-08) is a save under its own label, never merged with a
+    /// save before or after it: Undo takes back the suggestion alone, then the save.
+    #[tokio::test]
+    async fn an_applied_suggestion_is_its_own_undo_step() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let apply = |text: &'static str, base: String| call(&api, "applySuggestion", json!({ "repo": id, "worktree": wt(r.path()), "path": "a.txt", "text": text, "base": base, "expect": { "head": null, "refs": {} } }));
+        let saved = save(&api, id, &r, "a.txt", "one\n", &base(&r, "a.txt")).await.unwrap();
+        let applied = apply("two\n", base(&r, "a.txt")).await.unwrap();
+        assert_eq!(applied["journal"]["undo"]["label"], "apply the suggestion to a.txt");
+        assert_ne!(undo_depth(&applied["journal"]), undo_depth(&saved["journal"]), "not merged into the save");
+        assert_eq!(applied["outcome"]["hash"], crate::blob::worktree_id(b"two\n"));
+        let again = apply("three\n", base(&r, "a.txt")).await.unwrap();
+        assert_ne!(undo_depth(&again["journal"]), undo_depth(&applied["journal"]), "nor into the last suggestion");
+        let after = save(&api, id, &r, "a.txt", "four\n", &base(&r, "a.txt")).await.unwrap();
+        assert_ne!(undo_depth(&after["journal"]), undo_depth(&again["journal"]), "a save after it is its own step");
+        for want in ["three\n", "two\n", "one\n", "a\n"] {
+            journal_step(&api, id, r.path(), "undo").await.unwrap();
+            assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap(), want);
+        }
+        // Stale, as a save's: nothing written.
+        let err = apply("x\n", "0".into()).await.unwrap_err();
+        assert_eq!(err.kind, crate::error::GbErrorKind::Stale);
+        assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap(), "a\n");
+    }
+
+    /// HEAD moved since the UI saw it at the MR's head: refused, nothing written.
+    #[tokio::test]
+    async fn an_applied_suggestion_is_refused_once_head_moved() {
+        let data = tempfile::tempdir().unwrap();
+        let r = repo();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        let params = |head: String| json!({ "repo": id, "worktree": wt(r.path()), "path": "a.txt", "text": "x\n", "base": base(&r, "a.txt"), "expect": { "head": head, "refs": {} } });
+        let err = call(&api, "applySuggestion", params("1".repeat(40))).await.unwrap_err();
+        assert_eq!(err.kind, crate::error::GbErrorKind::RefMoved, "{}", err.message);
+        assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap(), "a\n");
+        call(&api, "applySuggestion", params(r.git(&["rev-parse", "HEAD"]))).await.unwrap();
+        assert_eq!(std::fs::read_to_string(r.path().join("a.txt")).unwrap(), "x\n");
+    }
+
     #[tokio::test]
     async fn a_conflicted_file_or_one_in_a_nested_repository_is_refused() {
         let data = tempfile::tempdir().unwrap();
@@ -492,7 +551,7 @@ mod tests {
 
     #[test]
     fn a_save_leaves_the_staging_log_alone() {
-        let s = WriteWorktreeFile { path: "a".into(), text: String::new(), base: String::new(), checked: Default::default() };
+        let s = WriteWorktreeFile { path: "a".into(), text: String::new(), base: String::new(), suggestion: false, checked: Default::default() };
         assert_eq!(s.staging(), Staging::Keep);
     }
 

@@ -131,7 +131,12 @@
 .md-code-del { background: var(--md-diff-del-block); }
 /* A review comment's suggested change (spec 2026-10-08): the lines it puts in, under a caption. */
 .md-suggestion { margin: 0 0 8px; border: 1px solid var(--section-border); border-radius: 6px; overflow: hidden; }
-.md-suggestion > figcaption { padding: 3px 8px; border-bottom: 1px solid var(--section-border); color: var(--text-secondary); font-size: 11px; }
+.md-suggestion > figcaption { display: flex; align-items: center; gap: 8px; padding: 3px 8px; border-bottom: 1px solid var(--section-border); color: var(--text-secondary); font-size: 11px; }
+/* Apply: inside the caption's own height, so its states (disabled, busy) never move a line. */
+.md-suggestion-apply { margin: -2px 0 -2px auto; padding: 0 8px; border: 1px solid var(--section-border); border-radius: 4px; background: var(--control-bg); color: var(--text-normal); font: inherit; line-height: 16px; cursor: pointer; }
+.md-suggestion-apply:hover:not([aria-disabled]) { background: var(--control-hover-bg); }
+.md-suggestion-apply:focus-visible { outline: 2px solid var(--focus-outline); outline-offset: 1px; }
+.md-suggestion-apply[aria-disabled] { color: var(--text-disabled); cursor: default; }
 .md-suggestion .md-code { margin: 0; border-radius: 0; }
 /* A diff's -/+ column (a suggestion's): drawn, never copied or selected with the code. */
 .md-code-signs .md-code-line::before { content: ' '; display: inline-block; width: 2ch; color: var(--text-secondary); user-select: none; }

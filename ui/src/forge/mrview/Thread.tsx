@@ -19,7 +19,8 @@ import { Markdown } from '../../markdown/lazy';
 import { MR_BODY_MAX_BYTES } from '../../markdown/limits';
 import { whenIdle } from '../../markdown/idle';
 import { PlainBody } from '../../markdown/PlainBody';
-import { MdSuggestionBase, replacedLines, snippetBase } from '../../markdown/suggestion';
+import { MdSuggestionApply, MdSuggestionBase, replacedLines, snippetBase } from '../../markdown/suggestion';
+import { applyControl } from '../review/ApplySuggestionButton';
 // --- end 5A T10 ---
 import { PendingMark } from '../../pending/PendingMark';
 import { openInBrowser } from './MrHeader';
@@ -107,6 +108,9 @@ const Note = memo(function Note({ tabId, kind, mr, d, n, first, deferred, where,
   // thread's snippet's.
   const outer = useContext(MdSuggestionBase);
   const base = useMemo(() => outer ?? snippetBase(kind, d.notes.find((x) => x.position)?.position), [outer, kind, d]);
+  // Where its suggestion's Apply writes: the tab's working copy, against this MR.
+  const position = d.notes.find((x) => x.position)?.position ?? null;
+  const apply = useMemo(() => applyControl({ tabId, kind, mr, position }), [tabId, kind, mr, position]);
   return (
     <div className={`mr-note${first ? '' : ' mr-reply-note'}`} data-note={n.id}>
       <div className="mr-note-head">
@@ -125,7 +129,9 @@ const Note = memo(function Note({ tabId, kind, mr, d, n, first, deferred, where,
           : (
             // --- 5A T10: rendered Markdown (spec #5 §2: every comment) ---
             <div className="mr-note-body">
-              {deferred ? <PlainBody text={text} className="md" /> : <Markdown text={text} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />}
+              <MdSuggestionApply value={apply}>
+                {deferred ? <PlainBody text={text} className="md" /> : <Markdown text={text} flavor={kind} context={context} maxBytes={MR_BODY_MAX_BYTES} />}
+              </MdSuggestionApply>
             </div>
           )}
       </MdSuggestionBase>

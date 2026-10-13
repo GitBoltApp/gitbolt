@@ -212,6 +212,12 @@ describe('a suggestion in a card: a diff of the lines it replaces, from the diff
     const { container } = render(<RenderedCards tabId="t" items={items} boxes={[]} fresh={null} disabledReason={null} text={FILE_TEXT} onClose={vi.fn()} onFocus={vi.fn()} onLeave={vi.fn()} />);
     await waitFor(() => expect(container.querySelectorAll('.md-suggestion')).toHaveLength(2));
     for (const box of container.querySelectorAll<HTMLElement>('.md-suggestion')) expect(marked(box)).toEqual([' First line', '-Second line', '+Second line, edited']);
+    // Apply on the published thread's alone (a pending comment's isn't the forge's yet); this tab
+    // has nothing checked out.
+    const apply = screen.getAllByRole('button', { name: /^Apply the suggestion/ });
+    expect(apply).toHaveLength(1);
+    expect(container.querySelectorAll('.md-suggestion')[1]).toContainElement(apply[0]!);
+    expect(apply[0]).toHaveAccessibleName("Apply the suggestion: Check out dev at the MR's head to apply");
   });
 
   it('without the diff’s text (Submit review…’s list), or on a removed line: only the lines it puts in', async () => {

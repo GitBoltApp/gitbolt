@@ -1,4 +1,4 @@
-import { createContext } from 'react';
+import { createContext, type ReactNode } from 'react';
 import type { DiffPosition } from '../api/gen/DiffPosition';
 import type { MdFlavor } from './types';
 
@@ -16,6 +16,8 @@ export interface SuggestionBase {
   path: string | null;
   /** How many lines the comment's range has above its last one (0: one line). */
   span: number;
+  /** The comment's last line, 1-based, on the new side. */
+  line: number;
   /** The lines from `above` lines above the comment's last line to `below` lines below it; null
    * when they aren't all known. */
   lines(offset: { above: number; below: number }): string[] | null;
@@ -24,6 +26,18 @@ export interface SuggestionBase {
 /** The suggestion base for the Markdown inside; null (the default): unknown, a suggestion shows
  * only the lines it puts in. */
 export const MdSuggestionBase = createContext<SuggestionBase | null>(null);
+
+/** What an Apply control is given: the commented file, the first line the suggestion replaces,
+ * the lines it replaces and the lines it puts in. */
+export interface SuggestionApplyProps { path: string; from: number; replaced: readonly string[]; suggested: readonly string[] }
+
+/** The Apply control for a suggestion inside, from whoever renders the note (a published
+ * comment's, from the forge code). Null (the default): no Apply (the comment box's Preview, a
+ * pending comment). A render function, so this module never loads the forge or write code. */
+export const MdSuggestionApply = createContext<((p: SuggestionApplyProps) => ReactNode) | null>(null);
+
+/** A suggestion's lines: none for an empty one (it takes the lines out). */
+export const suggestedLines = (code: string): string[] => (code === '' ? [] : code.split('\n').map((l) => l.replace(/\r$/, '')));
 
 /** The lines a suggestion fence (`lang`) replaces, relative to the comment's last line: GitLab's
  * `suggestion:-N+M` from N above to M below; a plain `suggestion` on GitHub the commented lines,
@@ -39,6 +53,11 @@ export function replacedLines(lang: string, base: SuggestionBase | null): string
   return base ? base.lines(suggestionOffset(lang, base)) : null;
 }
 
+/** The first new-side line a suggestion in fence `lang` replaces. */
+export function suggestionStart(lang: string, base: SuggestionBase): number {
+  return base.line - suggestionOffset(lang, base).above;
+}
+
 /** A base over the new side's text of the file at `path`: `get(from, to)` gives its 1-based
  * lines `from`..`to` (fewer, or null, past either end); the comment covers `start`..`line`. */
 export function linesBase(flavor: MdFlavor, path: string | null, start: number, line: number, get: (from: number, to: number) => readonly string[] | null): SuggestionBase {
@@ -46,6 +65,7 @@ export function linesBase(flavor: MdFlavor, path: string | null, start: number, 
     flavor,
     path,
     span: Math.max(0, line - start),
+    line,
     lines: ({ above, below }) => {
       const [from, to] = [line - above, line + below];
       if (from < 1) return null;

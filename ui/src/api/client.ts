@@ -338,6 +338,11 @@ export const api = {
    * puts the file back as it was. */
   writeWorktreeFile: (repo: number, worktree: string, path: string, text: string, base: string) =>
     call<WriteResult<SaveOutcome>>({ method: 'writeWorktreeFile', params: { repo, worktree, path, text, base } }),
+  /** A review comment's suggestion applied to the working copy: `text` is the file with its
+   * lines in, written behind `base` as a save, under its own Undo entry; `expect`: HEAD at the
+   * MR's head, as checked. */
+  applySuggestion: (repo: number, worktree: string, path: string, text: string, base: string, expect: Expect) =>
+    call<WriteResult<SaveOutcome>>({ method: 'applySuggestion', params: { repo, worktree, path, text, base, expect } }),
   /** UX round 3 O.1: a new, empty file (its folders made); journaled, so Undo removes it. */
   createWorktreeFile: (repo: number, worktree: string, path: string) =>
     call<WriteResult<SaveOutcome>>({ method: 'createWorktreeFile', params: { repo, worktree, path } }),

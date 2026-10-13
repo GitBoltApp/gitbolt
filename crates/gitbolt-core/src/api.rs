@@ -423,6 +423,11 @@ pub enum Request {
     /// `WriteResult<SaveOutcome>`; `Stale` when the file's bytes no longer hash to `base`.
     WriteWorktreeFile { repo: u32, worktree: String, path: String, text: String, base: String },
     // --- end 2B T6 ---
+    /// A review comment's suggestion applied to the working copy (spec 2026-10-08): `text` is the
+    /// file with the suggested lines in. A save under its own Undo entry ("apply the suggestion
+    /// to …"), never merged with a save: `WriteResult<SaveOutcome>`, `Stale` as a save's.
+    /// `expect`: HEAD as the UI saw it, at the MR's head; moved since, it's refused.
+    ApplySuggestion { repo: u32, worktree: String, path: String, text: String, base: String, expect: crate::write::types::Expect },
     // --- UX round 3 O.1 ---
     /// A new, empty file at `path` (folders made as needed): `WriteResult<SaveOutcome>`. Refused
     /// when it exists or isn't plainly inside the worktree. Journaled: Undo removes it.
@@ -1157,7 +1162,7 @@ impl Request {
             Request::AddRemote { .. } | Request::RemoveRemote { .. } => true,
             // --- end 4A T7 ---
             Request::Fetch { .. } | Request::Clone { .. } | Request::RemoveIndexLock { .. } => true,
-            Request::WriteWorktreeFile { .. } | Request::CreateWorktreeFile { .. } => true,
+            Request::WriteWorktreeFile { .. } | Request::CreateWorktreeFile { .. } | Request::ApplySuggestion { .. } => true,
             // 2B T1.
             Request::Stage { .. } | Request::Unstage { .. } | Request::StageAll { .. } | Request::UnstageAll { .. } => true,
             // 2B T2.
@@ -2925,6 +2930,7 @@ impl Api {
             }
             Request::WriteWorktreeFile { repo, worktree, path, text, base } => to_json(crate::write::files::write_worktree_file(self, repo, &worktree, path, text, base).await?),
             Request::CreateWorktreeFile { repo, worktree, path } => to_json(crate::write::files::create_worktree_file(self, repo, &worktree, path).await?),
+            Request::ApplySuggestion { repo, worktree, path, text, base, expect } => to_json(crate::write::files::apply_suggestion(self, repo, &worktree, path, text, base, expect).await?),
             Request::RemoveIndexLock { repo, path, mtime_ms, ino, dev } => {
                 crate::write::index_lock::remove_index_lock(self, repo, &path, mtime_ms, ino, dev).await?;
                 to_json(())
@@ -4874,7 +4880,7 @@ mod tests {
     }
 
     /// The methods that write (`is_write`), which the never-write test leaves out.
-    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "undoEntry","applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "createWorktreeFile", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
+    const WRITE_METHODS: &[&str] = &["fetch", "clone", "testWrite", "undo", "redo", "undoEntry","applyKeptStash", "removeIndexLock", "stage", "unstage", "stageAll", "unstageAll", "stagingUndo", "stagingRedo", "writeWorktreeFile", "createWorktreeFile", "applySuggestion", "commit", "editHeadMessage", "settlePaused", "worktreeAdd", "worktreeRemove", "deleteBranch", "stagePatch", "createBranch", "renameBranch", "setUpstream", "push",
         // 4A T7
         "addRemote", "removeRemote",
         // --- 2C T5: checkout ---
@@ -4953,6 +4959,8 @@ mod tests {
             json!({"method": "writeWorktreeFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "text": "x", "base": "0"}}),
             // UX round 3 O.1: refused (it exists) before writing.
             json!({"method": "createWorktreeFile", "params": {"repo": id, "worktree": wt, "path": "file_1.txt"}}),
+            // Refused as Stale before writing, as a save.
+            json!({"method": "applySuggestion", "params": {"repo": id, "worktree": wt, "path": "file_1.txt", "text": "x", "base": "0", "expect": {"head": null, "refs": {}}}}),
             // 2B T1.
             json!({"method": "stage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),
             json!({"method": "unstage", "params": {"repo": id, "worktree": wt, "paths": ["file_1.txt"]}}),

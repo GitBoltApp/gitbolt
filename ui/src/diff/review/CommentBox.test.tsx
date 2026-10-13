@@ -138,6 +138,8 @@ describe('the comment box (spec 2026-10-08 §2)', () => {
     fireEvent.change(field, { target: { value: '```suggestion:-1+0\nReadme\nSecond line, edited\n```' } });
     fireEvent.click(screen.getByRole('tab', { name: 'Preview' }));
     await waitFor(() => expect(marked()).toEqual([' Readme', '-Second line', '+Second line, edited']));
+    // Not on the forge yet: nothing to apply.
+    expect(screen.queryByRole('button', { name: /^Apply the suggestion/ })).toBeNull();
     // The preview grows to show it whole, not held at the textarea's height.
     expect(screen.getByRole('tabpanel', { name: 'Comment preview' }).closest('.md-field')).toHaveAttribute('data-grow');
     // Past the commented lines, only the diff's text knows them.
