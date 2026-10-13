@@ -4,4 +4,13 @@ export type LocateResult = { found: boolean,
 /**
  * The commit window that includes the commit; `null` when it's already loaded (or not found).
  */
-limit: number | null, };
+limit: number | null, 
+/**
+ * The commit's full id (a short hash resolves to it), found or not (deeper than the walk, or
+ * on no ref the graph shows); `null` when ambiguous.
+ */
+id: string | null, 
+/**
+ * A short hash more than one commit starts with: none is picked, and `found` is false.
+ */
+ambiguous: boolean, };

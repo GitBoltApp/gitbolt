@@ -133,6 +133,11 @@ untrusted text (`ui/src/markdown/`).
     the core fetched;
   - `connect-src 'self' ipc: http://ipc.localhost`: the app's own IPC only;
   - `object-src 'none'`, `base-uri 'none'`, `frame-ancestors 'none'`, `form-action 'none'`.
+- **The page may read the clipboard's text** (the clipboard plugin's `read-text` permission,
+  `crates/gitbolt-app/capabilities/default.json`), for Ctrl+V's "Go to what's on the
+  clipboard"; the UI reads it only then. It goes through the plugin because Chromium's own
+  `navigator.clipboard.readText()` asks for a permission in the app, and that prompt never
+  answers. Like the rest of the IPC, it is reachable only by the bundle's own scripts (the CSP above).
 - The end-to-end tests run the UI under the same policy (sent by `vite preview`,
   `ui/vite.config.ts`), and fail on any violation (`ui/e2e/test.ts`). `ui/e2e/csp.spec.ts` checks
   that a script injected into rendered Markdown never runs.

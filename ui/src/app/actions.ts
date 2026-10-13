@@ -34,6 +34,8 @@ export interface Action {
    * in `nav/input.ts`): its `shortcuts` are then display names, which the Ctrl dispatcher never
    * matches, so the key never runs it twice. */
   keysBy?: string;
+  /** `false`: a held shortcut runs it once, not again on each key repeat (Ctrl+V's go-to). */
+  repeats?: false;
   /** Usable now (hidden from menus and the palette, and its shortcut passes through, when not). */
   when?: () => boolean;
   /** `false`: left out of the hamburger menu, still in the palette and on its shortcuts (the ten

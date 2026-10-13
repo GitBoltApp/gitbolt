@@ -17,6 +17,7 @@ import type { ConflictKind } from '../api/gen/ConflictKind';
 import { CONFLICT_LABEL, conflictSentence } from '../conflicts/sides';
 import { useConflictSides } from '../conflicts/useOperation';
 import { useFileListPrefs } from './fileListPrefs';
+import { REVEAL_WAIT_MS, takeReveal, useFileReveal } from './reveal';
 import { allFolderPaths, buildRows, countByStatus, matchesFilter, NONE_COLLAPSED, rowIndent, stepFile, TREE, type FileListMode, type FileRow, type StatusCounts } from './fileTree';
 import { FilesFilter } from './FilesFilter';
 import { useWipFilter, wipFilterOf } from '../details/wipFilter';
@@ -357,6 +358,26 @@ export function FileList({ list, spec, label, allFilesCommit: commitOf = null, a
     const j = rows.findIndex((r) => r.id === id);
     if (j >= 0) v.scrollToIndex(j, { align: 'auto' });
   }, [rows, v]);
+  // A file or folder shown from outside (a pasted path, `files/reveal.ts`): once this list has
+  // its row, the folders above it (and a folder itself) expand, and it scrolls into view; a
+  // folder also gets the cursor, and the keyboard.
+  const reveal = useFileReveal((s) => s.req);
+  useEffect(() => {
+    if (!reveal || reveal.tabId !== tabIdOf(store)) return;
+    if (Date.now() - reveal.at > REVEAL_WAIT_MS) return takeReveal(reveal);
+    const row = rowsFor(NONE_COLLAPSED).find((r) => (reveal.folder ? r.kind === 'folder' && r.path === reveal.path : r.kind === 'file' && r.target.path === reveal.path));
+    if (!row) return;
+    takeReveal(reveal);
+    const next = new Set([...collapsed].filter((p) => p !== reveal.path && !reveal.path.startsWith(`${p}/`)));
+    if (next.size !== collapsed.size) setCollapsed(next);
+    if (row.kind === 'folder') {
+      place(row);
+      scrollRef.current?.focus({ preventScroll: true });
+    }
+    const j = rows.findIndex((r) => r.id === row.id);
+    if (next.size === collapsed.size && j >= 0) v.scrollToIndex(j, { align: 'center' });
+    else scrollToId.current = row.id;
+  }, [reveal, rowsFor]); // eslint-disable-line react-hooks/exhaustive-deps
   /** The file `step` from the active row (or from outside the list, with no active row), in
    * expanded order. */
   const stepFrom = (id: string | null, step: 1 | -1) => stepFile(allRows(), collapsed, id, step);

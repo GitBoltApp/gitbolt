@@ -8,7 +8,7 @@ import { useScrollPlace } from '../nav/scroll';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useDiffPrefs, type MarkdownView } from './diffPrefs';
 import { FileView } from './FileView';
-import type { MonacoHost } from './monaco/host';
+import type { DiffLine, MonacoHost } from './monaco/host';
 import { PRECHECK_BYTES, renderKey, TOO_LARGE_TO_RENDER, useTooLargeToRender } from './markdownFiles';
 import { useParseBudget } from './parseBudget';
 import { loadedHost } from './TextDiff';
@@ -49,7 +49,7 @@ export function MarkdownViewToggle({ path = null, forced = null }: { path?: stri
  * Source comes back at the cursor and scroll it had. Rendered shows that buffer, unsaved edits
  * included; editing happens in Source only.
  */
-export function FileBody({ identity, path, text, language, onShown, editable = false, onEdit, navKey, markdown }: {
+export function FileBody({ identity, path, text, language, onShown, editable = false, onEdit, navKey, markdown, line }: {
   identity: string;
   path: string;
   text: string;
@@ -60,6 +60,8 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
   /** The navigation place shown (`filePlaceKey`), for its scroll. */
   navKey: string | null;
   markdown: { commit: FileCommit } | null;
+  /** Lines asked for (`DiffTarget.line`), shown in Source. */
+  line?: DiffLine;
 }) {
   const { tabId } = useRepoContext();
   const picked = useMarkdownView(path);
@@ -117,7 +119,7 @@ export function FileBody({ identity, path, text, language, onShown, editable = f
     <>
       {wantsRendered && tooLarge && <div role="note" className="diff-banner">{TOO_LARGE_TO_RENDER}</div>}
       <div className="file-source" hidden={rendered} data-font-zoom="">
-        <FileView identity={identity} path={path} text={text} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={navKey} />
+        <FileView identity={identity} path={path} text={text} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={navKey} line={line} />
       </div>
       {markdown && (
         <div ref={pane} className="md-rendered" hidden={!rendered} data-testid="markdown-file" tabIndex={-1} data-font-zoom="" style={editorFontVar(fontPx)}>

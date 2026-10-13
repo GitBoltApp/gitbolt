@@ -133,3 +133,13 @@ export async function copyText(text: string): Promise<void> {
     await writeText(text);
   }
 }
+
+/** The system clipboard's text (Ctrl+V's go-to). In the app through the clipboard plugin: the
+ * embedded browser's `navigator.clipboard.readText()` asks for a permission there, a prompt that
+ * never answers (seen in a throwaway instance over CDP), so it's never tried. The browser's own
+ * clipboard in the harness. */
+export async function readClipboardText(): Promise<string> {
+  if (!inTauri()) return navigator.clipboard.readText();
+  const { readText } = await import('@tauri-apps/plugin-clipboard-manager');
+  return readText();
+}

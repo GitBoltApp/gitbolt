@@ -133,6 +133,9 @@ export interface MonacoHost {
   fileScrollTop(): number | null;
   /** Scrolls File View to `top`, at once (spec #5 §3.4: Back/Forward). */
   setFileScrollTop(top: number): void;
+  /** File View at lines `line`–`end` (a pasted `path:12-20`): selected, the cursor on the
+   * first, centred. Clamped to the file. */
+  revealFileLines(line: number, end: number): void;
   /** File View's cursor and scroll, to put back after the rendered Markdown view (spec #5 §3.3). */
   fileViewState(): MonacoNs.editor.ICodeEditorViewState | null;
   restoreFileViewState(state: MonacoNs.editor.ICodeEditorViewState | null): void;
@@ -899,6 +902,17 @@ class Host implements MonacoHost {
 
   setFileScrollTop(top: number): void {
     if (this.file && this.fileEl.parentElement) this.file.setScrollTop(top, SCROLL_IMMEDIATE);
+  }
+
+  revealFileLines(line: number, end: number): void {
+    const ed = this.file;
+    const model = this.fileModel;
+    if (!ed || !model || !this.fileEl.parentElement) return;
+    const clamp = (n: number) => Math.max(1, Math.min(n, model.getLineCount()));
+    const from = clamp(line);
+    const to = clamp(end);
+    ed.setSelection({ selectionStartLineNumber: to, selectionStartColumn: model.getLineMaxColumn(to), positionLineNumber: from, positionColumn: 1 });
+    ed.revealRangeInCenter({ startLineNumber: from, startColumn: 1, endLineNumber: to, endColumn: 1 }, SCROLL_IMMEDIATE);
   }
 
   fileViewState(): MonacoNs.editor.ICodeEditorViewState | null {

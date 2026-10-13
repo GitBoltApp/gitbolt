@@ -278,7 +278,7 @@ function Body({ target, contents, forced, banner, onLoadAnyway, onShown, onSourc
     <>
       {c.eolOnly && banner && <div role="note" className="diff-banner">Only line endings changed ({eolLabel(c.old?.eol)} <ArrowGlyph /> {eolLabel(c.new?.eol)})</div>}
       {target.view === 'file'
-        ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} />
+        ? <FileBody identity={target.key} path={target.path} text={c.new ? modified : original} language={language} onShown={onShown} editable={editable} onEdit={onEdit} navKey={filePlaceKey({ selection }, target)} markdown={markdownOf(selection, target)} line={target.line} />
         : (
           <DiffTextBody
             identity={target.key} path={target.path} oldPath={target.oldPath} original={original} modified={modified} language={language} line={target.line}

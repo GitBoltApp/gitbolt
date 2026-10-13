@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { expect, test, type Page } from './test';
 import { fixtures, openUrl } from './fixtures';
 
@@ -58,6 +59,20 @@ test('the diff header filename selects in the one selection colour, and Ctrl+C c
   await page.keyboard.press('Control+a');
   await page.keyboard.press('Control+c');
   await expect.poll(() => page.evaluate(() => navigator.clipboard.readText())).toContain('<?php');
+
+  await test.step('Ctrl+V outside a text field goes to what the clipboard names: a short hash, a path:line', async () => {
+    // In the read-only editor Ctrl+V does nothing, as before: the diff stays.
+    await page.keyboard.press('Control+v');
+    await expect(diff(page)).toBeVisible();
+    const root = execFileSync('git', ['-C', fixtures.details, 'rev-list', '--max-parents=0', 'HEAD'], { encoding: 'utf8' }).trim();
+    await page.evaluate((sha) => { (document.activeElement as HTMLElement | null)?.blur(); return navigator.clipboard.writeText(sha); }, root.slice(0, 8));
+    await page.keyboard.press('Control+v');
+    await expect(page.getByRole('row').filter({ hasText: 'Initial commit' })).toHaveAttribute('aria-selected', 'true');
+    await page.evaluate(() => navigator.clipboard.writeText('src/app.php:3'));
+    await page.keyboard.press('Control+v');
+    await expect(page.getByTestId('file-view').locator('.active-line-number')).toHaveText('3');
+    await expect(page.locator('[data-path="src/app.php"][aria-selected="true"]').first()).toBeVisible();
+  });
 });
 
 test('scrollbars are slim with a grey thumb only, in the app and in the editor (square and flush there)', async ({ page, browserName }) => {

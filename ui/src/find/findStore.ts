@@ -208,12 +208,23 @@ export async function searchOlder(tabId: string): Promise<void> {
   if (seqs.get(tabId) === seq) patch(tabId, { older, olderLoading: false });
 }
 
+/**
+ * Loads a window deep enough to hold commit `sha` (up to 10k commits) unless it's loaded: at
+ * `limit` when the caller located it already. Whether it's in the tab's graph now.
+ */
+export async function loadCommit(tabId: string, sha: string, limit: number | null = null): Promise<boolean> {
+  const has = () => tabStore(tabId)?.getState().indexById.has(sha) ?? false;
+  const repo = tabView(tabId)?.repo;
+  if (has() || repo === undefined) return has();
+  const deep = limit ?? (await api.locateCommit(repo, sha).catch(() => null).then((loc) => (loc?.found ? loc.limit : null)));
+  if (deep) await deepen(tabId, deep);
+  return has();
+}
+
 /** An older hit: load a window deep enough to hold it (up to 10k commits), then select it. */
 export async function revealOlder(tabId: string, sha: string): Promise<void> {
-  const repo = tabView(tabId)?.repo;
-  if (repo === undefined) return;
-  const loc = await api.locateCommit(repo, sha).catch(() => null);
-  if (loc?.found && loc.limit) await deepen(tabId, loc.limit);
+  if (tabView(tabId)?.repo === undefined) return;
+  await loadCommit(tabId, sha);
   if (selectCommit(tabId, sha, { focus: true })) patch(tabId, { message: null });
   else patch(tabId, { message: 'Not in the loaded history (deeper than 10,000 commits)' });
 }

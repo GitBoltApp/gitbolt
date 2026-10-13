@@ -10,6 +10,8 @@ import type { GraphPayload } from './gen/GraphPayload';
 import type { HexDumpPayload } from './gen/HexDumpPayload';
 import type { HistoryHit } from './gen/HistoryHit';
 import type { LocateResult } from './gen/LocateResult';
+import type { PathKind } from './gen/PathKind';
+import type { RepoPeek } from './gen/RepoPeek';
 import type { OpenerPayload } from './gen/OpenerPayload';
 import type { RemotePayload } from './gen/RemotePayload';
 import type { RepoSummary } from './gen/RepoSummary';
@@ -213,6 +215,10 @@ export const api = {
   treeFiles: (repo: number, id: string) => t().call({ method: 'treeFiles', params: { repo, id } }) as Promise<string[]>,
   /** UX G.2: the worktree's tracked files (the WIP row's View all files). */
   worktreeFiles: (repo: number, worktree: string) => t().call({ method: 'worktreeFiles', params: { repo, worktree } }) as Promise<string[]>,
+  /** What `path` is in the worktree (a file or a folder, tracked or not), from its metadata; null: nothing there. */
+  worktreePathKind: (repo: number, worktree: string, path: string) => t().call({ method: 'worktreePathKind', params: { repo, worktree, path } }) as Promise<PathKind | null>,
+  /** A repository not opened yet, read just enough to match a forge URL: its remotes and checked-out branch. */
+  peekRepo: (path: string) => t().call({ method: 'peekRepo', params: { path } }) as Promise<RepoPeek>,
   signature: (repo: number, id: string) => t().call({ method: 'signature', params: { repo, id } }) as Promise<SignaturePayload>,
   /** `null` when there's no avatar for `email` (or no avatar provider, as in the harness). `repo`:
    * the tab asking; its forge project is the last place asked (who the email's commits belong to,

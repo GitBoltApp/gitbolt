@@ -12,6 +12,8 @@ import { DEFAULT_DENSITY, DENSITIES, DENSITY_METRICS, useDensity } from '../them
 import { FileList } from './FileList';
 import { rowIndent } from './fileTree';
 import { useFileListPrefs } from './fileListPrefs';
+import { revealInFileList, useFileReveal } from './reveal';
+import { useTabViews } from '../app/tabStores';
 
 const change = (path: string, status = 'M', additions: number | null = 2): FileChange => ({
   path, oldPath: status === 'R' ? 'docs/guide.txt' : null, status, additions, deletions: additions === null ? null : 1,
@@ -74,6 +76,26 @@ describe('FileList', () => {
     expect(rowEls().find((r) => r.dataset.path === 'docs')).toHaveAttribute('aria-expanded', 'true');
     fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }));
     expect(rowEls().every((r) => r.dataset.kind === 'folder' || r.dataset.path === 'logo.png')).toBe(true);
+  });
+
+  it('a folder or file shown from outside (a pasted path) expands the folders above it; a folder gets the cursor', async () => {
+    useFileListPrefs.getState().set({ mode: 'tree', sort: 'path', allFiles: false });
+    const store = setup();
+    useTabViews.setState({ views: { t: { repo: 1, services: store.getState().services, store } } });
+    const docs = () => rowEls().find((r) => r.dataset.path === 'docs')!;
+    fireEvent.mouseDown(docs());
+    fireEvent.mouseDown(rowEls().find((r) => r.dataset.path === 'src')!);
+    expect(docs()).toHaveAttribute('aria-expanded', 'false');
+    act(() => revealInFileList('t', 'docs', true));
+    expect(docs()).toHaveAttribute('aria-expanded', 'true');
+    expect(docs()).toHaveAttribute('aria-selected', 'true');
+    expect(useFileReveal.getState().req).toBeNull();
+    act(() => revealInFileList('t', 'src/app.php', false));
+    expect(rowEls().find((r) => r.dataset.path === 'src')).toHaveAttribute('aria-expanded', 'true');
+    act(() => revealInFileList('other', 'src', true));
+    expect(useFileReveal.getState().req).not.toBeNull();
+    useTabViews.setState({ views: {} });
+    useFileReveal.setState({ req: null });
   });
 
   it('View all files lists unchanged files from the commit tree', async () => {

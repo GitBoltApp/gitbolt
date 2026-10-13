@@ -33,7 +33,9 @@ beforeAll(() => preloadMarkdown(), 60_000);
 const ada = user('Ada Lovelace');
 const grace = user('Grace Hopper');
 const mr = mrOf(12);
-const note = (id: string, author = grace, over: Partial<ForgeNote> = {}): ForgeNote => ({ id, author, body: `Note ${id}`, createdAt: 1_791_100_000 + Number(id), system: false, position: null, ...over });
+/** An hour ago, so a note's date reads "… ago" whenever the tests run (past a week it would be a date). */
+const HOUR_AGO = Math.floor(Date.now() / 1000) - 3600;
+const note = (id: string, author = grace, over: Partial<ForgeNote> = {}): ForgeNote => ({ id, author, body: `Note ${id}`, createdAt: HOUR_AGO + Number(id), system: false, position: null, ...over });
 const thread = (id: string, notes: ForgeNote[], over: Partial<ForgeDiscussion> = {}): ForgeDiscussion => ({ id, notes, resolvable: false, resolved: false, ...over });
 
 /** The thread as the store has it now (the view re-renders from it). */

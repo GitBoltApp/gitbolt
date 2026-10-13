@@ -107,6 +107,13 @@ pub enum Request {
     TreeFiles { repo: u32, id: String },
     /// UX G.2: the worktree's tracked files, sorted bytewise ("View all files" on the WIP row).
     WorktreeFiles { repo: u32, worktree: String },
+    /// What `path` is in the worktree, a file or a folder, tracked or not, from its metadata
+    /// (Ctrl+V's go-to): `PathKind | null`.
+    WorktreePathKind { repo: u32, worktree: String, path: String },
+    /// A repository a tab shows but hasn't opened (Ctrl+V's go-to, matching a forge URL): the
+    /// remotes and checked-out branch of the worktree at `path`, from its config and HEAD; no
+    /// handle is kept: `RepoPeek`.
+    PeekRepo { path: String },
     /// The commit's signature status, verified through the user's own gpg/ssh config (an
     /// OpenPGP signature by one gpg run) and cached per repository and commit id: a settled
     /// verdict for the process lifetime, an unknown or untrusted key briefly (spec §9.1).
@@ -259,7 +266,8 @@ pub enum Request {
     /// `[]` under 2 characters). The first call per window builds the path index: `string[]`.
     FindPaths { repo: u32, query: String },
     /// Whether `sha` is in the first 10,000 commits, and the window that would include it:
-    /// `LocateResult`. Not a commit: `notFound`.
+    /// `LocateResult`, with its full `id` (a short hash resolves; one that several commits start
+    /// with is `ambiguous`). Not a commit: `notFound`.
     LocateCommit { repo: u32, sha: String },
     /// "Search older history": commits outside the window whose message or paths match `query`,
     /// newest first: `HistoryHit[]`.
@@ -1259,6 +1267,8 @@ impl Request {
             | Request::HexDump { .. }
             | Request::TreeFiles { .. }
             | Request::WorktreeFiles { .. }
+            | Request::WorktreePathKind { .. }
+            | Request::PeekRepo { .. }
             | Request::Signature { .. }
             | Request::Avatar { .. }
             | Request::ForgeAvatarImage { .. }
@@ -2330,6 +2340,12 @@ impl Api {
                 let root = self.worktree_dir(&h, &worktree).await?;
                 to_json(blocking(move || crate::tree::worktree_files(&root)).await?)
             }
+            Request::WorktreePathKind { repo, worktree, path } => {
+                let h = self.handle(repo)?;
+                let root = self.worktree_dir(&h, &worktree).await?;
+                to_json(blocking(move || crate::tree::path_kind(&root, &path)).await?)
+            }
+            Request::PeekRepo { path } => to_json(blocking(move || crate::details::peek_repo(Path::new(&path))).await?),
             Request::Signature { repo, id } => {
                 let h = self.handle(repo)?;
                 let id = parse_oid(&id)?;
@@ -4775,6 +4791,8 @@ mod tests {
             json!({"method": "hexDump", "params": {"repo": id, "path": "file_1.txt", "old": {"kind": "absent"}, "new": {"kind": "worktree", "worktree": wt}}}),
             json!({"method": "treeFiles", "params": {"repo": id, "id": head}}),
             json!({"method": "worktreeFiles", "params": {"repo": id, "worktree": wt}}),
+            json!({"method": "worktreePathKind", "params": {"repo": id, "worktree": wt, "path": "a.txt"}}),
+            json!({"method": "peekRepo", "params": {"path": wt}}),
             json!({"method": "signature", "params": {"repo": id, "id": head}}),
             json!({"method": "avatar", "params": {"email": "ada@example.com"}}),
             // --- GitHub commit-author avatars ---

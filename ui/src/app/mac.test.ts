@@ -50,6 +50,9 @@ describe('the shortcuts on macOS', () => {
 
   it("binds none of macOS's own keys, nor its text-editing keys", () => {
     for (const { k, a } of bound()) {
+      // Cmd+V outside text: Go to what's on the clipboard, which leaves every text field and
+      // editor their own paste (below), as Undo leaves them Cmd+Z.
+      if (a.id === 'edit.gotoClipboard' && k === 'Cmd+V') continue;
       expect(MAC_RESERVED, `${a.id} (${k})`).not.toContain(k);
       if (k.startsWith('Ctrl+')) expect(MAC_CTRL.has(k), `${a.id} (${k}): Ctrl stays Ctrl only where macOS keeps it`).toBe(true);
     }
@@ -100,6 +103,8 @@ describe('the shortcuts on macOS', () => {
     expect(actions.getAction('edit.undo')?.shortcuts).toEqual(['Cmd+Z']);
     expect(actions.getAction('edit.undo')?.yieldsTo?.(input)).toBe(true);
     expect(actions.getAction('edit.redo')?.yieldsTo?.(input)).toBe(true);
+    expect(actions.getAction('edit.gotoClipboard')?.shortcuts).toEqual(['Cmd+V']);
+    expect(actions.getAction('edit.gotoClipboard')?.yieldsTo?.(input)).toBe(true);
     input.remove();
     for (const off of offs) off();
   });

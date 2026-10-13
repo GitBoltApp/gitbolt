@@ -190,6 +190,38 @@ pub struct LocateResult {
     pub found: bool,
     /// The commit window that includes the commit; `null` when it's already loaded (or not found).
     pub limit: Option<u32>,
+    /// The commit's full id (a short hash resolves to it), found or not (deeper than the walk, or
+    /// on no ref the graph shows); `null` when ambiguous.
+    pub id: Option<String>,
+    /// A short hash more than one commit starts with: none is picked, and `found` is false.
+    pub ambiguous: bool,
+}
+
+enum ByPrefix {
+    One(ObjectId),
+    Ambiguous,
+    None,
+}
+
+/// The commit a short hex id names, once `rev_parse` gave up on it: of the objects the prefix
+/// matches, only commits count (as `git rev-parse <hex>^{commit}` disambiguates).
+fn commit_by_prefix(repo: &gix::Repository, hex: &str) -> ByPrefix {
+    if hex.len() < SHA_MIN_CHARS || !hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return ByPrefix::None;
+    }
+    let Ok(prefix) = gix::hash::Prefix::from_hex(&hex.to_ascii_lowercase()) else {
+        return ByPrefix::None;
+    };
+    let mut candidates = HashSet::new();
+    if repo.objects.lookup_prefix(prefix, Some(&mut candidates)).is_err() {
+        return ByPrefix::None;
+    }
+    let mut commits = candidates.into_iter().filter(|id| repo.find_header(*id).is_ok_and(|h| h.kind() == gix::object::Kind::Commit));
+    match (commits.next(), commits.next()) {
+        (Some(id), None) => ByPrefix::One(id),
+        (Some(_), Some(_)) => ByPrefix::Ambiguous,
+        _ => ByPrefix::None,
+    }
 }
 
 /// A commit outside the loaded window that matches "Search older history".
@@ -295,9 +327,17 @@ impl Api {
         tokio::task::spawn_blocking(move || {
             let repo = repo.to_thread_local();
             let not_found = || GbError::new(GbErrorKind::NotFound, format!("No commit {sha}"));
-            let target = repo.rev_parse_single(format!("{sha}^{{commit}}").as_str()).map_err(|_| not_found())?.detach();
+            let target = match repo.rev_parse_single(format!("{sha}^{{commit}}").as_str()) {
+                Ok(id) => id.detach(),
+                Err(_) => match commit_by_prefix(&repo, &sha) {
+                    ByPrefix::One(id) => id,
+                    ByPrefix::Ambiguous => return Ok(LocateResult { found: false, limit: None, id: None, ambiguous: true }),
+                    ByPrefix::None => return Err(not_found()),
+                },
+            };
+            let id = Some(target.to_string());
             if s.ids.contains(&target) {
-                return Ok(LocateResult { found: true, limit: None });
+                return Ok(LocateResult { found: true, limit: None, id, ambiguous: false });
             }
             let refs = read_refs(&repo)?;
             let stash_ids: HashSet<ObjectId> = refs.stashes.iter().map(|x| x.id).collect();
@@ -305,8 +345,8 @@ impl Api {
             // The order the graph's walk collects commits in: a window of `i + 1` holds commit `i`.
             let (collected, _) = walk_by_date(&repo, &tips, &WalkOptions { limit: LOCATE_LIMIT, first_parent_only: stash_ids })?;
             Ok(match collected.iter().position(|c| c.id == target) {
-                Some(i) => LocateResult { found: true, limit: Some((i + 1).max(s.ids.len()) as u32) },
-                None => LocateResult { found: false, limit: None },
+                Some(i) => LocateResult { found: true, limit: Some((i + 1).max(s.ids.len()) as u32), id, ambiguous: false },
+                None => LocateResult { found: false, limit: None, id, ambiguous: false },
             })
         })
         .await
@@ -372,6 +412,7 @@ mod tests {
     use crate::api::{Api, Request};
     use crate::log::CommandLog;
     use crate::testing::{fixtures, isolated_git_env, TestRepo};
+    use std::collections::HashSet;
     use std::sync::Arc;
 
     fn api() -> Api {
@@ -434,7 +475,7 @@ mod tests {
         let v = call(&api, serde_json::json!({"method": "findPaths", "params": {"repo": id, "query": "f"}})).await.unwrap();
         assert_eq!(v, serde_json::json!([]));
         let v = call(&api, serde_json::json!({"method": "locateCommit", "params": {"repo": id, "sha": sha_of(&r, "Fix typo")}})).await.unwrap();
-        assert_eq!(v, serde_json::json!({"found": true, "limit": null}));
+        assert_eq!(v, serde_json::json!({"found": true, "limit": null, "id": sha_of(&r, "Fix typo"), "ambiguous": false}));
         let v = call(&api, serde_json::json!({"method": "searchHistory", "params": {"repo": id, "query": "typo"}})).await.unwrap();
         assert_eq!(v, serde_json::json!([]), "everything is loaded");
     }
@@ -597,6 +638,32 @@ mod tests {
         let c5 = sha_of(&r, "c5");
         assert_eq!(api.locate_commit(id, &c5).await.unwrap().limit, None, "already loaded");
         assert_eq!(api.locate_commit(id, &"d".repeat(40)).await.unwrap_err().kind, crate::error::GbErrorKind::NotFound);
+        let short = api.locate_commit(id, &c1[..7]).await.unwrap();
+        assert_eq!((short.found, short.id.as_deref()), (true, Some(c1.as_str())), "a short hash resolves to the full id");
+        assert_eq!(api.locate_commit(id, &c5[..7].to_uppercase()).await.unwrap().id.as_deref(), Some(c5.as_str()));
+    }
+
+    #[tokio::test]
+    async fn an_ambiguous_short_hash_is_reported_not_picked() {
+        let r = TestRepo::new();
+        r.commit("c1");
+        // Loose commits enough for two to share a 4-hex-digit prefix, written in one process.
+        let dir = tempfile::tempdir().unwrap();
+        let files: Vec<String> = (0..2000)
+            .map(|i| {
+                let p = dir.path().join(format!("{i}"));
+                std::fs::write(&p, format!("tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\nauthor A <a@example.com> 0 +0000\ncommitter A <a@example.com> 0 +0000\n\nc{i}\n")).unwrap();
+                p.to_string_lossy().into_owned()
+            })
+            .collect();
+        let mut args = vec!["hash-object", "-t", "commit", "-w"];
+        args.extend(files.iter().map(String::as_str));
+        let mut seen = HashSet::new();
+        let shared = r.git(&args).lines().map(|id| id[..4].to_string()).find(|p| !seen.insert(p.clone())).expect("a shared prefix");
+        let api = api();
+        let id = opened(&api, &r, None).await;
+        let res = api.locate_commit(id, &shared).await.unwrap();
+        assert_eq!((res.found, res.ambiguous, res.id), (false, true, None));
     }
 
     #[tokio::test]

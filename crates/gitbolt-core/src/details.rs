@@ -10,7 +10,9 @@ use gix::remote::Direction;
 use gix::ObjectId;
 use regex::Regex;
 use std::collections::HashSet;
+use serde::Serialize;
 use std::sync::LazyLock;
+use ts_rs::TS;
 
 static CO_AUTHOR: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?im)^[ \t]*co-authored-by:[ \t]*(.*?)[ \t]*<([^<>\s]+)>[ \t]*$").expect("valid regex"));
@@ -68,6 +70,24 @@ pub fn remotes(repo: &gix::Repository) -> Vec<RemotePayload> {
     out
 }
 
+/// A repository a tab shows but hasn't opened yet, read just enough to match a pasted forge URL
+/// (Ctrl+V's go-to): its parsed remotes and the branch the worktree has checked out (`null` when
+/// detached or unborn). Its config and HEAD only: no handle is kept, no graph is built.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub struct RepoPeek {
+    pub remotes: Vec<RemotePayload>,
+    pub branch: Option<String>,
+}
+
+/// `RepoPeek` of the worktree at `path`. Not a repository: `NotFound`.
+pub fn peek_repo(path: &std::path::Path) -> Result<RepoPeek, GbError> {
+    let repo = gix::open(path).map_err(|e| GbError::new(GbErrorKind::NotFound, format!("not a repository: {e}")))?;
+    let branch = repo.head_name().ok().flatten().map(|n| n.shorten().to_str_lossy().into_owned());
+    Ok(RepoPeek { remotes: remotes(&repo), branch })
+}
+
 /// `remotes`, each host as forge accounts name it (`remotes::forge_host`: an https remote keeps
 /// a non-default port). For the forge hub only: the UI's links and host settings use `remotes`.
 pub fn forge_remotes(repo: &gix::Repository) -> Vec<RemotePayload> {
@@ -100,6 +120,20 @@ mod tests {
             ]
         );
         assert!(co_authors("Co-authored-by: nobody").is_empty());
+    }
+
+    #[test]
+    fn a_peek_reads_the_remotes_and_branch_without_opening_the_repo() {
+        let r = TestRepo::new();
+        fixtures::details(&r);
+        r.switch_new("topic/x");
+        let peek = peek_repo(r.path()).unwrap();
+        assert_eq!(peek.branch.as_deref(), Some("topic/x"));
+        assert_eq!(peek.remotes.iter().map(|x| (x.name.as_str(), x.host.as_deref(), x.path.as_deref())).collect::<Vec<_>>(), vec![("origin", Some("gitlab.example.com"), Some("group/project"))]);
+        r.git(&["checkout", "-q", "--detach"]);
+        assert_eq!(peek_repo(r.path()).unwrap().branch, None);
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(peek_repo(empty.path()).unwrap_err().kind, GbErrorKind::NotFound);
     }
 
     #[test]

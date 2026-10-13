@@ -238,6 +238,19 @@ describe('find store', () => {
     expect(state().older).toBeNull();
   });
 
+  it("loadCommit: a loaded commit asks nothing; a located one's window is loaded at the limit given", async () => {
+    const { loadCommit } = await import('./findStore');
+    expect(await loadCommit('t', 'b')).toBe(true);
+    expect(calls.locate).toEqual([]);
+    expect(await loadCommit('t', 'e'.repeat(40))).toBe(false);
+    expect(calls.locate).toEqual(['e'.repeat(40)]);
+    const refresh = vi.spyOn(useRuntime.getState(), 'refresh').mockResolvedValue();
+    await loadCommit('t', 'f'.repeat(40), 4200);
+    expect(useRuntime.getState().tabs.t?.limit).toBe(4200);
+    expect(calls.locate).toHaveLength(1);
+    refresh.mockRestore();
+  });
+
   it('openFind bumps focusRequest every time (Ctrl+F on an open box refocuses it)', () => {
     openFind('t');
     const n = state().focusRequest;

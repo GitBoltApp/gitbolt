@@ -80,15 +80,29 @@ export function targetOfReference(env: LinkEnv, node: MdReferenceNode): LinkTarg
   }
 }
 
+/** A project's page an in-app target can stand for: an MR/PR, a commit, a file (`refPath`: the
+ * ref and the file's path, still percent-encoded; a ref may hold slashes, so the split is the
+ * caller's). */
+export type ForgePage = { kind: 'mr'; number: number } | { kind: 'commit'; sha: string } | { kind: 'blob'; refPath: string };
+
+/** The page `rest` is: the path below a project's web URL, with no query or anchor. */
+export function forgePageOf(kind: ForgeKind, rest: string): ForgePage | null {
+  const mr = (kind === 'gitlab' ? /^-\/merge_requests\/(\d+)(?:\/|$)/ : /^pull\/(\d+)(?:\/|$)/).exec(rest);
+  if (mr) return { kind: 'mr', number: Number(mr[1]) };
+  const c = (kind === 'gitlab' ? /^-\/commit\/([0-9a-f]{7,40})(?:\/|$)/i : /^commit\/([0-9a-f]{7,40})(?:\/|$)/i).exec(rest);
+  if (c) return { kind: 'commit', sha: c[1].toLowerCase() };
+  const b = (kind === 'gitlab' ? /^-\/blob\/([^/]+\/.+)$/ : /^blob\/([^/]+\/.+)$/).exec(rest);
+  if (b) return { kind: 'blob', refPath: b[1] };
+  return null;
+}
+
 /** This project's MR/PR or commit page, as an in-app target (ruling 13). */
 function forgeTarget(env: LinkEnv, url: string): LinkTarget | null {
   const { kind, project: p } = env;
   if (!kind || !p || !url.toLowerCase().startsWith(`${p.webUrl.toLowerCase()}/`)) return null;
-  const rest = url.slice(p.webUrl.length + 1).split(/[?#]/)[0];
-  const mr = (kind === 'gitlab' ? /^-\/merge_requests\/(\d+)(?:\/|$)/ : /^pull\/(\d+)(?:\/|$)/).exec(rest);
-  if (mr) return { kind: 'mr', number: Number(mr[1]), webUrl: url };
-  const c = (kind === 'gitlab' ? /^-\/commit\/([0-9a-f]{7,40})(?:\/|$)/ : /^commit\/([0-9a-f]{7,40})(?:\/|$)/).exec(rest);
-  if (c) { const full = env.fullSha(c[1]); return { kind: 'commit', sha: full ?? c[1], webUrl: full ? null : url }; }
+  const page = forgePageOf(kind, url.slice(p.webUrl.length + 1).split(/[?#]/)[0]);
+  if (page?.kind === 'mr') return { kind: 'mr', number: page.number, webUrl: url };
+  if (page?.kind === 'commit') { const full = env.fullSha(page.sha); return { kind: 'commit', sha: full ?? page.sha, webUrl: full ? null : url }; }
   return null;
 }
 

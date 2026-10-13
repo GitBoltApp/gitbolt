@@ -1,4 +1,5 @@
 import type { DiffSpec } from '../api/gen/DiffSpec';
+import type { DiffLine } from '../diff/monaco/host';
 import { selectCommit } from '../app/graphNav';
 import { tabView, useTabViews, type TabView } from '../app/tabStores';
 import { markdownViewOf } from '../diff/markdownOverride';
@@ -98,6 +99,10 @@ export interface OpenFileOptions {
   /** Runs first once leaving the open file is settled, never when the leave prompt is cancelled:
    * Back/Forward move the history's cursor there. */
   onArrive?: () => void;
+  /** Lines to show selected (a pasted `path:12-20`). */
+  line?: DiffLine;
+  /** A file that isn't there: this instead of the toast saying so. */
+  onMissing?: () => void;
 }
 
 /**
@@ -121,7 +126,8 @@ export async function openFileAt(tabId: string, path: string, commit: FileCommit
   try {
     await v.services.contents.get(contentKey(contentsRequest(probe)));
   } catch {
-    toast(worktree !== null ? `${path} isn't in the working tree` : `${path} isn't in ${shortSha(commit)}`);
+    if (opts.onMissing) opts.onMissing();
+    else toast(worktree !== null ? `${path} isn't in the working tree` : `${path} isn't in ${shortSha(commit)}`);
     return false;
   }
   const place: FilePlace = { kind: 'file', path, commit, view: viewOf(path), scrollTop: 0 };
@@ -142,7 +148,8 @@ export async function openFileAt(tabId: string, path: string, commit: FileCommit
     // A place in File View (a link's target, Back/Forward's): File History stops being sticky (UX).
     endStickyHistory(tabId);
     const now = v.store.getState();
-    now.openFile(listTarget(now, path) ?? probe);
+    const target = listTarget(now, path) ?? probe;
+    now.openFile(opts.line ? { ...target, line: opts.line } : target);
   });
   return true;
 }

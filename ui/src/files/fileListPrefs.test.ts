@@ -27,6 +27,19 @@ describe('file list prefs (feedback H31)', () => {
     expect(second.useFileListPrefs.getState()).toMatchObject({ mode: 'tree', sort: 'status', allFiles: false });
   });
 
+  it('Tree for the session leaves the stored Path/Tree alone, whatever else is saved meanwhile', async () => {
+    const { useFileListPrefs } = await fresh();
+    useFileListPrefs.getState().treeForSession();
+    expect(useFileListPrefs.getState().mode).toBe('tree');
+    expect(localStorage.getItem(KEY)).toBeNull();
+    useFileListPrefs.getState().set({ sort: 'status' });
+    expect(JSON.parse(localStorage.getItem(KEY)!)).toEqual({ mode: 'path', sort: 'status', advanceAfterStage: true });
+    expect(useFileListPrefs.getState().mode).toBe('tree');
+    useFileListPrefs.getState().set({ mode: 'path' });
+    expect(useFileListPrefs.getState().mode).toBe('path');
+    expect((await fresh()).useFileListPrefs.getState().mode).toBe('path');
+  });
+
   it('falls back to the defaults for corrupt or invalid stored data, field by field', async () => {
     for (const raw of ['{not json', 'null', '"tree"', '42', '[]']) {
       localStorage.setItem(KEY, raw);

@@ -54,6 +54,7 @@ describe('where a link goes (spec #5 §4.1)', () => {
     expect(targetOfHref(gl, forge, 'https://gitlab.example.com/group/project/-/merge_requests/5#note_1')).toEqual({ kind: 'mr', number: 5, webUrl: 'https://gitlab.example.com/group/project/-/merge_requests/5#note_1' });
     expect(targetOfHref(gh, forge, 'https://github.com/octo-org/widget/pull/6/files')).toMatchObject({ kind: 'mr', number: 6 });
     expect(targetOfHref(gl, forge, `https://gitlab.example.com/group/project/-/commit/${SHA}`)).toEqual({ kind: 'commit', sha: SHA, webUrl: null });
+    expect(targetOfHref(gl, forge, `https://gitlab.example.com/group/project/-/commit/${SHA.toUpperCase()}`)).toEqual({ kind: 'commit', sha: SHA, webUrl: null });
     expect(targetOfHref(gh, forge, 'https://github.com/someone/else/pull/6')).toEqual({ kind: 'external', url: 'https://github.com/someone/else/pull/6' });
   });
 

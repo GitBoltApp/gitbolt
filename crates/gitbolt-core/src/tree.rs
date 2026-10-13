@@ -4,6 +4,8 @@ use crate::details::read_commit;
 use crate::error::{gix_err, GbError};
 use gix::bstr::ByteSlice;
 use gix::ObjectId;
+use serde::Serialize;
+use ts_rs::TS;
 
 pub fn tree_files(repo: &gix::Repository, commit: ObjectId) -> Result<Vec<String>, GbError> {
     // `read_commit` gives the same classification the rest of the API relies on: a missing
@@ -33,6 +35,32 @@ pub fn worktree_files(root: &std::path::Path) -> Result<Vec<String>, GbError> {
     paths.sort();
     paths.dedup();
     Ok(paths)
+}
+
+/// What a path in a worktree is (Ctrl+V's go-to, for a pasted path): a file (a symlink too, as
+/// git sees it) or a folder. Untracked ones count.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "camelCase")]
+#[ts(export)]
+pub enum PathKind {
+    File,
+    Dir,
+}
+
+/// What `rel` is in the worktree at `root`, from its metadata alone (the file isn't read);
+/// `None` when nothing is there. A path outside the worktree or into `.git` is `InvalidInput`
+/// (`safe_join`).
+pub fn path_kind(root: &std::path::Path, rel: &str) -> Result<Option<PathKind>, GbError> {
+    let path = match crate::blob::safe_join(root, rel) {
+        Ok(p) => p,
+        Err(e) if e.kind == crate::error::GbErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    Ok(match std::fs::symlink_metadata(path) {
+        Ok(m) if m.is_dir() => Some(PathKind::Dir),
+        Ok(_) => Some(PathKind::File),
+        Err(_) => None,
+    })
 }
 
 #[cfg(test)]
@@ -66,6 +94,20 @@ mod tests {
         r.git(&["add", "staged.txt"]);
         r.write("untracked.txt", "u\n");
         assert_eq!(worktree_files(r.path()).unwrap(), vec!["a.txt", "b/x.txt", "staged.txt"]);
+    }
+
+    #[test]
+    fn path_kind_tells_files_from_folders_untracked_ones_too_and_stays_in_the_worktree() {
+        let r = TestRepo::new();
+        r.commit("one");
+        r.write("new/dir/u.txt", "u\n");
+        assert_eq!(path_kind(r.path(), "file_0.txt").unwrap(), Some(PathKind::File));
+        assert_eq!(path_kind(r.path(), "new/dir/u.txt").unwrap(), Some(PathKind::File));
+        assert_eq!(path_kind(r.path(), "new/dir").unwrap(), Some(PathKind::Dir));
+        assert_eq!(path_kind(r.path(), "nope.txt").unwrap(), None);
+        assert_eq!(path_kind(r.path(), "nope/deeper.txt").unwrap(), None);
+        assert_eq!(path_kind(r.path(), "../outside").unwrap_err().kind, GbErrorKind::InvalidInput);
+        assert_eq!(path_kind(r.path(), ".git/config").unwrap_err().kind, GbErrorKind::InvalidInput);
     }
 
     #[test]
