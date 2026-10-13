@@ -23,6 +23,17 @@ describe('integrate (spec #2 §13.1)', () => {
     expect(integrateRows({ ...t, branch: { name: 'main', local: 'refs/heads/main', remotes: [] } }, env, null)).toEqual([]);
   });
 
+  it("offers merge and rebase on HEAD's own branch's remote copy when it's on another commit", () => {
+    const remoteOnly = { sha: 'r', mrRefs: [], isWip: false, isStash: false, branch: { name: 'main', local: null, remotes: [{ fullName: 'refs/remotes/origin/main', remote: 'origin' }] } };
+    const labels = (env: object) => integrateRows(remoteOnly, { headBranch: 'main', headSha: 'h', ...env } as never, null).map((r) => (r.kind === 'action' ? r.label : ''));
+    // Diverged (each has commits the other doesn't).
+    expect(labels({ isAncestor: () => false })).toEqual(['Merge origin/main into main', 'Rebase main onto origin/main']);
+    // Behind: the merge only moves main forward.
+    expect(labels({ isAncestor: (a: string, b: string) => a === 'h' && b === 'r' })).toEqual(['Fast-forward main to origin/main', 'Rebase main onto origin/main']);
+    // Ahead (origin/main is in main's history): nothing to bring in.
+    expect(labels({ isAncestor: (a: string, b: string) => a === 'r' && b === 'h' })).toEqual([]);
+  });
+
   it('shows only what can apply, from the loaded ancestry', () => {
     const t = { sha: 'a', mrRefs: [], isWip: false, isStash: false, branch: { name: 'feature/x', local: 'refs/heads/feature/x', remotes: [] } };
     const ids = (env: object) => integrateRows(t, { headBranch: 'main', headSha: 'h', ...env } as never, null).map((r) => (r.kind === 'action' ? r.id : ''));

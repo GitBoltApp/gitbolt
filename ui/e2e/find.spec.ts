@@ -142,6 +142,8 @@ test.describe('find', () => {
       await page.getByRole('listbox', { name: 'Changed files' }).getByRole('option').first().click();
       const diff = page.getByRole('region', { name: 'Diff' });
       await expect(diff.locator('.editor.modified')).toBeVisible({ timeout: 15_000 });
+      // The editor is there before its text is (WebKit is slower to fill it): find needs the text.
+      await expect(diff.locator('.editor.modified .view-line').first()).toBeVisible();
       // Focus is in the file list, not the editor: Ctrl+F still goes to the editor's find.
       await page.keyboard.press('Control+f');
       await expect(diff.locator('.editor.modified .find-widget.visible')).toBeVisible();

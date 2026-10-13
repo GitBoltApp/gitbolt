@@ -37,6 +37,8 @@ export function MdVideo({ ctx, src, alt, width, height }: MdImageProps) {
   const consent = remoteUrl !== null && (consented === remoteUrl || imageAllowed(remoteUrl));
   const [view, setView] = useState<View>({ kind: 'loading' });
   const videoRef = useRef<HTMLVideoElement>(null);
+  // Whether it was paused as the press began: WebKit's own controls toggle playback before the click arrives.
+  const pausedAtPress = useRef(true);
 
   useEffect(() => {
     let live = true;
@@ -76,10 +78,11 @@ export function MdVideo({ ctx, src, alt, width, height }: MdImageProps) {
           width={width}
           height={height}
           aria-label={name}
+          onPointerDown={(e) => { pausedAtPress.current = e.currentTarget.paused; }}
           onClick={(e) => {
             // A click on the paused picture (not on its controls, along the bottom) opens the viewer.
             const v = e.currentTarget;
-            if (!v.paused || e.clientY - v.getBoundingClientRect().top > v.clientHeight - Math.min(CONTROLS_PX, v.clientHeight / 3)) return;
+            if (!pausedAtPress.current || e.clientY - v.getBoundingClientRect().top > v.clientHeight - Math.min(CONTROLS_PX, v.clientHeight / 3)) return;
             e.preventDefault();
             expand();
           }}

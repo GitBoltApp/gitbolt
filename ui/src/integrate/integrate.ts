@@ -29,7 +29,9 @@ export interface IntegrateRun { ff(y: string): void; go(kind: IntegrateKind, y: 
 export function integrateRows(t: CommitTarget, env: Pick<MenuEnv, 'headBranch'> & Partial<Pick<MenuEnv, 'headSha' | 'isAncestor' | 'sidebar'>>, busy: string | null, run: IntegrateRun = { ff: () => {}, go: () => {} }): MenuRow[] {
   const x = env.headBranch ?? 'HEAD';
   const y = t.branch;
-  if (!y || y.name === x) return [];
+  // HEAD's own branch offers nothing; its remote copy on another commit (the label then has no
+  // local ref: origin/main after a fetch, or diverged) still merges and rebases.
+  if (!y || (y.local && y.name === x)) return [];
   const local = y.local ? y.name : null;
   const target = local ?? y.remotes[0]?.fullName.replace(/^refs\/remotes\//, '') ?? y.name;
   const disabledReason = busy ?? undefined;

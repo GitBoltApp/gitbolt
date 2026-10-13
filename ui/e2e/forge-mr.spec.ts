@@ -12,7 +12,7 @@ async function pointAt(page: Page, el: Locator, click = false) {
 }
 
 test.describe('merge requests (spec #4 §7, 4B)', () => {
-  test('a badge, its hover card, and the MR view with a comment and an approval', async ({ page, request }) => {
+  test('a badge, its hover card, and the MR view with a comment and an approval', async ({ page, request, browserName }) => {
     // The sync fixture's local `dev` tracks origin/dev: the fake GitLab's !12 is from `dev`.
     const repo = freshFixture('sync');
     git(repo, 'remote', 'set-url', 'origin', 'https://gitlab.example.com/group/project.git');
@@ -206,10 +206,13 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
       const clip = activity.locator('video[aria-label="clip"]');
       await expect.poll(() => clip.evaluate((v: HTMLVideoElement) => v.videoWidth)).toBe(64);
       expect(await clip.evaluate((v: HTMLVideoElement) => [v.paused, v.autoplay, v.preload])).toEqual([true, false, 'metadata']);
-      await expect(activity.getByText("This video's format (HEVC) can't play here")).toBeVisible();
-      await expect(activity.getByRole('button', { name: 'Open with default app' })).toBeVisible();
+      // Playwright's WebKit (GStreamer) plays HEVC, so only Chromium reaches the unplayable note.
+      if (browserName === 'chromium') {
+        await expect(activity.getByText("This video's format (HEVC) can't play here")).toBeVisible();
+        await expect(activity.getByRole('button', { name: 'Open with default app' })).toBeVisible();
+      }
       await clip.hover();
-      await expect(activity.getByRole('button', { name: 'View full size' })).toBeVisible();
+      await expect(activity.locator('.md-video').filter({ has: page.locator('video[aria-label="clip"]') }).getByRole('button', { name: 'View full size' })).toBeVisible();
       // A click on the paused picture (above its controls) opens the viewer instead of playing here.
       await clip.click({ position: { x: 10, y: 5 } });
       const player = page.getByRole('dialog', { name: 'Video viewer: clip' });

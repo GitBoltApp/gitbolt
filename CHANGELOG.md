@@ -5,6 +5,13 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- Your branch's remote copy on another commit (`origin/main` after a fetch, or diverged) offers
+  **Merge** and **Rebase** in its menu; its label shares your branch's name, so it offered neither.
+- **Quit** (the menu and the command palette) closes GitBolt; it failed with "Command
+  plugin:window|close not allowed by ACL".
+
 ## [0.6.1] - 2026-10-13
 
 ### Changed

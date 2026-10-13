@@ -127,10 +127,14 @@ function Pane({ loaded, scale, label, paneRef, onScroll }: { loaded: Loaded; sca
     setDrawn((prev) => (sameRange(prev, next) ? prev : next));
   };
   useLayoutEffect(measure, [sizes, scale]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The observer outlives renders, so it calls the latest measure: WebKit delivers its first
+  // callback after the pages' sizes arrive, and a stale one would draw none.
+  const latest = useRef(measure);
+  latest.current = measure;
   useEffect(() => {
     const el = paneRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(measure);
+    const ro = new ResizeObserver(() => latest.current());
     ro.observe(el);
     return () => ro.disconnect();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
