@@ -323,6 +323,24 @@ mod tests {
         assert_eq!((h.hunks.len(), h.refused.as_deref()), (0, Some("Submodule: stage the whole file")), "{h:?}");
     }
 
+    /// A dirty submodule still at its recorded commit: `git diff` prints `Subproject commit
+    /// X-dirty` with no `index` line, and it's still a whole-file change.
+    #[tokio::test]
+    async fn a_dirty_submodule_at_its_recorded_commit_is_refused() {
+        let r = repo();
+        let sm = r.path().join("sm");
+        std::fs::create_dir(&sm).unwrap();
+        r.git_in(&sm, &["init", "-q"]);
+        std::fs::write(sm.join("s.txt"), "s\n").unwrap();
+        r.git_in(&sm, &["add", "s.txt"]);
+        r.git_in(&sm, &["commit", "-q", "-m", "s"]);
+        r.git(&["add", "sm"]);
+        r.git(&["commit", "-q", "-m", "sm"]);
+        std::fs::write(sm.join("s.txt"), "dirty\n").unwrap();
+        let h = wip_hunks(&cli(), r.path(), "sm", false).await.unwrap();
+        assert_eq!((h.hunks.len(), h.refused.as_deref()), (0, Some("Submodule: stage the whole file")), "{h:?}");
+    }
+
     #[tokio::test]
     async fn a_conflicted_file_is_refused_on_both_sides() {
         let r = repo();

@@ -287,6 +287,23 @@ fn worktree_dirty_paths(entries: &[StatusEntry]) -> HashSet<String> {
     entries.iter().filter(|e| e.kind != EntryKind::Ignored && e.worktree != '.').map(|e| e.path.clone()).collect()
 }
 
+/// Each stage-0 index entry's blob id (`ls-files -s`), by path.
+async fn index_oids(cli: &GitCli, wt: &Path) -> Result<HashMap<String, String>, GbError> {
+    let args: Vec<String> = ["ls-files", "-s", "-z"].iter().map(|s| s.to_string()).collect();
+    let out = cli.run(GitInvocation::new(wt, args)).await?;
+    Ok(out
+        .stdout
+        .split(|b| *b == 0)
+        .filter_map(|rec| {
+            let rec = String::from_utf8_lossy(rec);
+            let (meta, path) = rec.split_once('\t')?;
+            let mut f = meta.split(' ');
+            let oid = f.nth(1)?;
+            (f.next()? == "0").then(|| (path.to_string(), oid.to_string()))
+        })
+        .collect())
+}
+
 async fn run(cli: &GitCli, cwd: &Path, args: Vec<String>) -> Result<Vec<RawChange>, GbError> {
     let out = cli.run(GitInvocation::new(cwd, args)).await?;
     parse_raw_numstat(&out.stdout)
@@ -490,10 +507,12 @@ pub async fn file_list(repo: &gix::ThreadSafeRepository, cli: &GitCli, workdir: 
             let from = parse_oid(from)?.to_string();
             let name = wt.to_string_lossy().into_owned();
             let raw = run(cli, wt, diff_porcelain(&["-M", from.as_str(), "--"])).await?;
-            // Known narrow gap (not fixed here): `status` is index-vs-HEAD/worktree, not against
-            // an arbitrary `from`, so a binary that's genuinely different since a non-HEAD `from`
-            // but otherwise clean (uninformative numstat, clean `status`) would be dropped too.
-            let dirty = dirty_paths(&status(cli, wt).await?);
+            // `status` compares worktree/index/HEAD, not an arbitrary `from`: a path clean there
+            // can still differ from a non-HEAD `from`. It's a phantom only if its `from` side is
+            // the index's blob too, so any other path counts as dirty.
+            let mut dirty = dirty_paths(&status(cli, wt).await?);
+            let index = index_oids(cli, wt).await?;
+            dirty.extend(raw.iter().filter(|c| index.get(&c.path) != Some(&c.old_oid)).map(|c| c.path.clone()));
             let raw = drop_phantom_stat_dirty(raw, &dirty);
             changes(repo, raw, Some((wt.to_path_buf(), name))).await?
         }
@@ -770,6 +789,23 @@ mod tests {
 
         let worktree_diff = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from: root, worktree: name }, Some(&wt)).await.unwrap();
         assert!(worktree_diff.files.iter().any(|f| f.path == "f.bin"), "a real binary change must still be listed (Worktree): {:?}", worktree_diff.files);
+    }
+
+    /// A binary edited in a commit after `from`, clean in the worktree: `status` calls it clean, but
+    /// it differs from `from`, so Compare with working tree must list it.
+    #[tokio::test]
+    async fn worktree_compare_with_an_older_commit_keeps_a_binary_changed_since() {
+        let r = TestRepo::new();
+        r.write_bytes("f.bin", b"\x00\x01old\x00");
+        r.commit_all_as("c1", "Ada Lovelace", "ada@example.com");
+        let from = r.git(&["rev-parse", "HEAD"]);
+        r.write_bytes("f.bin", b"\x00\x01newer\x00");
+        r.commit_all_as("c2", "Ada Lovelace", "ada@example.com");
+        let repo = gix::ThreadSafeRepository::discover(r.path()).unwrap();
+        let wt = crate::platform::fs::canonicalize(r.path()).unwrap();
+        let name = wt.to_string_lossy().into_owned();
+        let list = file_list(&repo, &cli(), r.path(), &DiffSpec::Worktree { from, worktree: name }, Some(&wt)).await.unwrap();
+        assert_eq!(list.files.iter().map(|f| f.path.as_str()).collect::<Vec<_>>(), vec!["f.bin"]);
     }
 
     /// Advances a nested git repository's own HEAD (used to build a "dirty submodule" scenario:

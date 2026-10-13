@@ -108,6 +108,9 @@ pub(crate) struct Parsed {
     unmerged: bool,
     /// Every mode the header names (`index …` suffix, `old`/`new`/`new file`/`deleted file mode`).
     modes: Vec<Vec<u8>>,
+    /// A `Subproject commit` line in a diff with no `index` line: a dirty submodule still at its
+    /// recorded commit (`-Subproject commit X` / `+Subproject commit X-dirty`), which names no mode.
+    gitlink: bool,
 }
 
 impl Parsed {
@@ -118,7 +121,7 @@ impl Parsed {
             Some("Resolve the conflict first")
         } else if self.sections > 1 {
             Some("The file's type changed: stage the whole file")
-        } else if mode(b"160000") {
+        } else if self.gitlink && self.modes.is_empty() || mode(b"160000") {
             Some("Submodule: stage the whole file")
         } else if mode(b"120000") {
             Some("Symlink: stage the whole file")
@@ -172,7 +175,7 @@ fn parse_header(line: &[u8]) -> Option<(u32, u32, u32, u32)> {
 /// One or more file sections. A hunk ends by its header's counts; what follows it is header
 /// text (a later section's), never content.
 pub(crate) fn parse(diff: &[u8]) -> Parsed {
-    let mut p = Parsed { header: Vec::new(), hunks: Vec::new(), binary: false, sections: 0, unmerged: false, modes: Vec::new() };
+    let mut p = Parsed { header: Vec::new(), hunks: Vec::new(), binary: false, sections: 0, unmerged: false, modes: Vec::new(), gitlink: false };
     let (mut old, mut new) = (0, 0);
     // Lines left in the current hunk, by its header counts: (old side, new side).
     let (mut left_old, mut left_new) = (0u32, 0u32);
@@ -205,6 +208,7 @@ pub(crate) fn parse(diff: &[u8]) -> Parsed {
                 continue;
             }
         };
+        p.gitlink |= raw.starts_with(b"-Subproject commit ") || raw.starts_with(b"+Subproject commit ");
         let line = |kind, old, new| Line { kind, text: raw[1..].to_vec(), no_eol: false, old, new };
         match raw.first() {
             // A blank one is `diff.suppressBlankEmpty`'s empty context line, without its space.

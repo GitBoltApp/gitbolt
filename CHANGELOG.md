@@ -7,6 +7,10 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ### Fixed
 
+- Compare with working tree against an older commit lists binary files (images and the like)
+  changed in a later commit; they were dropped as unchanged.
+- A submodule with uncommitted changes inside, still at its recorded commit, no longer offers a
+  hunk to stage in the working-copy diff; it is refused like any submodule change.
 - A narrow details panel's file toolbar (Collapse all, Path/Tree, View all files) no longer
   overlaps itself: at the panel's narrowest its buttons show as icons, named by their tooltips.
 - A working-copy diff's toolbar shows its staging Undo and Redo again. They were drawn midway down
