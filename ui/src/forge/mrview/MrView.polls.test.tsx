@@ -12,6 +12,11 @@ vi.mock('../../markdown/parse', async (orig) => {
   const m = await orig<typeof import('../../markdown/parse')>();
   return { ...m, parseMarkdown: vi.fn(m.parseMarkdown) };
 });
+// Called once per thread card render: counts the cards an idle step re-renders.
+vi.mock('./noteActionsStore', async (orig) => {
+  const m = await orig<typeof import('./noteActionsStore')>();
+  return { ...m, foldKey: vi.fn(m.foldKey) };
+});
 vi.mock('../../markdown/render', async (orig) => {
   const m = await orig<typeof import('../../markdown/render')>();
   return { ...m, renderTree: vi.fn(m.renderTree) };
@@ -23,12 +28,11 @@ const { detailOf, mrOf, user } = await import('../testMrs');
 const { useRuntime } = await import('../../app/runtime');
 const { parseMarkdown, peekParsed, clearParseCache } = await import('../../markdown/parse');
 const { renderTree } = await import('../../markdown/render');
+const { foldKey } = await import('./noteActionsStore');
 
 const grace = user('Grace Hopper');
 const detail = detailOf(mrOf(12), { description: 'The **description**' });
-// More bodies than the parse cache's 64 (the first test checks the first one has left it), and
-// not many more: each idle step re-renders every thread card, so the test's time grows with the
-// square of their count (150 took ~18 s).
+// More bodies than the parse cache's 64 (the first test checks the first one has left it).
 const COUNT = 80;
 const threads: ForgeDiscussion[] = Array.from({ length: COUNT }, (_, i) => ({
   id: `d${i}`, resolvable: false, resolved: false,
@@ -76,6 +80,18 @@ describe('the MR/PR view under polls (more bodies than the parse cache holds)', 
     // suite's parallel workers). It waits on no clock, so a longer budget can't hide a hang: the
     // idle-steps bound above fails first.
   }, 90_000);
+
+  it('an idle step re-renders only the cards whose bodies it renders, not every thread', async () => {
+    vi.useFakeTimers();
+    try {
+      render(<MrView tabId="t" props={{ number: 12 }} close={() => {}} />);
+      vi.mocked(foldKey).mockClear();
+      await act(() => vi.advanceTimersToNextTimerAsync());
+      // One body per thread here: the step's few threads, not all COUNT of them.
+      expect(vi.mocked(foldKey).mock.calls.length).toBeGreaterThan(0);
+      expect(vi.mocked(foldKey).mock.calls.length).toBeLessThanOrEqual(10);
+    } finally { vi.useRealTimers(); }
+  });
 
   it('renders the first bodies in the first paint and the rest when idle', () => {
     const { container } = render(<MrView tabId="t" props={{ number: 12 }} close={() => {}} />);

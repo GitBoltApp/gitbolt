@@ -172,14 +172,15 @@ export function suggestsOver(kind: ForgeKind, body: string, pos: DiffPosition): 
 
 /** One discussion as a card: the diff note's `file:line` (which opens the file) and snippet, its
  * first comment, its replies (a resolved thread's folded by default; the user's choice kept for
- * the session), and Reply at the bottom while unfolded. `firstBody`: the timeline's count of
- * comment bodies before this thread; `rendered`: how many render yet. `showWhere` (default true): its
+ * the session), and Reply at the bottom while unfolded. `rendered`: how many of its comment bodies
+ * render yet (the timeline's count, clamped to this thread's, so the memo holds while the others
+ * render in). `showWhere` (default true): its
  * `file:line` and snippet; a card at its line in the diff (review mode) leaves them out.
  * `rollResolved` (the timeline's): a resolved thread rolls up whole, as GitLab's, to who started
  * it where, who resolved it when, and its replies' row; its chevron (or a click on the header)
  * unrolls it all, and rolls it back up (one fold state per thread, as the replies'). */
-export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBody = 0, rendered = Infinity, showWhere = true, rollResolved = false }: {
-  tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; firstBody?: number; rendered?: number; showWhere?: boolean; rollResolved?: boolean;
+export const Discussion = memo(function Discussion({ tabId, kind, mr, d, rendered = Infinity, showWhere = true, rollResolved = false }: {
+  tabId: string; kind: ForgeKind; mr: ForgeMr; d: ForgeDiscussion; rendered?: number; showWhere?: boolean; rollResolved?: boolean;
 }) {
   const key = foldKey(tabId, mr.number, d.id);
   const chosen = useThreadFolds((s) => s.open[key]);
@@ -228,7 +229,7 @@ export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBo
   }
   return (
     <article ref={card} className="mr-discussion" aria-label={label} data-resolved={d.resolved || undefined} {...focusIn}>
-      <Note tabId={tabId} kind={kind} mr={mr} d={d} n={notes[0]!} first avatar={!showWhere} deferred={firstBody >= rendered} lead={rolls ? roll(false) : undefined} where={
+      <Note tabId={tabId} kind={kind} mr={mr} d={d} n={notes[0]!} first avatar={!showWhere} deferred={rendered <= 0} lead={rolls ? roll(false) : undefined} where={
         showWhere && pos ? (
                 <div className="mr-pos">
                   <button type="button" className="mr-link mr-where" onClick={() => void openNoteFile(tabId, kind, mr, pos)}>{noteWhere(pos)}</button>
@@ -239,7 +240,7 @@ export const Discussion = memo(function Discussion({ tabId, kind, mr, d, firstBo
       {replies.length > 0 && <RepliesRow replies={replies} open={open} toggle={() => setFold(key, !open)} />}
       {open && rest.map((n) => (n.system
         ? <ThreadEvent key={n.id} n={n} webUrl={mr.webUrl} />
-        : <Note key={n.id} tabId={tabId} kind={kind} mr={mr} d={d} n={n} first={false} deferred={firstBody + replies.indexOf(n) + 1 >= rendered} />))}
+        : <Note key={n.id} tabId={tabId} kind={kind} mr={mr} d={d} n={n} first={false} deferred={replies.indexOf(n) + 1 >= rendered} />))}
       {/* --- 4B T13: reply in this thread --- */}
       {open && <ThreadReply tabId={tabId} kind={kind} number={mr.number} d={d} />}
       {/* --- end 4B T13 --- */}
@@ -331,7 +332,7 @@ export function Thread({ tabId, kind, mr, discussions, reviews = [] }: { tabId: 
             <div key={e.key} className="mr-ev mr-thread-ev" data-diff={e.d.notes.some((n) => n.position) || undefined}>
               {/* The thread's first comment's author, on the timeline. */}
               <span className="mr-node mr-node-avatar" aria-hidden><ForgeAvatar user={author} size={22} /></span>
-              <Discussion tabId={tabId} kind={kind} mr={mr} d={e.d} firstBody={firstBody} rendered={rendered} rollResolved />
+              <Discussion tabId={tabId} kind={kind} mr={mr} d={e.d} rendered={Math.max(0, Math.min(body, rendered) - firstBody)} rollResolved />
             </div>
           );
         })}
