@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const run = vi.hoisted(() => ({ gotoClipboard: vi.fn(async () => {}) }));

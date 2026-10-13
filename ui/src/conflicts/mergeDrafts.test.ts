@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { act } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
@@ -153,7 +154,7 @@ describe("the merge tool's kept work (spec #2 §13.3)", () => {
     expect(kept.k0).toBeUndefined();
     expect(kept[`k${STORED_DRAFTS + 4}`]).toBeDefined();
     sessionStorage.setItem('gitbolt.mergeDrafts', '{"old":{}}');
-    const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementationOnce(() => { throw new Error('QuotaExceededError'); });
+    const set = vi.spyOn(sessionStorage, 'setItem').mockImplementationOnce(() => { throw new Error('QuotaExceededError'); });
     useMergeDrafts.setState({ drafts: { [key]: draft() } });
     expect(set).toHaveBeenCalled();
     expect(sessionStorage.getItem('gitbolt.mergeDrafts')).toBeNull();

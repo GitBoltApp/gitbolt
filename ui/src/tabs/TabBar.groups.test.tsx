@@ -8,6 +8,10 @@ vi.mock('../api/client', () => ({
 }));
 vi.mock('../api/transport', () => ({ copyText: vi.fn(async () => {}), inTauri: () => false }));
 
+// The drag settles on a timer where there's no Web Animations API (jsdom has none; happy-dom's
+// `animate` never finishes), which is what these tests step through.
+Object.defineProperty(Element.prototype, 'animate', { configurable: true, value: undefined });
+
 const { useAppState, EMPTY_PROFILE } = await import('../app/state');
 const { TabBar } = await import('./TabBar');
 const { useGroupUi, GROUP_LIST_DELAY_MS } = await import('./groupUi');

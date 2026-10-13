@@ -10,7 +10,7 @@
 set -euo pipefail
 harness=$1
 dir=${2/#\~/$HOME}
-fixtures=(basic sync conflicts stack wip_staging rebase_lab)
+fixtures=(basic sync conflicts stack wip_staging rebase_lab previews submodules lfs)
 # A fixture's folder name: rebase_lab is the playground's rebase-lab.
 folder() { case "$1" in rebase_lab) echo rebase-lab ;; *) echo "$1" ;; esac; }
 
@@ -27,11 +27,15 @@ touch "$dir/.gitbolt-playground"
 for f in "${fixtures[@]}"; do
   n=$(folder "$f")
   stage="$dir/.staging/$f"
+  # The submodules' sources are recorded by absolute file:// URL (in the committed .gitmodules
+  # too), so they're built where they stay, in .remotes/; only the repository moves.
+  [ "$f" = submodules ] && stage="$dir/.remotes/$n"
   "$harness" fixture "$f" "$stage" > /dev/null
   # Where each piece of the fixture goes; remote URLs and worktree links are rewritten to match.
   declare -A to=()
   for entry in "$stage"/*; do
     name=$(basename "$entry")
+    if [ "$f" = submodules ] && [ "$name" != repo ]; then to[$name]="$stage/$name"; continue; fi
     case "$name" in
       repo) to[$name]="$dir/$n" ;;
       *.git) to[$name]="$dir/.remotes/$n-${name%.git}.git" ;;
@@ -39,7 +43,7 @@ for f in "${fixtures[@]}"; do
       *) to[$name]="$dir/.remotes/$n-$name" ;;
     esac
   done
-  for name in "${!to[@]}"; do mv "$stage/$name" "${to[$name]}"; done
+  for name in "${!to[@]}"; do [ "$stage/$name" = "${to[$name]}" ] || mv "$stage/$name" "${to[$name]}"; done
   # Remote URLs point at the staging paths: map each onto where that piece now lives.
   for name in "${!to[@]}"; do
     target=${to[$name]}
@@ -67,7 +71,7 @@ for f in "${fixtures[@]}"; do
     done
   fi
   unset to
-  rm -rf "$stage"
+  [ "$f" = submodules ] || rm -rf "$stage"
 done
 rmdir "$dir/.staging"
 cat > "$dir/README.md" <<'EOF'
@@ -81,5 +85,8 @@ Add this folder in GitBolt ("Add a folder") to list every repo. What to try in e
 - **stack**: `feature/a` > `b` > `c` stacked on a moved `main`. Rebase a branch and watch the stack follow; multi-select commits on `feature/c` and use Squash.
 - **wip_staging**: uncommitted changes. Stage and unstage files and hunks, then commit.
 - **rebase-lab**: `lab` has six commits. Right-click `main`'s chip > "Interactive rebase lab onto main": the `L2` row shows a conflict warning. Drag `L4` above `L3` and the warning appears on it; drag it back and it clears. Select `L4` to `L6` (shift-click) for "Squash 3 commits" and "Squash 3 commits interactively…".
+- **previews**: open the second commit ("Refresh the gallery") and pick a file: an image, audio, video, a font, a PDF, HTML, CSV/TSV, Markdown and SVG, each previewed and diffed.
+- **submodules**: `libs/parser` is checked out past its recorded commit with an edit; `libs/theme` isn't initialised. The palette (Ctrl+P) has the Submodules actions.
+- **lfs**: images through Git LFS. The cover's two versions diff as images; `art/layers.psd` was never downloaded (Download needs git-lfs).
 EOF
 echo "playground ready in $dir: $(for f in "${fixtures[@]}"; do folder "$f"; done | tr '\n' ' ')"

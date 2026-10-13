@@ -1,6 +1,9 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+// happy-dom's IntersectionObserver never fires; without one every block counts as near the viewport.
+vi.stubGlobal('IntersectionObserver', undefined);
+
 const mermaid = vi.hoisted(() => ({ initialize: vi.fn(), render: vi.fn() }));
 vi.mock('mermaid', () => ({ default: mermaid }));
 const { MdMermaid } = await import('./MdMermaid');

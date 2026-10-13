@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// jsdom: happy-dom elements lack on<event> handler properties ('onload' in el), which pageDoc uses
 import { describe, expect, it, vi } from 'vitest';
 import { externalHost, pageNote, pageAssets, pageExternals, pageSrcdoc, PAGE_CSP, readPage, styleText } from './pageDoc';
 

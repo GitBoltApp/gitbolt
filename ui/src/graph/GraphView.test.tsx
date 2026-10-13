@@ -632,9 +632,9 @@ describe('GraphView columns: aria, persistence, canvas clip', () => {
     const rows = Array.from({ length: 400 }, (_, i) => ({ ...graph.rows[1], id: String(i).padStart(40, '0') }));
     const view = (mode: 'visible' | 'hidden') => <Activity mode={mode}><GraphView graph={{ ...graph, rows, labels: [] }} repoId="/repo" /></Activity>;
     // Laid out unless <Activity> hides it (display: none), as a browser reports it.
-    const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent')!;
+    const saved = Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'offsetParent'); // happy-dom has none
     Object.defineProperty(HTMLElement.prototype, 'offsetParent', { configurable: true, get(this: HTMLElement) { return this.closest('[style*="display: none"]') ? null : document.body; } });
-    onTestFinished(() => { Object.defineProperty(HTMLElement.prototype, 'offsetParent', saved); });
+    onTestFinished(() => { if (saved) Object.defineProperty(HTMLElement.prototype, 'offsetParent', saved); else Reflect.deleteProperty(HTMLElement.prototype, 'offsetParent'); });
     const { rerender } = render(view('visible'));
     const grid = screen.getByRole('grid', { name: 'Commit graph' });
     const canvas = screen.getByTestId('graph-canvas');

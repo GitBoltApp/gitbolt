@@ -344,66 +344,13 @@ test.describe('commit graph', () => {
       expect((await style(dim)).opacity).toBe('0.5');
     });
   });
-
-  test('the message cell: its margin and dimmed colours (long labels)', async ({ page }) => {
-    await test.step('about 10px of margin separates the summary from the dimmed body', async () => {
-      await page.goto(openUrl(fixtures.longLabels));
-      const summary = page.locator('.msg-summary', { hasText: 'Initial commit' });
-      const body = summary.locator('xpath=following-sibling::*[1]');
-      await expect(body).toHaveClass(/msg-body/);
-      const [s, b] = await Promise.all([summary.boundingBox(), body.boundingBox()]);
-      if (!s || !b) throw new Error('missing summary/body box');
-      expect(b.x - (s.x + s.width)).toBeGreaterThanOrEqual(9);
-      expect(b.x - (s.x + s.width)).toBeLessThanOrEqual(11);
-    });
-    await test.step('author, date and SHA are the same dimmed colour as the rest of the commit message (F10)', async () => {
-      await page.goto(openUrl(fixtures.longLabels));
-      const row = page.getByRole('row').filter({ hasText: 'Initial commit' });
-      const color = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).color);
-      const body = await color(row.locator('.msg-body'));
-      expect(body).not.toBe(await color(row.locator('.msg-summary')));
-      expect(await color(row.locator('[data-col="author"]'))).toBe(body);
-      expect(await color(row.locator('[data-col="date"]'))).toBe(body);
-      expect(await color(row.getByTestId('sha'))).toBe(body);
-    });
-  });
 });
 
-test('unborn repository shows an empty state', async ({ page }) => {
+test('an unborn repository shows an empty state; a folder that is not a repository shows the error', async ({ page }) => {
   await page.goto(openUrl(fixtures.unborn));
   await expect(page.getByText('No commits yet')).toBeVisible();
-});
-
-test('a folder that is not a repository shows the error', async ({ page }) => {
   await page.goto(openUrl(fixtures.notRepo));
   await expect(page.getByRole('alert')).toContainText('Not a git repository');
-});
-
-test('K63: a chip takes the room its name needs: whole in a wide enough Branch/Tag column, ellipsized in a narrow one', async ({ page }) => {
-  await page.setViewportSize({ width: 1920, height: 800 });
-  await page.goto(openUrl(fixtures.longLabels));
-  await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-  const chip = page.locator('.ref-labels > .ref-label').first();
-  const name = chip.locator('.ref-name');
-  const truncated = () => name.evaluate((el) => el.scrollWidth > el.clientWidth);
-  const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
-  // The default width (200): the long name is cut, with an ellipsis.
-  expect(await truncated()).toBe(true);
-  expect(await name.evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
-  // Widened: the chip grows past the old 170 px cap until the whole name shows.
-  await handle.focus();
-  for (let i = 0; i < 120 && (await truncated()); i++) await page.keyboard.press('ArrowRight');
-  expect(await truncated()).toBe(false);
-  expect((await chip.boundingBox())!.width).toBeGreaterThan(400);
-  await expect(name).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
-  // The "+1" badge and the connector keep their places, the connector still meets the canvas.
-  await expect(page.locator('.ref-more')).toHaveText('+1');
-  const [conn, canvas] = await Promise.all([page.locator('.ref-connector').first().boundingBox(), page.getByTestId('graph-canvas').boundingBox()]);
-  expect(conn!.width).toBeGreaterThanOrEqual(8);
-  expect(Math.abs(conn!.x + conn!.width - canvas!.x)).toBeLessThanOrEqual(0.5);
-  // Narrowed again: ellipsized again.
-  for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
-  expect(await truncated()).toBe(true);
 });
 
 test.describe('hover polish', () => {
@@ -413,7 +360,25 @@ test.describe('hover polish', () => {
   });
 
   // Each `test.step` below was a test of its own, paying for a page load.
-  test('hover: a truncated chip floats at full width, stays to its icon, stacks with +N; the message tooltip, at once and after a delay', async ({ page }) => {
+  test('the message cell\'s margin and dimmed colours; hover: a truncated chip floats at full width, stays to its icon, stacks with +N; the message tooltip, at once and after a delay', async ({ page }) => {
+    await test.step('about 10px of margin separates the summary from the dimmed body', async () => {
+      const summary = page.locator('.msg-summary', { hasText: 'Initial commit' });
+      const body = summary.locator('xpath=following-sibling::*[1]');
+      await expect(body).toHaveClass(/msg-body/);
+      const [s, b] = await Promise.all([summary.boundingBox(), body.boundingBox()]);
+      if (!s || !b) throw new Error('missing summary/body box');
+      expect(b.x - (s.x + s.width)).toBeGreaterThanOrEqual(9);
+      expect(b.x - (s.x + s.width)).toBeLessThanOrEqual(11);
+    });
+    await test.step('author, date and SHA are the same dimmed colour as the rest of the commit message (F10)', async () => {
+      const row = page.getByRole('row').filter({ hasText: 'Initial commit' });
+      const color = (loc: ReturnType<Page['locator']>) => loc.evaluate((el) => getComputedStyle(el).color);
+      const body = await color(row.locator('.msg-body'));
+      expect(body).not.toBe(await color(row.locator('.msg-summary')));
+      expect(await color(row.locator('[data-col="author"]'))).toBe(body);
+      expect(await color(row.locator('[data-col="date"]'))).toBe(body);
+      expect(await color(row.getByTestId('sha'))).toBe(body);
+    });
     await test.step('hovering a truncated label chip floats it at full width over the graph, then collapses', async () => {
       const chip = page.locator('.ref-labels > .ref-label').first();
       const connector = page.locator('.ref-connector').first();
@@ -563,6 +528,32 @@ test.describe('hover polish', () => {
       await cell.hover();
       await expect(tip.locator('.msg-tooltip-body')).toContainText('wrapped over two lines.');
       expect(requests).toHaveLength(1);
+    });
+    // Last: it resizes the window and the Branch/Tag column.
+    await test.step('K63: a chip takes the room its name needs: whole in a wide enough Branch/Tag column, ellipsized in a narrow one', async () => {
+      await page.mouse.move(5, 5);
+      await page.setViewportSize({ width: 1920, height: 800 });
+      const chip = page.locator('.ref-labels > .ref-label').first();
+      const name = chip.locator('.ref-name');
+      const truncated = () => name.evaluate((el) => el.scrollWidth > el.clientWidth);
+      const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
+      // The default width (200): the long name is cut, with an ellipsis.
+      expect(await truncated()).toBe(true);
+      expect(await name.evaluate((el) => getComputedStyle(el).textOverflow)).toBe('ellipsis');
+      // Widened: the chip grows past the old 170 px cap until the whole name shows.
+      await handle.focus();
+      for (let i = 0; i < 120 && (await truncated()); i++) await page.keyboard.press('ArrowRight');
+      expect(await truncated()).toBe(false);
+      expect((await chip.boundingBox())!.width).toBeGreaterThan(400);
+      await expect(name).toHaveText(/extremely-long-branch-name.*commit-graph-ui$/);
+      // The "+1" badge and the connector keep their places, the connector still meets the canvas.
+      await expect(page.locator('.ref-more')).toHaveText('+1');
+      const [conn, canvas] = await Promise.all([page.locator('.ref-connector').first().boundingBox(), page.getByTestId('graph-canvas').boundingBox()]);
+      expect(conn!.width).toBeGreaterThanOrEqual(8);
+      expect(Math.abs(conn!.x + conn!.width - canvas!.x)).toBeLessThanOrEqual(0.5);
+      // Narrowed again: ellipsized again.
+      for (let i = 0; i < 30; i++) await page.keyboard.press('ArrowLeft');
+      expect(await truncated()).toBe(true);
     });
   });
 });
@@ -882,43 +873,36 @@ test.describe('resizable columns', () => {
     expect(w).toBeCloseTo(before - 16, 0);
   });
 
-  for (const width of [1400, 800]) {
-    test(`smart fit in a ${width}px graph: header and rows share the allocated widths`, async ({ page }) => {
-      await page.setViewportSize({ width: 1400, height: 700 });
-      await page.goto(openUrl(fixtures.basic));
-      const grid = page.getByRole('grid', { name: 'Commit graph' });
-      await sizeGrid(page, width);
-      const clientWidth = await grid.evaluate((el) => el.clientWidth);
-      const graphW = (await page.getByTestId('graph-canvas').boundingBox())!.width;
-      const expected = allocateColumns({ ...DEFAULT_COLUMN_PREFS, graph: graphW }, clientWidth);
-      const got = await columnWidths(page);
-      for (const c of COLS) {
-        expect(got[c].header, `${c} header`).toBeCloseTo(expected[c], 0);
-        expect(got[c].cell, `${c} cell`).toBeCloseTo(expected[c], 0);
-        expect(got[c].headerX, `${c} x`).toBeCloseTo(got[c].cellX, 0);
-      }
-      if (width === 1400) {
-        // Plenty of room: Author and Date keep their preferred widths and Message flexes.
-        expect(expected.author).toBe(DEFAULT_COLUMN_PREFS.author);
-        expect(expected.date).toBe(DEFAULT_COLUMN_PREFS.date);
-        expect(expected.message).toBeGreaterThan(COLUMN_MIN.message);
-      } else {
-        // Message is at its minimum and Author/Date have given up space, but not all of it.
-        expect(expected.message).toBe(COLUMN_MIN.message);
-        expect(expected.author).toBeLessThan(DEFAULT_COLUMN_PREFS.author);
-        expect(expected.author).toBeGreaterThan(COLUMN_MIN.author);
-        expect(expected.date).toBeLessThan(DEFAULT_COLUMN_PREFS.date);
-        expect(expected.date).toBeGreaterThan(COLUMN_MIN.date);
-        // Squeezed cells truncate with an ellipsis rather than wrapping or overflowing.
-        for (const c of ['author', 'date']) {
-          const style = await page.getByRole('row').nth(4).locator(`[data-col="${c}"]`).evaluate((el) => [getComputedStyle(el).textOverflow, getComputedStyle(el).overflow]);
-          expect(style).toEqual(['ellipsis', 'hidden']);
-        }
-      }
-      // No horizontal scrolling while everything fits.
-      expect(await grid.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
-    });
-  }
+  // The squeezed case (an 800 px graph): the roomy one's allocation is columns.test.ts's, and every
+  // other test here renders it.
+  test('smart fit in an 800px graph: header and rows share the allocated widths', async ({ page }) => {
+    await page.setViewportSize({ width: 1400, height: 700 });
+    await page.goto(openUrl(fixtures.basic));
+    const grid = page.getByRole('grid', { name: 'Commit graph' });
+    await sizeGrid(page, 800);
+    const clientWidth = await grid.evaluate((el) => el.clientWidth);
+    const graphW = (await page.getByTestId('graph-canvas').boundingBox())!.width;
+    const expected = allocateColumns({ ...DEFAULT_COLUMN_PREFS, graph: graphW }, clientWidth);
+    const got = await columnWidths(page);
+    for (const c of COLS) {
+      expect(got[c].header, `${c} header`).toBeCloseTo(expected[c], 0);
+      expect(got[c].cell, `${c} cell`).toBeCloseTo(expected[c], 0);
+      expect(got[c].headerX, `${c} x`).toBeCloseTo(got[c].cellX, 0);
+    }
+    // Message is at its minimum and Author/Date have given up space, but not all of it.
+    expect(expected.message).toBe(COLUMN_MIN.message);
+    expect(expected.author).toBeLessThan(DEFAULT_COLUMN_PREFS.author);
+    expect(expected.author).toBeGreaterThan(COLUMN_MIN.author);
+    expect(expected.date).toBeLessThan(DEFAULT_COLUMN_PREFS.date);
+    expect(expected.date).toBeGreaterThan(COLUMN_MIN.date);
+    // Squeezed cells truncate with an ellipsis rather than wrapping or overflowing.
+    for (const c of ['author', 'date']) {
+      const style = await page.getByRole('row').nth(4).locator(`[data-col="${c}"]`).evaluate((el) => [getComputedStyle(el).textOverflow, getComputedStyle(el).overflow]);
+      expect(style).toEqual(['ellipsis', 'hidden']);
+    }
+    // No horizontal scrolling while everything fits.
+    expect(await grid.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+  });
 
   test('below the sum of minimums the table scrolls horizontally, header in sync, connector intact', async ({ page }) => {
     await page.setViewportSize({ width: 520, height: 700 });
@@ -1071,60 +1055,10 @@ test.describe('resizable columns', () => {
     expect(w.sha.headerX + w.sha.header).toBeCloseTo(start.sha.headerX + start.sha.header, 0);
   });
 
-  test('W.1: dragging Author\'s right edge resizes Author only (Message flexes, Date keeps its width)', async ({ page }) => {
-    await page.setViewportSize({ width: 1400, height: 700 });
-    await page.goto(openUrl(fixtures.basic));
-    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-    const start = await columnWidths(page);
-    const handle = page.getByRole('separator', { name: 'Resize Author column' });
-    const box = (await handle.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 40, box.y + box.height / 2, { steps: 5 });
-    await page.mouse.up();
-    const now = await columnWidths(page);
-    // W.1: only Author changes; Message gives up the width (it flexes), Date keeps its own.
-    expect(now.author.cell).toBeCloseTo(start.author.cell + 40, 0);
-    expect(now.date.cell).toBeCloseTo(start.date.cell, 0);
-    expect(now.message.cell).toBeCloseTo(start.message.cell - 40, 0);
-  });
-
-  test('squeezed Author/Date: the handle under the pointer moves 1:1, and walls hold', async ({ page }) => {
-    // In an 800 px graph Message is at its minimum and Author/Date are squeezed below their preferences.
-    await page.setViewportSize({ width: 1400, height: 700 });
-    await page.goto(openUrl(fixtures.basic));
-    await sizeGrid(page, 800);
-    const w = async () => columnWidths(page);
-    const start = await w();
-    expect(start.message.cell).toBeCloseTo(COLUMN_MIN.message, 0);
-    expect(start.author.cell).toBeLessThan(DEFAULT_COLUMN_PREFS.author);
-
-    // Commit message: at its minimum, narrowing is a wall, and widening has no free space to use.
-    const message = page.getByRole('separator', { name: 'Resize Commit message column' });
-    await message.focus();
-    await page.keyboard.press('ArrowLeft');
-    await page.keyboard.press('ArrowRight');
-    const now = await w();
-    expect([now.author.cell, now.message.cell]).toEqual([start.author.cell, start.message.cell]);
-
-    // Author: dragging its right edge left 1 px at a time moves it exactly with the pointer,
-    // Date keeps its width and follows, until Author is at its minimum.
-    const author = page.getByRole('separator', { name: 'Resize Author column' });
-    const box = (await author.boundingBox())!;
-    const y = box.y + box.height / 2;
-    const x0 = box.x + box.width / 2;
-    const room = start.author.cell - COLUMN_MIN.author;
-    await page.mouse.move(x0, y);
-    await page.mouse.down();
-    for (let d = 1; d <= room + 10; d++) {
-      await page.mouse.move(x0 - d, y);
-      const now = await w();
-      expect(now.date.headerX, `author's right edge, d=${d}`).toBeCloseTo(start.date.headerX - Math.min(d, room), 0);
-    }
-    await page.mouse.up();
-    expect((await w()).author.cell).toBeCloseTo(COLUMN_MIN.author, 0);
-    expect((await w()).message.cell).toBeCloseTo(COLUMN_MIN.message, 0);
-  });
+  // Which column an edge resizes and its walls (W.1: Author's edge takes from Message only; squeezed
+  // Author/Date tracking 1:1 to their minimums, Message a wall; Graph never wider than its lanes,
+  // F2) are columns.test.ts's, on the same allocation the header renders; the drag itself, 1:1
+  // under the pointer, is the F3 test above.
 
   test('Branch/Tag widened in a wide window keeps its width after the window narrows (no snap-back)', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 700 });
@@ -1344,24 +1278,6 @@ test.describe('graph column width', () => {
     await expect(canvas).toHaveAttribute('data-clipped', 'false');
   });
 
-  test('the Graph column can\'t be dragged wider than every lane plus padding (F2)', async ({ page }) => {
-    await page.setViewportSize({ width: 1400, height: 700 });
-    await page.goto(openUrl(fixtures.basic));
-    await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
-    const handle = page.getByRole('separator', { name: 'Resize Graph column' });
-    const max = Number(await handle.getAttribute('aria-valuemax'));
-    await expect(handle).toHaveAttribute('aria-valuenow', String(max));
-    const box = (await handle.boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + 150, box.y + box.height / 2, { steps: 10 });
-    await page.mouse.up();
-    await expect(handle).toHaveAttribute('aria-valuenow', String(max));
-    expect((await page.getByTestId('graph-canvas').boundingBox())!.width).toBeCloseTo(max, 0);
-    await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-clipped', 'false');
-  });
-
-
   test('at the default (auto) width, the Graph column fits every lane of a very wide graph', async ({ page }) => {
     await page.goto(openUrl(fixtures.wide));
     await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
@@ -1444,7 +1360,7 @@ test.describe('branch-hover focus (J22)', () => {
   const featureChip = (page: Page) => page.getByRole('row').filter({ hasText: 'Login validation' }).locator('.ref-labels > .ref-label');
 
   // Each `test.step` below was a test of its own, paying for a page load (the reduced-motion one last: the emulation stays).
-  test('branch-hover focus: dims after 500 ms, never for a tag or a short rest, eases its colour; a handle double-click resets', async ({ page }) => {
+  test('branch-hover focus: dims after 500 ms, eases its colour; a handle double-click resets', async ({ page }) => {
     await test.step('resting 500 ms on a branch chip dims the text of every row outside that branch, graph and chips untouched; leaving restores it', async () => {
       const mainChip = page.getByRole('row').nth(4).locator('.ref-labels > .ref-label');
       const chipLook = () => mainChip.evaluate((el) => `${getComputedStyle(el).backgroundColor} ${getComputedStyle(el).color} ${getComputedStyle(el).opacity}`);
@@ -1485,17 +1401,8 @@ test.describe('branch-hover focus (J22)', () => {
       expect(await noneDimmed(page)).toBe(true);
       await expect(dimmed.locator('[data-col="author"]')).toHaveCSS('color', 'rgba(255, 255, 255, 0.4)');
     });
-    await test.step('a tag chip, or a pointer that leaves before 500 ms, focuses nothing', async () => {
-      await page.getByRole('row').filter({ hasText: 'Add readme' }).locator('.ref-labels > .ref-label').hover();
-      // Past the 500 ms focus delay (a negative check: time has to pass).
-      await page.waitForTimeout(600);
-      expect(await noneDimmed(page)).toBe(true);
-      await featureChip(page).hover();
-      await page.waitForTimeout(150);
-      await page.mouse.move(5, 5);
-      await page.waitForTimeout(600);
-      expect(await noneDimmed(page)).toBe(true);
-    });
+    // A tag chip, or a pointer that leaves before 500 ms, focuses nothing: GraphView.dim.test.tsx,
+    // on fake timers (here it took over a second of waiting for nothing to happen).
     await test.step('double-clicking a column handle resets that column to its default width (K73)', async () => {
       const handle = page.getByRole('separator', { name: 'Resize Branch / Tag column' });
       await handle.focus();
@@ -1526,7 +1433,10 @@ test.describe('branch-hover focus (J22)', () => {
 // deviceScaleFactor doesn't: it snaps boxes to CSS px and resamples them). Under it, client rects
 // and screenshots are both in device px.
 test.describe('device-pixel precision at every zoom and density (K50, K57)', () => {
-  const ZOOMS = [1, 1.1, 1.2, 1.25];
+  // Every zoom and every density, each zoomed pair at a fractional row height (rows of 25, 28 and
+  // 32 px): a page each, so not all twelve pairs. The rounding itself, at every scale, is
+  // pixels.test.ts's.
+  const CASES: Array<[number, (typeof DENSITIES)[number]]> = [[1, 'standard'], [1.1, 'compact'], [1.1, 'comfortable'], [1.2, 'standard'], [1.25, 'compact']];
   // A page per zoom and density, in the test's context (as fresh as a context of its own: the
   // init script below runs after the context's, which empties localStorage on a page's first load).
   const openAt = async (context: BrowserContext, zoom: number, density: string) => {
@@ -1608,17 +1518,15 @@ test.describe('device-pixel precision at every zoom and density (K50, K57)', () 
     });
   };
 
-  // One page per zoom and density, both checks on it (they were two tests opening the same 12).
+  // One page per zoom and density, both checks on it (they were two tests opening the same pages).
   test('K50: the WIP lane\'s dashes and gaps are all the same whole number of device px, row after row; K57: a connector covers the same device rows on both sides of the Branch/Tag and Graph boundary', async ({ context, browserName }) => {
     test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
-    test.setTimeout(120_000);
-    for (const zoom of ZOOMS) {
-      for (const d of DENSITIES) {
-        const page = await openAt(context, zoom, d);
-        await k50(page, zoom, d);
-        await k57(page, zoom, d);
-        await page.close();
-      }
+    test.setTimeout(60_000);
+    for (const [zoom, d] of CASES) {
+      const page = await openAt(context, zoom, d);
+      await k50(page, zoom, d);
+      await k57(page, zoom, d);
+      await page.close();
     }
   });
 });

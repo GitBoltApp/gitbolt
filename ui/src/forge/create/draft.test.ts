@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { MAX_MR_DRAFTS, MR_DRAFT_MAX_AGE_MS, MR_DRAFT_STORAGE_KEY, discardMrDraft, flushMrDrafts, mrDraftKey, readMrDraft, reloadMrDrafts, writeMrDraft, type MrDraft } from './draft';
 

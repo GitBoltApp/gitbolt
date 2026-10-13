@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { buildMenu } from '../menu/registry';
 import type { CommitTarget, MenuEnv } from '../menu/menuEnv';

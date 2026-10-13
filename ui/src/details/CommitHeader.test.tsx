@@ -22,7 +22,7 @@ const details: CommitDetailsPayload = {
   id: A, parents: [B], signed: false,
   author: { name: 'Grace Hopper', email: 'grace@example.com', time: 1_767_225_600 },
   committer: { name: 'Ada Lovelace', email: 'ada@example.com', time: 1_767_225_660 },
-  coAuthors: [{ name: 'Margaret Hamilton', email: 'margaret@example.com' }, { name: 'Linus Torvalds', email: 'linus@example.com' }],
+  coAuthors: [{ name: 'Maren Holt', email: 'maren@example.com' }, { name: 'Lars Tidemann', email: 'lars@example.com' }],
 };
 
 function renderView(d: CommitDetailsPayload = details) {
@@ -43,7 +43,7 @@ describe('commit header', () => {
     expect(within(author).getByTestId('avatar')).toHaveTextContent('GH');
     expect(within(screen.getByTestId('committer')).getByTestId('avatar')).toHaveTextContent('AL');
     const chips = screen.getAllByTestId('co-author');
-    expect(chips.map((c) => c.textContent)).toEqual(['MHMargaret Hamilton', 'LTLinus Torvalds']);
+    expect(chips.map((c) => c.textContent)).toEqual(['MHMaren Holt', 'LTLars Tidemann']);
     expect(screen.getByTestId('signature-badge')).toHaveAttribute('data-kind', 'unsigned');
   });
 
@@ -59,7 +59,7 @@ describe('commit header', () => {
     const chip = (await screen.findAllByTestId('co-author'))[0];
     fireEvent.mouseEnter(chip);
     const card = screen.getByRole('tooltip');
-    expect(card).toHaveTextContent(/^Margaret Hamilton <margaret@example\.com>$/);
+    expect(card).toHaveTextContent(/^Maren Holt <maren@example\.com>$/);
     expect(screen.getByRole('complementary', { name: 'Commit details' }).contains(card)).toBe(false);
     fireEvent.mouseLeave(chip);
     expect(screen.queryByRole('tooltip')).toBeNull();

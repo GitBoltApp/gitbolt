@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { setOrigin, type Origin } from '../ui/arm/origin';
 import { useToast } from '../ui/toastStore';

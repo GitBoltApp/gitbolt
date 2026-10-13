@@ -84,26 +84,27 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
     });
   });
 
-  test('Create branch here from a remote label tracks it; Ctrl+Enter creates without checking out', async ({ page }) => {
+  // One repo and page for these (each was a test of its own, paying for a page load and a
+  // fixture): the unmerged branch first, then feature/login's local deleted, which leaves its
+  // remote label for Create branch here.
+  test('Delete Local: an unmerged branch arms its menu row in place, a merged one needs no confirmation, one checked out elsewhere is disabled; Create branch here from a remote label tracks it', async ({ page }) => {
     const repo = freshFixture('basic');
-    git(repo, 'branch', '-D', 'feature/login');
+    const tip = git(repo, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'side work');
+    git(repo, 'update-ref', 'refs/heads/side', tip);
     await page.goto(openUrl(repo));
-    await chip(page, 'feature/login').click({ button: 'right' });
-    await menu(page).getByRole('menuitem', { name: 'Create branch here' }).click();
-    const input = grid(page).getByRole('textbox', { name: 'Branch name' });
-    await input.fill('login-copy');
-    await input.press('Control+Enter');
-    await expect.poll(() => { try { return git(repo, 'config', 'branch.login-copy.merge'); } catch { return ''; } }).toBe('refs/heads/feature/login');
-    expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
-  });
-
-  test('Delete Local of a merged branch needs no confirmation; a branch checked out elsewhere has a disabled Local', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await chip(page, 'feature/login').click({ button: 'right' });
-    await menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]').click();
-    await expect(chip(page, 'feature/login')).toContainText('feature/login'); // the remote one stays
-    await expect.poll(() => git(repo, 'branch', '--list', 'feature/login')).toBe('');
+    await test.step('Delete Local of an unmerged branch arms its menu row in place (no popover); a second click deletes it', async () => {
+      await chip(page, 'side').click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]').click();
+      await confirmArmed(menu(page).getByRole('menuitem', { name: /^Click again to delete side: 1 commit not in main/ }));
+      await expect(page.getByRole('alertdialog')).toBeHidden();
+      await expect.poll(() => git(repo, 'branch', '--list', 'side')).toBe('');
+    });
+    await test.step('Delete Local of a merged branch needs no confirmation', async () => {
+      await chip(page, 'feature/login').click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]').click();
+      await expect(chip(page, 'feature/login')).toContainText('feature/login'); // the remote one stays
+      await expect.poll(() => git(repo, 'branch', '--list', 'feature/login')).toBe('');
+    });
     // hotfix is checked out in wt-hotfix: it can't be deleted, so its Local is disabled.
     await chip(page, 'hotfix').click({ button: 'right' });
     await expect(menu(page)).toBeVisible();
@@ -122,19 +123,17 @@ test.describe('branches (spec #2 §9.1, §9.2)', () => {
       await expect(page.getByRole('tooltip')).toContainText("Can't delete main: it's checked out");
       await del.locator('.ctx-label').hover();
       await expect(del.locator('[data-variant-id="remote"]')).toHaveAttribute('data-default', 'true');
+      await page.keyboard.press('Escape');
     });
-  });
-
-  test('Delete Local of an unmerged branch arms its menu row in place (no popover); a second click deletes it', async ({ page }) => {
-    const repo = freshFixture('basic');
-    const tip = git(repo, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'side work');
-    git(repo, 'update-ref', 'refs/heads/side', tip);
-    await page.goto(openUrl(repo));
-    await chip(page, 'side').click({ button: 'right' });
-    await menu(page).getByRole('menuitem', { name: 'Delete' }).locator('[data-variant-id="local"]').click();
-    await confirmArmed(menu(page).getByRole('menuitem', { name: /^Click again to delete side: 1 commit not in main/ }));
-    await expect(page.getByRole('alertdialog')).toBeHidden();
-    await expect.poll(() => git(repo, 'branch', '--list', 'side')).toBe('');
+    await test.step('Create branch here from a remote label tracks it; Ctrl+Enter creates without checking out', async () => {
+      await chip(page, 'feature/login').click({ button: 'right' });
+      await menu(page).getByRole('menuitem', { name: 'Create branch here' }).click();
+      const input = grid(page).getByRole('textbox', { name: 'Branch name' });
+      await input.fill('login-copy');
+      await input.press('Control+Enter');
+      await expect.poll(() => { try { return git(repo, 'config', 'branch.login-copy.merge'); } catch { return ''; } }).toBe('refs/heads/feature/login');
+      expect(git(repo, 'symbolic-ref', 'HEAD')).toBe('refs/heads/main');
+    });
   });
 
   test('Delete Both confirms once, deletes the remote first; undo restores the local branch only', async ({ page }) => {

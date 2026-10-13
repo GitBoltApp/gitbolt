@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// jsdom: under happy-dom the completion caret stays stale after an emoji insert (the popup never closes); cause not pinned down
+// @vitest-environment jsdom
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

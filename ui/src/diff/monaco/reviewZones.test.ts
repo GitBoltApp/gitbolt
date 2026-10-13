@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 vi.mock('./setup', () => ({ monaco: { editor: { EditorOption: { lineHeight: 75, glyphMargin: 66 }, GlyphMarginLane: { Center: 2 } } } }));

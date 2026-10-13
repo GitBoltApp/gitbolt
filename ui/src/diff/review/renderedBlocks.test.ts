@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
 import type { ReviewLine } from '../../api/gen/ReviewLine';
 import { commentableIndex, type PlacedItem } from '../../forge/review/model';

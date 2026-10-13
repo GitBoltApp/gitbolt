@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const hist = vi.hoisted(() => ({ navBack: vi.fn(async () => {}), navForward: vi.fn(async () => {}) }));

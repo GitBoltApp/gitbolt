@@ -80,27 +80,29 @@ test.describe('open repository screen', () => {
     });
   });
 
-  test('clone opens the clone in the tab', async ({ page }) => {
-    const repo = freshFixture('basic');
-    const dest = join(mkdtempSync(join(tmpdir(), 'gitbolt-e2e-clone-')), 'origin');
+  // One page for both (each was a test of its own, paying for a page load): the cancelled clone
+  // first, then one that opens.
+  test('clone credential prompts can be cancelled; a clone opens in the tab', async ({ page }) => {
     await page.goto('/');
-    await page.getByLabel('Repository URL').fill(`file://${join(dirname(repo), 'origin.git')}`);
-    await page.getByLabel('Destination').fill(dest);
-    await page.getByRole('button', { name: 'Clone', exact: true }).click();
-    await expect(graph(page)).toBeVisible({ timeout: 20_000 });
-    await expect(page.getByRole('tab').first()).toHaveText('origin');
-  });
-
-  test('clone credential prompts can be cancelled', async ({ page }) => {
-    const dest = join(mkdtempSync(join(tmpdir(), 'gitbolt-e2e-clone-')), 'x');
-    await page.goto('/');
-    await page.getByLabel('Repository URL').fill(`${harnessHttp}/test/auth/x.git`);
-    await page.getByLabel('Destination').fill(dest);
-    await page.getByRole('button', { name: 'Clone', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'Authentication required' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
-    await expect(page.getByRole('alert')).toHaveText('Clone cancelled');
+    await test.step('clone credential prompts can be cancelled', async () => {
+      const dest = join(mkdtempSync(join(tmpdir(), 'gitbolt-e2e-clone-')), 'x');
+      await page.getByLabel('Repository URL').fill(`${harnessHttp}/test/auth/x.git`);
+      await page.getByLabel('Destination').fill(dest);
+      await page.getByRole('button', { name: 'Clone', exact: true }).click();
+      const dialog = page.getByRole('dialog', { name: 'Authentication required' });
+      await expect(dialog).toBeVisible();
+      await dialog.getByRole('button', { name: 'Cancel' }).click();
+      await expect(page.getByRole('alert')).toHaveText('Clone cancelled');
+    });
+    await test.step('clone opens the clone in the tab', async () => {
+      const repo = freshFixture('basic');
+      const dest = join(mkdtempSync(join(tmpdir(), 'gitbolt-e2e-clone-')), 'origin');
+      await page.getByLabel('Repository URL').fill(`file://${join(dirname(repo), 'origin.git')}`);
+      await page.getByLabel('Destination').fill(dest);
+      await page.getByRole('button', { name: 'Clone', exact: true }).click();
+      await expect(graph(page)).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('tab').first()).toHaveText('origin');
+    });
   });
 
   test('from a repository: Ctrl+O and the recent list (filter, pin, remove); Clone repository… focuses the URL', async ({ page }) => {

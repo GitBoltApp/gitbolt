@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { Undo2 } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { comboOf } from './shortcuts';

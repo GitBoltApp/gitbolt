@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { DEFAULT_DENSITY, DENSITIES, DENSITY_METRICS, DENSITY_STORAGE_KEY, densityCssVars, densityPersistence, parseDensity, useDensity } from './density';
 

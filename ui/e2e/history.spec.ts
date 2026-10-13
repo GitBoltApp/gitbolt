@@ -10,7 +10,7 @@ const action = (menu: Locator, label: string) => menu.locator('[data-depth="0"] 
 
 // One repo and page for these (each was a test of its own, paying for a page load and Monaco's
 // start-up), in an order where each starts from what it needs (the history view closed).
-test('File History and Blame: following the rename, Blame groups, Esc; the gutter beside the line numbers; a hash copies; the list resizes and persists', async ({ page, browserName }) => {
+test('File History and Blame: following the rename, Blame groups, Esc; the gutter beside the line numbers; a hash copies; the list resizes', async ({ page, browserName }) => {
   const repo = freshFixture('file_history');
   // A Markdown guide edited once, for the last step's rendered diff.
   writeFileSync(join(repo, 'guide.md'), '# Setup guide\n\nRun the tool once.\n');
@@ -131,7 +131,7 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     if (process.env.GITBOLT_BLAME_SHOT) await view.screenshot({ path: process.env.GITBOLT_BLAME_SHOT });
   });
   // UX J: a short hash copies the full one (the row stays unselected); the list column resizes, the bar following.
-  await test.step('clicking a hash copies it without selecting the row; the list resizes with the header and persists', async () => {
+  await test.step('clicking a hash copies it without selecting the row; the list resizes with the header', async () => {
     // The Blame view closed first: it covers the graph.
     await page.keyboard.press('Escape');
     await expect(page.getByRole('region', { name: 'File history' })).toHaveCount(0);
@@ -167,9 +167,7 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     expect(widened).toBeGreaterThan(before + 60);
     // The bar's columns follow: the Blame toggle sits over the editor, right of the list.
     expect((await view.getByRole('button', { name: 'Blame', exact: true }).boundingBox())!.x).toBeGreaterThanOrEqual(widened);
-    await page.reload();
-    await openHistory();
-    await expect.poll(async () => (await list.boundingBox())!.width).toBe(widened);
+    // The width is kept (FileHistory.test.tsx: in localStorage, read back on the next open).
   });
   await test.step('Changes: the commit\'s diff of the file, row by row, in place of the file; a Markdown file\'s rendered', async () => {
     const view = page.getByRole('region', { name: 'File history' });

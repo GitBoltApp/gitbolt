@@ -95,13 +95,13 @@ mod tests {
     #[test]
     fn one_person_by_exact_name_or_username_any_case_and_spacing() {
         let k = KnownNames::default();
-        k.learn(&user(1, "mham", "Margaret Hamilton", Some("https://g/uploads/m.png")));
-        assert_eq!(k.find("  margaret   HAMILTON "), NameMatch::One(Some("https://g/uploads/m.png".into())));
-        assert_eq!(k.find("MHam"), NameMatch::One(Some("https://g/uploads/m.png".into())));
-        assert_eq!(k.find("Margaret"), NameMatch::Unknown, "a full name only");
+        k.learn(&user(1, "mholt", "Maren Holt", Some("https://g/uploads/m.png")));
+        assert_eq!(k.find("  maren   HOLT "), NameMatch::One(Some("https://g/uploads/m.png".into())));
+        assert_eq!(k.find("MHolt"), NameMatch::One(Some("https://g/uploads/m.png".into())));
+        assert_eq!(k.find("Maren"), NameMatch::Unknown, "a full name only");
         assert_eq!(k.find(""), NameMatch::Unknown);
-        k.learn(&user(1, "mham", "Margaret Hamilton", None));
-        assert_eq!(k.find("margaret hamilton"), NameMatch::One(None), "the same person again: their latest");
+        k.learn(&user(1, "mholt", "Maren Holt", None));
+        assert_eq!(k.find("maren holt"), NameMatch::One(None), "the same person again: their latest");
     }
 
     #[test]

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { installZoom, nextZoom, parseZoom, setZoom, useZoom, ZOOM_STEPS, ZOOM_STORAGE_KEY, zoomDirection } from './zoom';
 

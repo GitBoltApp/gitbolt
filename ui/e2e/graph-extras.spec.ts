@@ -127,11 +127,9 @@ test.describe('graph extras', () => {
       await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
       await expect(page.locator('.graph-header [data-col="author"]')).toHaveCount(0);
       expect(await width('labels')).toBeCloseTo(resized, 0);
-      // Showing it again persists too.
+      // Showing it again is saved the same way (columns.test.ts: every toggle saves).
       await page.locator('.graph-header').click({ button: 'right' });
       await page.getByRole('menuitem', { name: 'Show Author' }).click();
-      await page.evaluate(() => window.__gb!.flush());
-      await page.reload();
       await expect(page.locator('.graph-header [data-col="author"]')).toHaveCount(1);
     });
     await test.step('the column menu opens from the keyboard (menu key or Shift+F10 on a header control) and runs from it', async () => {
@@ -154,7 +152,8 @@ test.describe('graph extras', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('menu')).toHaveCount(0);
     });
-    await test.step('the header pin button: Default (showing the trunk it picked), None and the branches; the choice persists', async () => {
+    // A pick is stored through the core like the columns above (PinButton.test.tsx: the request).
+    await test.step('the header pin button: Default (showing the trunk it picked), None and the branches', async () => {
       const pin = page.getByRole('button', { name: /^Pinned trunk: / });
       const trunk = ((await pin.getAttribute('aria-label')) ?? '').replace('Pinned trunk: ', '');
       expect(trunk).not.toBe('No trunk');
@@ -173,9 +172,6 @@ test.describe('graph extras', () => {
       await pin.click();
       await page.getByRole('option', { name: 'None' }).click();
       await expect(page.getByRole('button', { name: 'Pinned trunk: No trunk' })).toBeVisible();
-      await page.evaluate(() => window.__gb!.flush());
-      await page.reload();
-      await expect(page.getByRole('button', { name: 'Pinned trunk: No trunk' })).toBeVisible();
 
       await page.getByRole('button', { name: 'Pinned trunk: No trunk' }).click();
       await expect(page.getByRole('option', { name: 'None' })).toHaveAttribute('data-current', 'true');
@@ -189,80 +185,90 @@ test.describe('graph extras', () => {
     });
   });
 
+  // One test per density (each pair was two, paying for a test's setup each): the basic fixture,
+  // then the wide one.
   for (const d of DENSITIES) {
-    test(`${d}: Branch/Tag at its minimum shows icon-only chips, the Graph column clipped packs its lanes, and the connector stays continuous`, async ({ page }) => {
+    test(`${d}: Branch/Tag at its minimum shows icon-only chips, the Graph column clipped packs its lanes, and the connector stays continuous; a labelled row whose node is packed: its connector runs to the packed node`, async ({ page }) => {
       await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [DENSITY_STORAGE_KEY, d]);
-      await open(page);
-      await toMinimum(page, 'Branch / Tag', COLUMN_MIN.labels);
-      await expect(page.getByRole('img', { name: 'Branch / Tag' })).toBeVisible();
-      const row = page.getByRole('row').nth(4);
-      const chip = row.locator('.ref-labels > .ref-label').first();
-      await expect(chip).toHaveClass(/compact/);
-      await expect(chip.locator('.ref-name')).toHaveCount(0);
-      await expectConnectorMeetsCanvas(page, row);
-      // Hovering names the ref again.
-      await chip.hover();
-      await expect(row.locator('.ref-label-full')).toContainText('main');
-      // The Graph column one step narrower than its lanes: the zone shows; connectors still meet.
-      const graph = page.getByRole('separator', { name: 'Resize Graph column' });
-      await graph.focus();
-      await page.keyboard.press('ArrowLeft');
-      await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-clipped', 'true');
-      await expectConnectorMeetsCanvas(page, row);
-      // And at its minimum (the strip).
-      await toMinimum(page, 'Graph', COLUMN_MIN.graph);
-      await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-strip', 'true');
-      await expectConnectorMeetsCanvas(page, row);
-    });
-
-    test(`${d}: a labelled row whose node is packed: its connector runs across the lane area all the way to the packed node`, async ({ page }) => {
-      await page.addInitScript(([k, v]) => localStorage.setItem(k, v), [DENSITY_STORAGE_KEY, d]);
-      await open(page, fixtures.wide);
-      const m = GRAPH_METRICS[d];
-      const handle = page.getByRole('separator', { name: 'Resize Graph column' });
-      await handle.focus();
-      // Narrowed until about five lanes fit beside the zone: the rows below them are packed.
-      const target = zoneWidth(m) + m.padX + 5 * m.laneW + SHADE_W;
-      for (let i = 0; i < 200 && Number(await handle.getAttribute('aria-valuenow')) > target; i++) await page.keyboard.press('ArrowLeft');
-      const canvas = page.getByTestId('graph-canvas');
-      await expect(canvas).toHaveAttribute('data-clipped', 'true');
-      const width = Number(await handle.getAttribute('aria-valuenow'));
-      const { area, packedX } = graphLayout(width, m, true);
-      expect(area).toBeGreaterThan(SHADE_W + m.laneW);
-      const r = nodeRadius(m);
-      const canvasBox = (await canvas.boundingBox())!;
-      // Every row of the wide fixture is labelled; the first whose node sits in the packed column.
-      const rows = page.getByRole('row');
-      let packed = -1;
-      for (let i = 0; i < 12 && packed < 0; i++) {
-        const box = (await rows.nth(i).boundingBox())!;
-        const y = box.y + box.height / 2 - canvasBox.y;
-        const a = await canvas.evaluate((c: HTMLCanvasElement, [x, cy]: number[]) => {
-          const dpr = c.width / c.getBoundingClientRect().width;
-          return c.getContext('2d')!.getImageData(Math.floor(x * dpr), Math.floor(cy * dpr), 1, 1).data[3];
-        }, [packedX, y]);
-        if (a > 100) packed = i;
-      }
-      expect(packed).toBeGreaterThanOrEqual(0);
-      const row = rows.nth(packed);
-      await expect(row.locator('.ref-connector')).toHaveCount(1);
-      await expectConnectorMeetsCanvas(page, row);
-      const box = (await row.boundingBox())!;
-      const y = box.y + box.height / 2 - canvasBox.y;
-      // On the row's centre line vs 4 px above it (the band only): at a lane boundary left of the
-      // shade (no lane line, and a packed row has no band there), and just before the packed
-      // node's left edge (inside the zone, over the band).
-      const laneGap = m.padX + Math.floor((area - SHADE_W - m.padX) / m.laneW) * m.laneW;
-      const px = await canvas.evaluate((c: HTMLCanvasElement, [x1, x2, cy]: number[]) => {
-        const dpr = c.width / c.getBoundingClientRect().width;
-        const ctx = c.getContext('2d')!;
-        const a = (x: number, yy: number) => Math.max(...[-1, 0].map((dy) => ctx.getImageData(Math.floor(x * dpr), Math.floor(yy * dpr) + dy, 1, 1).data[3]));
-        return { gapOn: a(x1, cy), gapOff: a(x1, cy - 4), edgeOn: a(x2, cy), edgeOff: a(x2, cy - 4) };
-      }, [laneGap, packedX - r - 1, y]);
-      // (Off the line, at most an antialiased fringe of a nearby lane curve.)
-      expect(px.gapOff).toBeLessThan(16);
-      expect(px.gapOn).toBeGreaterThan(px.gapOff + 32);
-      expect(px.edgeOn).toBeGreaterThan(px.edgeOff);
+      await test.step('Branch/Tag at its minimum shows icon-only chips, the Graph column clipped packs its lanes, and the connector stays continuous', () => minimums(page));
+      await test.step('a labelled row whose node is packed: its connector runs across the lane area all the way to the packed node', () => packedRow(page, d));
     });
   }
 });
+
+/** Branch/Tag at its minimum shows icon-only chips, the Graph column clipped packs its lanes, and
+ * the connector stays continuous (the basic fixture). */
+async function minimums(page: Page) {
+  await open(page);
+  await toMinimum(page, 'Branch / Tag', COLUMN_MIN.labels);
+  await expect(page.getByRole('img', { name: 'Branch / Tag' })).toBeVisible();
+  const row = page.getByRole('row').nth(4);
+  const chip = row.locator('.ref-labels > .ref-label').first();
+  await expect(chip).toHaveClass(/compact/);
+  await expect(chip.locator('.ref-name')).toHaveCount(0);
+  await expectConnectorMeetsCanvas(page, row);
+  // Hovering names the ref again.
+  await chip.hover();
+  await expect(row.locator('.ref-label-full')).toContainText('main');
+  // The Graph column one step narrower than its lanes: the zone shows; connectors still meet.
+  const graph = page.getByRole('separator', { name: 'Resize Graph column' });
+  await graph.focus();
+  await page.keyboard.press('ArrowLeft');
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-clipped', 'true');
+  await expectConnectorMeetsCanvas(page, row);
+  // And at its minimum (the strip).
+  await toMinimum(page, 'Graph', COLUMN_MIN.graph);
+  await expect(page.getByTestId('graph-canvas')).toHaveAttribute('data-strip', 'true');
+  await expectConnectorMeetsCanvas(page, row);
+}
+
+/** A labelled row whose node is packed: its connector runs across the lane area all the way to
+ * the packed node (the wide fixture, at density `d`). */
+async function packedRow(page: Page, d: (typeof DENSITIES)[number]) {
+  await open(page, fixtures.wide);
+  const m = GRAPH_METRICS[d];
+  const handle = page.getByRole('separator', { name: 'Resize Graph column' });
+  await handle.focus();
+  // Narrowed until about five lanes fit beside the zone: the rows below them are packed.
+  const target = zoneWidth(m) + m.padX + 5 * m.laneW + SHADE_W;
+  for (let i = 0; i < 200 && Number(await handle.getAttribute('aria-valuenow')) > target; i++) await page.keyboard.press('ArrowLeft');
+  const canvas = page.getByTestId('graph-canvas');
+  await expect(canvas).toHaveAttribute('data-clipped', 'true');
+  const width = Number(await handle.getAttribute('aria-valuenow'));
+  const { area, packedX } = graphLayout(width, m, true);
+  expect(area).toBeGreaterThan(SHADE_W + m.laneW);
+  const r = nodeRadius(m);
+  const canvasBox = (await canvas.boundingBox())!;
+  // Every row of the wide fixture is labelled; the first whose node sits in the packed column.
+  const rows = page.getByRole('row');
+  let packed = -1;
+  for (let i = 0; i < 12 && packed < 0; i++) {
+    const box = (await rows.nth(i).boundingBox())!;
+    const y = box.y + box.height / 2 - canvasBox.y;
+    const a = await canvas.evaluate((c: HTMLCanvasElement, [x, cy]: number[]) => {
+      const dpr = c.width / c.getBoundingClientRect().width;
+      return c.getContext('2d')!.getImageData(Math.floor(x * dpr), Math.floor(cy * dpr), 1, 1).data[3];
+    }, [packedX, y]);
+    if (a > 100) packed = i;
+  }
+  expect(packed).toBeGreaterThanOrEqual(0);
+  const row = rows.nth(packed);
+  await expect(row.locator('.ref-connector')).toHaveCount(1);
+  await expectConnectorMeetsCanvas(page, row);
+  const box = (await row.boundingBox())!;
+  const y = box.y + box.height / 2 - canvasBox.y;
+  // On the row's centre line vs 4 px above it (the band only): at a lane boundary left of the
+  // shade (no lane line, and a packed row has no band there), and just before the packed
+  // node's left edge (inside the zone, over the band).
+  const laneGap = m.padX + Math.floor((area - SHADE_W - m.padX) / m.laneW) * m.laneW;
+  const px = await canvas.evaluate((c: HTMLCanvasElement, [x1, x2, cy]: number[]) => {
+    const dpr = c.width / c.getBoundingClientRect().width;
+    const ctx = c.getContext('2d')!;
+    const a = (x: number, yy: number) => Math.max(...[-1, 0].map((dy) => ctx.getImageData(Math.floor(x * dpr), Math.floor(yy * dpr) + dy, 1, 1).data[3]));
+    return { gapOn: a(x1, cy), gapOff: a(x1, cy - 4), edgeOn: a(x2, cy), edgeOff: a(x2, cy - 4) };
+  }, [laneGap, packedX - r - 1, y]);
+  // (Off the line, at most an antialiased fringe of a nearby lane curve.)
+  expect(px.gapOff).toBeLessThan(16);
+  expect(px.gapOn).toBeGreaterThan(px.gapOff + 32);
+  expect(px.edgeOn).toBeGreaterThan(px.edgeOff);
+}

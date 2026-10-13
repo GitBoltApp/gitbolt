@@ -3,6 +3,9 @@ import { Suspense } from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { FileMarkdownContext } from '../types';
 
+// happy-dom's IntersectionObserver never fires; without one every block counts as near the viewport.
+vi.stubGlobal('IntersectionObserver', undefined);
+
 // Diagrams draw through a stub (MdMermaid's own tests cover Mermaid); code stays plain.
 vi.mock('../mermaid', () => ({ renderMermaid: async (s: string) => `<svg xmlns="http://www.w3.org/2000/svg"><text>${s.length}</text></svg>` }));
 vi.mock('../highlightQueue', () => ({ queueHighlight: () => ({ result: Promise.resolve(null), cancel: () => {} }) }));

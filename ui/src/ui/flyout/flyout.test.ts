@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it } from 'vitest';
 import { closeFlyout, CENTER_KEEP, FLYOUT_W, flyoutOf, flyoutWidth, openFlyout, registerFlyout } from './flyout';
 

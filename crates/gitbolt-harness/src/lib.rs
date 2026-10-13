@@ -24,6 +24,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
 pub mod fake_forge;
+pub mod fixtures_showcase;
 use gitbolt_forge::{connector::{Forge, ForgeConfig}, endpoints::HostEndpoints, tokens::FileTokenStore};
 
 /// The "Open in…" launches the harness recorded instead of running anything (tests never start

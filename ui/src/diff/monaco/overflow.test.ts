@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it } from 'vitest';
 import { OVERFLOW_LAYER_CLASS, OVERFLOW_LAYER_Z, overflowLayer } from './overflow';
 

@@ -11,6 +11,7 @@ const THUMB = 'rgba(255, 255, 255, 0.15)'; // --scroll-thumb-bg
 const diff = (page: Page) => page.getByRole('region', { name: 'Diff' });
 
 // Playwright's headless Chromium hides every scrollbar (`--hide-scrollbars`), styled ones too.
+// (CDP's Emulation.setScrollbarsHidden doesn't bring them back under that switch.)
 test.use({ launchOptions: { ignoreDefaultArgs: ['--hide-scrollbars'] } });
 
 async function openAppPhp(page: Page) {

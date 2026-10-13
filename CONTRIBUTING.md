@@ -15,7 +15,7 @@ dependencies once with `cd ui && npm ci`.
 | Command | What it does |
 |---|---|
 | `just dev [repo]` | Runs the app in development mode (the Vite dev server plus a debug build), optionally opening `repo` |
-| `just playground` | Builds throwaway repositories to try the app on (basic, sync, conflicts, …) in `~/gitbolt-playground` |
+| `just playground` | Builds throwaway repositories to try the app on (basic, sync, conflicts, …) in `~/gitbolt-playground`; more in [docs/playground.md](docs/playground.md) |
 | `just test` | The Rust tests, the UI unit tests and the packaging and release script tests |
 | `just test-rust` | The Rust tests, with cargo-nextest when it's installed |
 | `just test-ui` | All the UI unit tests (vitest) |
@@ -37,6 +37,11 @@ version, and every test (and `gitbolt-harness fixture`) gets a copy of it. Set
 test; a component's logic or rendering gets a vitest test; a Playwright test is for a real flow
 through the UI and the backend together. Each Playwright test boots the app, so it costs far more
 than a unit test.
+
+**vitest runs `.ts` tests in plain Node and `.tsx` tests in happy-dom.** Node starts several times
+faster, so keep logic in `.ts` tests. A `.ts` test that needs a DOM (`document`, `localStorage`, a
+store that touches them) says so on its first line: `// @vitest-environment happy-dom`. A test
+that needs something only jsdom does says `// @vitest-environment jsdom` instead.
 
 **Keep the e2e suite fast.** It runs on one worker, so every test adds to the total. Keep new specs lean: reuse an app boot where you can, and
 move cases that don't need the whole stack down to vitest or Rust. Tests that assert a latency

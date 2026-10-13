@@ -29,7 +29,7 @@ describe('WIP row counts (K47)', () => {
     expect(counts).toHaveAccessibleName('3 modified · 2 added · 1 renamed');
     expect([...counts.querySelectorAll('svg')].map((s) => s.getAttribute('data-status'))).toEqual(['modified', 'added', 'renamed']);
     expect(counts.textContent).toBe('321');
-    expect(counts.querySelector('[data-status="modified"]')).toHaveStyle({ color: 'var(--status-modified)' });
+    expect(counts.querySelector<SVGElement>('[data-status="modified"]')!.style.color).toBe('var(--status-modified)');
   });
 
   it('shows deleted too, and no counts element when clean', () => {

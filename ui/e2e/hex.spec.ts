@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from './test';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fixtures, freshFixture, git, openUrl } from './fixtures';
+import { freshFixture, git, openUrl } from './fixtures';
 
 // UX round 2, lane K: a binary's hex view. Per side, a hex pane (bytes only, offsets in its
 // gutter) and a text pane, each a read-only Monaco editor, scrolled together. The `details`
@@ -42,10 +42,72 @@ async function open(page: Page, path: string) {
 }
 
 test.describe('the hex view', () => {
-  // One page for both (each was a test of its own, paying for a page load and Monaco's start-up):
-  // data.bin opens in Diff View, then switches to File View.
-  test('a binary file: Diff View shows old and new side by side, coloured; File View shows hex | text, selections mirrored', async ({ page, browserName }) => {
-    await page.goto(openUrl(fixtures.details));
+  // One repo and page for these (each was a test of its own, paying for a page load and Monaco's
+  // start-up): a large blob scrolled first, at 1280×720; then data.bin opens in Diff View, which
+  // widens the window, then switches to File View.
+  test('the panes scroll together, row for row, and Next change steps through the changed rows; a binary file: Diff View shows old and new side by side, coloured; File View shows hex | text, selections mirrored', async ({ page, browserName }) => {
+    const repo = freshFixture('details');
+    // 8 KB (1024 rows of 8 at 1280×720), changed at offsets 0x93 and 0x18f5.
+    const bytes = Buffer.from(Array.from({ length: 8192 }, (_, i) => (i * 7) & 0xff));
+    writeFileSync(join(repo, 'blob.bin'), bytes);
+    git(repo, 'add', 'blob.bin');
+    git(repo, 'commit', '-m', 'Add blob');
+    bytes[9 * 16 + 3] ^= 0xff;
+    bytes[399 * 16 + 5] ^= 0xff;
+    writeFileSync(join(repo, 'blob.bin'), bytes);
+    git(repo, 'commit', '-am', 'Edit blob');
+    await page.goto(openUrl(repo));
+    await test.step('the panes scroll together, row for row, and Next change steps through the changed rows', async () => {
+      await page.getByRole('row').filter({ hasText: 'Edit blob' }).click();
+      await open(page, 'blob.bin');
+      const newHex = pane(page, 'new', 'hex');
+      await expect(newHex.locator(GUTTER).first()).toHaveText('00000000', { timeout: 15_000 });
+      await expect(pane(page, 'old', 'hex').locator('.hex-removed')).toHaveCount(1);
+      const together = async () => {
+        const tops = await scrollTops(page);
+        return tops.length === 4 && tops.every((t) => t === tops[0]) ? tops[0] : -1;
+      };
+      // The first change is on the first screen; Next goes to it, then to row 400.
+      const d = diff(page);
+      await d.getByRole('button', { name: 'Next change' }).click();
+      await d.getByRole('button', { name: 'Next change' }).click();
+      await expect(newHex.locator(GUTTER).filter({ hasText: '000018f0' })).toBeVisible();
+      await expect(pane(page, 'old', 'text').locator('.hex-removed')).toBeVisible();
+      await expect.poll(together).toBeGreaterThan(0);
+      // The wheel over any pane moves all four.
+      const at = await together();
+      const oldText = (await pane(page, 'old', 'text').boundingBox())!;
+      await page.mouse.move(oldText.x + oldText.width / 2, oldText.y + oldText.height / 2);
+      await page.mouse.wheel(0, -1500);
+      await expect.poll(together).toBeLessThan(at);
+      await expect.poll(together).toBeGreaterThanOrEqual(0);
+      const hexBox = (await newHex.boundingBox())!;
+      await page.mouse.move(hexBox.x + hexBox.width / 2, hexBox.y + hexBox.height / 2);
+      const before = await together();
+      await page.mouse.wheel(0, 1500);
+      await expect.poll(together).toBeGreaterThan(before);
+      // Back at row 400: its colours are drawn again (only the rows around the viewport are).
+      await expect(pane(page, 'old', 'text').locator('.hex-removed')).toBeVisible();
+      await expect(pane(page, 'new', 'hex').locator('.hex-inserted')).toBeVisible();
+      // Next wraps around to the first change (its row at 0x90).
+      await d.getByRole('button', { name: 'Next change' }).click();
+      await expect(newHex.locator(GUTTER).filter({ hasText: '00000090' })).toBeVisible();
+      await expect(newHex.locator(GUTTER).filter({ hasText: '000018f0' })).toHaveCount(0);
+      // One vertical scrollbar, the view's, at its far right (the panes have none of their own),
+      // with the changes marked on it; scrolled, it moves all four panes.
+      const bar = d.locator('.hex-bar');
+      await expect(bar).toHaveCount(1);
+      const view = (await d.locator('.hex-view').boundingBox())!;
+      const barBox = (await bar.boundingBox())!;
+      expect(Math.abs(barBox.x + barBox.width - (view.x + view.width))).toBeLessThan(1);
+      expect(await d.locator('.hex-pane .scrollbar.vertical').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetWidth > 0).length)).toBe(0);
+      await expect(bar.locator('.hex-mark')).toHaveCount(4);
+      await bar.locator('.hex-scroller').evaluate((e) => { e.scrollTop = 3000; });
+      await expect.poll(together).toBe(3000);
+      // Closed: its diff hides the graph.
+      await d.getByRole('button', { name: 'Close diff' }).click();
+      await expect(d).toHaveCount(0);
+    });
     await page.getByRole('row').filter({ hasText: COMMIT }).click();
     await open(page, 'data.bin');
     await test.step('Diff View: old and new side by side, the changed bytes coloured in both panes of both sides', async () => {
@@ -122,65 +184,5 @@ test.describe('the hex view', () => {
       await page.keyboard.press('Control+a');
       await expect.poll(() => marked(hex, 'hex-mirror')).toBe('42 49 4e 00 01 02 6e 65  77 21');
     });
-  });
-
-  test('the panes scroll together, row for row, and Next change steps through the changed rows', async ({ page }) => {
-    const repo = freshFixture('details');
-    // 8 KB (1024 rows of 8 at 1280×720), changed at offsets 0x93 and 0x18f5.
-    const bytes = Buffer.from(Array.from({ length: 8192 }, (_, i) => (i * 7) & 0xff));
-    writeFileSync(join(repo, 'blob.bin'), bytes);
-    git(repo, 'add', 'blob.bin');
-    git(repo, 'commit', '-m', 'Add blob');
-    bytes[9 * 16 + 3] ^= 0xff;
-    bytes[399 * 16 + 5] ^= 0xff;
-    writeFileSync(join(repo, 'blob.bin'), bytes);
-    git(repo, 'commit', '-am', 'Edit blob');
-    await page.goto(openUrl(repo));
-    await page.getByRole('row').filter({ hasText: 'Edit blob' }).click();
-    await open(page, 'blob.bin');
-    const newHex = pane(page, 'new', 'hex');
-    await expect(newHex.locator(GUTTER).first()).toHaveText('00000000', { timeout: 15_000 });
-    await expect(pane(page, 'old', 'hex').locator('.hex-removed')).toHaveCount(1);
-    const together = async () => {
-      const tops = await scrollTops(page);
-      return tops.length === 4 && tops.every((t) => t === tops[0]) ? tops[0] : -1;
-    };
-    // The first change is on the first screen; Next goes to it, then to row 400.
-    const d = diff(page);
-    await d.getByRole('button', { name: 'Next change' }).click();
-    await d.getByRole('button', { name: 'Next change' }).click();
-    await expect(newHex.locator(GUTTER).filter({ hasText: '000018f0' })).toBeVisible();
-    await expect(pane(page, 'old', 'text').locator('.hex-removed')).toBeVisible();
-    await expect.poll(together).toBeGreaterThan(0);
-    // The wheel over any pane moves all four.
-    const at = await together();
-    const oldText = (await pane(page, 'old', 'text').boundingBox())!;
-    await page.mouse.move(oldText.x + oldText.width / 2, oldText.y + oldText.height / 2);
-    await page.mouse.wheel(0, -1500);
-    await expect.poll(together).toBeLessThan(at);
-    await expect.poll(together).toBeGreaterThanOrEqual(0);
-    const hexBox = (await newHex.boundingBox())!;
-    await page.mouse.move(hexBox.x + hexBox.width / 2, hexBox.y + hexBox.height / 2);
-    const before = await together();
-    await page.mouse.wheel(0, 1500);
-    await expect.poll(together).toBeGreaterThan(before);
-    // Back at row 400: its colours are drawn again (only the rows around the viewport are).
-    await expect(pane(page, 'old', 'text').locator('.hex-removed')).toBeVisible();
-    await expect(pane(page, 'new', 'hex').locator('.hex-inserted')).toBeVisible();
-    // Next wraps around to the first change (its row at 0x90).
-    await d.getByRole('button', { name: 'Next change' }).click();
-    await expect(newHex.locator(GUTTER).filter({ hasText: '00000090' })).toBeVisible();
-    await expect(newHex.locator(GUTTER).filter({ hasText: '000018f0' })).toHaveCount(0);
-    // One vertical scrollbar, the view's, at its far right (the panes have none of their own),
-    // with the changes marked on it; scrolled, it moves all four panes.
-    const bar = d.locator('.hex-bar');
-    await expect(bar).toHaveCount(1);
-    const view = (await d.locator('.hex-view').boundingBox())!;
-    const barBox = (await bar.boundingBox())!;
-    expect(Math.abs(barBox.x + barBox.width - (view.x + view.width))).toBeLessThan(1);
-    expect(await d.locator('.hex-pane .scrollbar.vertical').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetWidth > 0).length)).toBe(0);
-    await expect(bar.locator('.hex-mark')).toHaveCount(4);
-    await bar.locator('.hex-scroller').evaluate((e) => { e.scrollTop = 3000; });
-    await expect.poll(together).toBe(3000);
   });
 });

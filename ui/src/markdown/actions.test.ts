@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const SHA = 'abc1234def5678abc1234def5678abc1234def56';

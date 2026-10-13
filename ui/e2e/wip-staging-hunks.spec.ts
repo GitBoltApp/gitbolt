@@ -38,11 +38,13 @@ test.describe('hunks and lines (spec #2 §7.3)', () => {
   // One repo and page for these (each was a test of its own, paying for a page load and Monaco's
   // start-up): each step's staging is undone after it (the file list's Undo staging, §7.6), and
   // its file closed, so the next starts from the fixture as a test of its own did.
-  test('staging hunks and lines: Inline and Split, Hunk mode\'s rows, a file\'s only hunk, a selection and a deleted line, unstaging and discarding a hunk, an autocrlf file', async ({ page, request }) => {
+  test('staging hunks and lines: Inline, Hunk mode\'s rows, a file\'s only hunk, a selection and a deleted line, unstaging and discarding a hunk, an autocrlf file', async ({ page, request }) => {
     const repo = await openWip(page);
-    await test.step("Inline and Split modes: no rows between lines; the gutter's + stages one line, the menu a hunk", async () => {
+    // Inline (the default) only: Split's added line takes the same gutter widget on the same
+    // modified editor (the step was a mode loop, a second pass over the same code).
+    await test.step("Inline mode: no rows between lines; the gutter's + stages one line, the menu a hunk", async () => {
       const staged = () => git(repo, 'diff', '--cached', '--', 'src/app.txt');
-      for (const m of ['Inline', 'Split'] as const) {
+      for (const m of ['Inline'] as const) {
         await fileRow(page, 'unstaged', 'src/app.txt').click();
         await mode(page, m).click();
         await (await revealLine(page, 'app 20 changed')).hover();

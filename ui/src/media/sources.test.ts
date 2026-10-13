@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { BlobPayload } from '../api/gen/BlobPayload';

@@ -217,6 +217,9 @@ describe('SettingsView', () => {
   it('reset asks first (Cancel changes nothing), then restores the defaults it owns', async () => {
     useAppState.setState({ settings: { ...DEFAULT_SETTINGS, dateFormat: 'dmy24h', prune: false, fetchIntervalSecs: 0, forgeAvatars: false } });
     useDensity.getState().setDensity('compact');
+    // No layout, as in jsdom: the control reports no box, so the confirm opens as a popover (with
+    // a Cancel) rather than arming in place.
+    const rects = vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([] as unknown as DOMRectList);
     show();
     fireEvent.click(screen.getByRole('button', { name: /Reset settings to defaults/ }));
     fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }));
@@ -228,6 +231,7 @@ describe('SettingsView', () => {
     clock.settle();
     press(reset);
     clock.restore();
+    rects.mockRestore();
     await waitFor(() => expect(useAppState.getState().settings.dateFormat).toBe('ymd12h'));
     expect(useAppState.getState().settings.prune).toBe(true);
     expect(useAppState.getState().settings.fetchIntervalSecs).toBe(60);

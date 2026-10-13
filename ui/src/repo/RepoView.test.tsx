@@ -29,6 +29,10 @@ vi.mock('../api/transport', () => ({
   createTransport: () => ({ call: () => Promise.reject(new Error('no backend in this test')), subscribe: () => () => {} }),
 }));
 HTMLCanvasElement.prototype.getContext = (() => null) as never;
+// The diff panel's chunk (RepoView reaches it through React.lazy), loaded before the tests: the
+// first test to open a file otherwise waits on Vite transforming the panel's whole module tree,
+// which on a loaded machine took longer than its wait.
+await import('../diff/DiffPanel');
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const row = (id: string, summary: string, parents: string[]): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 1_767_225_600, committerTime: 1_767_225_600, parents, mrRefs: [], wip: null });
@@ -618,8 +622,9 @@ describe('RepoView', () => {
       await openA();
       const region = screen.getByRole('region', { name: 'Diff' });
       const editor = Object.assign(document.createElement('div'), { className: 'monaco-editor' });
-      // jsdom: no box, so not shown, whatever its class says.
+      // No box, so not shown, whatever its class says (happy-dom gives every element one rect).
       const find = Object.assign(document.createElement('div'), { className: 'find-widget visible' });
+      find.getClientRects = () => [] as unknown as DOMRectList;
       const input = document.createElement('textarea');
       editor.append(find, input);
       region.append(editor);

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { readWipDraft, writeWipDraft } from '../commit/draft';
 import { applyMergeDraft, mergeDraft, restoreDraftAfterAbort, settleDraftAside } from './mergeDraft';

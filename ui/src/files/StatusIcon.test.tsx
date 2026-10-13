@@ -23,7 +23,7 @@ describe('StatusIcon', () => {
     expect(icons.map((i) => i.getAttribute('aria-label'))).toEqual(['Added', 'Modified', 'Deleted', 'Renamed', 'Copied']);
     expect(icons.map((i) => i.getAttribute('data-status'))).toEqual(['added', 'modified', 'deleted', 'renamed', 'added']);
     expect(icons.every((i) => i.tagName.toLowerCase() === 'svg' && i.textContent === i.getAttribute('aria-label'))).toBe(true); // only the <title>
-    expect(icons[1]).toHaveStyle({ color: 'var(--status-modified)' });
+    expect(icons[1].style.getPropertyValue('color')).toBe('var(--status-modified)');
     // Distinct glyphs: no two kinds share a drawing.
     const shapes = icons.slice(0, 4).map((i) => i.innerHTML.replace(/<title>.*<\/title>/, ''));
     expect(new Set(shapes).size).toBe(4);

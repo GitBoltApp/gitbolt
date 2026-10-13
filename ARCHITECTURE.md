@@ -403,7 +403,7 @@ off, records "Open in…" launches instead of running them, and refuses writes t
 that isn't a marked fixture. Test-only routes: `POST /test/reset`, `/test/emit`, `/test/next-pick`,
 `/test/write`, `GET /test/watched`, `GET /launches`, `ANY /test/auth/*` (always 401), and the fake
 forge's `/test/forge/{seed,script,requests,account}`. `gitbolt-harness fixture <name> <dir>` builds
-a fixture repository.
+a fixture repository (the showcase ones, for previews, submodules and LFS: [docs/playground.md](docs/playground.md)).
 
 **The fake forge** (`crates/gitbolt-harness/src/fake_forge/`) answers the subset of the GitHub and
 GitLab REST APIs that the providers use, from a seed: ETags with 304s, each forge's rate-limit

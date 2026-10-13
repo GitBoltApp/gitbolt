@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { CircleHelp } from 'lucide-react';
 import { describe, expect, it, vi } from 'vitest';
 import type { Action } from '../../app/actions';

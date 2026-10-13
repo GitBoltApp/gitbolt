@@ -12,16 +12,17 @@ const statusBar = (page: Page) => page.locator('.status-bar');
 const authDialog = (page: Page) => page.getByRole('dialog', { name: 'Authentication required' });
 const graph = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
 
-/** Pushes a new branch `from-e2e` with one commit to the fixture's origin, from another clone. */
-function pushFromElsewhere(repo: string, message: string) {
+/** Pushes a new branch (`from-e2e` by default) with one commit to the fixture's origin, from
+ * another clone. */
+function pushFromElsewhere(repo: string, message: string, branch = 'from-e2e') {
   const origin = join(dirname(repo), 'origin.git');
-  const other = join(dirname(repo), 'other');
+  const other = join(dirname(repo), `other-${branch}`);
   git(dirname(repo), 'clone', '-q', origin, other);
-  git(other, 'switch', '-q', '-c', 'from-e2e');
+  git(other, 'switch', '-q', '-c', branch);
   writeFileSync(join(other, 'e2e.txt'), 'x\n');
   git(other, 'add', 'e2e.txt');
   git(other, 'commit', '-q', '-m', message);
-  git(other, 'push', '-q', 'origin', 'from-e2e');
+  git(other, 'push', '-q', 'origin', branch);
 }
 
 /** `scripts/fake-ssh` (K96): an ssh stand-in that fails like a dead agent, asks a key passphrase
@@ -51,8 +52,14 @@ function paintedNow(): string {
   return out.join('|');
 }
 
+// The scheduler (intervals, minimized windows, the replayed tick) is fetchSchedule.test.ts; what
+// each outcome shows (toasts, the bell, the slow-fetch bar and its Cancel) fetchSchedule.hook.test.tsx
+// and StatusBar.test.tsx; fake-ssh's dead agent, passphrase and hang the core's netops.rs and the
+// harness's askpass.rs.
 test.describe('fetch', () => {
-  test('a user fetch brings in new remote branches', async ({ page }) => {
+  // The Fetch dropdown is the default picker now (spec #2 §12.1): picking runs nothing, so the
+  // palette's "Fetch all" (`repo.fetch`) is the other way to fetch.
+  test('a user fetch brings in new remote branches; Fetch all, from the palette, fetches too', async ({ page }) => {
     const repo = freshFixture('basic');
     pushFromElsewhere(repo, 'Pushed from elsewhere');
     await page.goto(openUrl(repo));
@@ -63,6 +70,13 @@ test.describe('fetch', () => {
     await expect(page.getByRole('row').filter({ hasText: 'Pushed from elsewhere' }).getByText('from-e2e')).toBeVisible();
     await expect(fetchButton(page)).toBeEnabled();
     await expect(statusBar(page)).not.toContainText('Fetching…');
+
+    pushFromElsewhere(repo, 'Pushed for Fetch all', 'for-fetch-all');
+    await page.keyboard.press('Control+p');
+    await page.keyboard.type('>Fetch all');
+    await expect(page.getByRole('option').first()).toContainText('Fetch all');
+    await page.keyboard.press('Enter');
+    await expect(page.getByText('Pushed for Fetch all')).toBeVisible({ timeout: 10_000 });
   });
 
   // UX round 4, T.1: only the failing remote's sidebar row warns, until a fetch of it works.
@@ -84,20 +98,6 @@ test.describe('fetch', () => {
     git(repo, 'remote', 'set-url', 'gone', origin);
     await fetchButton(page).click();
     await expect(warn).toHaveCount(0, { timeout: 10_000 });
-  });
-
-  // The Fetch dropdown is the default picker now (spec #2 §12.1): picking runs nothing, so the
-  // palette's "Fetch all" (`repo.fetch`) is the other way to fetch.
-  test('Fetch all, from the palette, fetches too', async ({ page }) => {
-    const repo = freshFixture('basic');
-    pushFromElsewhere(repo, 'Pushed for Fetch all');
-    await page.goto(openUrl(repo));
-    await expect(graph(page)).toBeVisible();
-    await page.keyboard.press('Control+p');
-    await page.keyboard.type('>Fetch all');
-    await expect(page.getByRole('option').first()).toContainText('Fetch all');
-    await page.keyboard.press('Enter');
-    await expect(page.getByText('Pushed for Fetch all')).toBeVisible({ timeout: 10_000 });
   });
 
   // One repo (its origin asking for credentials) and page for these (each was a test of its own,
@@ -177,27 +177,11 @@ test.describe('fetch', () => {
     await expect(fetchButton(page)).toBeEnabled();
   });
 
-  test('an ssh key passphrase prompt goes through the modal (K96)', async ({ page }) => {
-    const repo = freshFixture('basic');
-    pushFromElsewhere(repo, 'Fetched over ssh');
-    sshOrigin(repo, '--passphrase testpass');
-    await page.goto(openUrl(repo));
-    await expect(graph(page)).toBeVisible();
-    await fetchButton(page).click();
-    const dialog = authDialog(page);
-    await expect(dialog).toContainText('Enter passphrase for key');
-    await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
-    await dialog.getByLabel('Password').fill('testpass');
-    await dialog.getByRole('button', { name: 'Submit' }).click();
-    // The fetched commit shows; a fetch that worked raises no toast.
-    await expect(page.getByText('Fetched over ssh')).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByRole('status').filter({ hasText: 'Fetch failed' })).toHaveCount(0);
-  });
-
+  // An ssh key passphrase through the modal (K96), here arriving while the palette is open.
   test('a passphrase prompt that arrives while the palette is open is on top, focused, and owns Enter (I1)', async ({ page }) => {
     const repo = freshFixture('basic');
     pushFromElsewhere(repo, 'Fetched under the palette');
-    sshOrigin(repo, '--delay 2 --passphrase testpass');
+    sshOrigin(repo, '--delay 1 --passphrase testpass');
     await page.goto(openUrl(repo));
     await expect(graph(page)).toBeVisible();
     await fetchButton(page).click();
@@ -207,6 +191,7 @@ test.describe('fetch', () => {
     const dialog = authDialog(page);
     await expect(dialog).toContainText('Enter passphrase for key', { timeout: 10_000 });
     await expect(dialog.getByLabel('Password')).toBeFocused();
+    await expect(dialog.getByLabel('Password')).toHaveAttribute('type', 'password');
     // The prompt is the topmost thing at its own centre, above the palette.
     const onTop = await dialog.evaluate((el) => {
       const r = el.getBoundingClientRect();
@@ -220,37 +205,7 @@ test.describe('fetch', () => {
     await expect(page.getByRole('search', { name: 'Find in graph' })).toHaveCount(0);
   });
 
-  test('a stuck user fetch shows in the status bar once slow, and Cancel stops it quietly (K96)', async ({ page }) => {
-    const repo = freshFixture('basic');
-    sshOrigin(repo, '--hang');
-    await page.goto(openUrl(repo));
-    await expect(graph(page)).toBeVisible();
-    await fetchButton(page).click();
-    await expect(fetchButton(page)).toHaveAttribute('aria-busy', 'true');
-    await expect(statusBar(page)).toContainText('Fetching repo…', { timeout: 10_000 });
-    await statusBar(page).getByRole('button', { name: 'Cancel' }).click();
-    await expect(statusBar(page)).not.toContainText('Fetching', { timeout: 5000 });
-    await expect(fetchButton(page)).toBeEnabled();
-    await expect(page.getByRole('status')).toHaveCount(0);
-  });
-
-  test('background fetch runs on its own, and not while the window is minimized', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await expect(graph(page)).toBeVisible();
-    await page.evaluate(() => { window.__gbTestMinimized = true; });
-    pushFromElsewhere(repo, 'Fetched in the background');
-    await page.evaluate(() => window.__gb!.setSettings({ fetchIntervalSecs: 30 }));
-    // A negative check: time has to pass. A fetch from the local origin shows well within it.
-    await page.waitForTimeout(1500);
-    await expect(page.getByText('Fetched in the background')).toHaveCount(0);
-    // Restored: the focus comes back, and the missed tick is replayed. The next regular tick is
-    // 60 s away (30 is clamped to 60), so only the replay can fetch within the wait below.
-    await page.evaluate(() => { window.__gbTestMinimized = false; window.dispatchEvent(new Event('focus')); });
-    await expect(page.getByText('Fetched in the background')).toBeVisible({ timeout: 10_000 });
-  });
-
-  test('a background fetch shows nowhere but the activity log (K30)', async ({ page }) => {
+  test('a background fetch runs on its own and shows nowhere but the activity log (K30)', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
     await expect(graph(page)).toBeVisible();

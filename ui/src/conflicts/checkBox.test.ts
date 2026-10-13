@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { contrastRatio } from '../theme/contrast';
 import { THEME_IDS, THEMES } from '../theme/themes';
 import { describe, expect, it, vi } from 'vitest';

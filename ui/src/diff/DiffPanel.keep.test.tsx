@@ -40,6 +40,10 @@ const { Loader } = await import('../data/loader');
 const { Lru } = await import('../data/lru');
 const { fakeServices } = await import('../repo/testServices');
 const { RepoView } = await import('../repo/RepoView');
+// The panel's chunk (RepoView reaches it through React.lazy), loaded before the tests: the first
+// open otherwise waits on Vite transforming the panel's whole module tree, which on a loaded
+// machine took longer than the waits below and failed the first tests.
+await import('./DiffPanel');
 
 const A = 'a'.repeat(40), B = 'b'.repeat(40);
 const row = (id: string, summary: string, parents: string[]): RowPayload => ({ id, kind: 'commit', lane: 0, color: 0, segments: [], summary, bodyFirstLine: '', authorName: 'Grace Hopper', authorEmail: 'grace@example.com', authorTime: 1_767_225_600, committerTime: 1_767_225_600, parents, mrRefs: [], wip: null });

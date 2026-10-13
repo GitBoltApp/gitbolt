@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ForgeAccountView } from '../api/gen/ForgeAccountView';
 import { DEFAULT_SETTINGS, EMPTY_PROFILE } from '../app/state';
 import { armClock, press } from '../ui/arm/armTesting';
@@ -33,7 +33,12 @@ const show = () => render(<><AccountsSection /><ConfirmDialog /></>);
 const openAdd = async () => { fireEvent.click(await screen.findByRole('button', { name: '+ Add account' })); await screen.findByRole('form', { name: 'Add a forge account' }); };
 const row = () => screen.findByRole('listitem', { name: 'gitlab.example.com account' });
 
+// jsdom has no layout, so a control is never "shown" and a confirm opens its dialog; happy-dom reports
+// one box for every element, which would arm in place instead. These tests are of the dialog.
+let rects: ReturnType<typeof vi.spyOn>;
+afterEach(() => rects.mockRestore());
 beforeEach(() => {
+  rects = vi.spyOn(HTMLElement.prototype, 'getClientRects').mockImplementation(() => [] as unknown as DOMRectList);
   vi.clearAllMocks();
   api.forgeAccounts.mockResolvedValue([]);
   useAppState.setState({ settings: DEFAULT_SETTINGS, profile: { ...EMPTY_PROFILE, name: 'Work', tabs: [{ id: 't1', kind: 'repo', path: '/r/shop', alias: null }], activeTab: 't1' } });

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
 import { actionForCombo, getAction, runAction } from '../../app/actions';
 import { lend } from '../../app/lent';

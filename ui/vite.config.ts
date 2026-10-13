@@ -87,9 +87,16 @@ export default defineConfig(({ mode }) => ({
     ],
   },
   test: {
-    environment: 'jsdom',
-    include: ['src/**/*.test.{ts,tsx}', 'build/**/*.test.ts'],
     setupFiles: ['src/test-setup.ts'],
+    // Components in happy-dom; logic in plain Node, which starts in a fraction of the time (a
+    // jsdom environment per file was most of the suite's run, and happy-dom runs the components in
+    // about half jsdom's time). A test that needs another says so on its first line: a .ts one
+    // that needs a DOM `// @vitest-environment happy-dom`, one that needs what only jsdom does
+    // `// @vitest-environment jsdom`.
+    projects: [
+      { extends: true, test: { name: 'dom', environment: 'happy-dom', include: ['src/**/*.test.tsx'] } },
+      { extends: true, test: { name: 'logic', environment: 'node', include: ['src/**/*.test.ts', 'build/**/*.test.ts'] } },
+    ],
     // The dev machine is power-capped and often runs several builds at once: a loaded run took
     // 5-9 s for tests that finish in under 1 s idle. 15 s keeps real hangs failing.
     testTimeout: 15_000,

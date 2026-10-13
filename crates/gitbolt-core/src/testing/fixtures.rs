@@ -30,8 +30,8 @@ pub fn basic(r: &TestRepo) {
     r.git(&["remote", "set-head", "origin", "main"]);
     r.tag("v1.0", &readme);
     r.switch_new("feature/login");
-    r.commit_as("Login form", "Linus Torvalds", "linus@example.com");
-    r.commit_as("Login validation", "Linus Torvalds", "linus@example.com");
+    r.commit_as("Login form", "Lars Tidemann", "lars@example.com");
+    r.commit_as("Login validation", "Lars Tidemann", "lars@example.com");
     r.push("feature/login");
     r.switch("main");
     r.commit_as("Fix typo", "Ada Lovelace", "ada@example.com");
@@ -79,7 +79,7 @@ pub fn long_labels(r: &TestRepo) {
 }
 
 /// The message of `details`' "Rename guide and update assets" commit.
-pub const DETAILS_MESSAGE: &str = "Rename guide and update assets\n\nRefs !42 and group/sub/project!7, fixes #12.\nSee https://example.com/docs for details.\n\nCo-authored-by: Margaret Hamilton <margaret@example.com>\nco-authored-by: Linus Torvalds <linus@example.com>";
+pub const DETAILS_MESSAGE: &str = "Rename guide and update assets\n\nRefs !42 and group/sub/project!7, fixes #12.\nSee https://example.com/docs for details.\n\nCo-authored-by: Maren Holt <maren@example.com>\nco-authored-by: Lars Tidemann <lars@example.com>";
 
 const SVG_OLD: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><rect width=\"16\" height=\"16\" fill=\"#15a0bf\"/></svg>\n";
 const SVG_NEW: &str = "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"16\" height=\"16\"><circle cx=\"8\" cy=\"8\" r=\"8\" fill=\"#f25d2e\"/></svg>\n";
@@ -184,7 +184,7 @@ pub fn details(r: &TestRepo) {
 
     r.switch_new("feature/x");
     r.write("feature.txt", "feature\n");
-    r.commit_all_as("Add feature file", "Linus Torvalds", "linus@example.com");
+    r.commit_all_as("Add feature file", "Lars Tidemann", "lars@example.com");
     r.switch("main");
 
     r.git(&["mv", "docs/guide.txt", "docs/manual.txt"]);
@@ -264,16 +264,16 @@ pub fn merge_lock(r: &TestRepo) {
     r.switch_new("dev");
     r.commit_as("Config loader", "Grace Hopper", "grace@example.com");
     r.switch_new("feature/retry");
-    r.commit_as("Retry policy", "Linus Torvalds", "linus@example.com");
+    r.commit_as("Retry policy", "Lars Tidemann", "lars@example.com");
     r.switch("dev");
     r.switch_new("feature/parser");
     r.commit_as("Parser", "Ada Lovelace", "ada@example.com");
     r.switch_new("spike");
-    r.commit_as("Spike: tokens", "Margaret Hamilton", "margaret@example.com");
+    r.commit_as("Spike: tokens", "Maren Holt", "maren@example.com");
     r.switch("dev");
     r.merge("feature/parser", "Merge branch 'feature/parser' into dev");
     r.switch("spike");
-    r.commit_as("Spike: streaming", "Margaret Hamilton", "margaret@example.com");
+    r.commit_as("Spike: streaming", "Maren Holt", "maren@example.com");
     r.switch("main");
     r.write("file_0.txt", "main change\n");
 }
@@ -341,7 +341,7 @@ pub fn wip_crlf(r: &TestRepo) {
 }
 
 /// File History and Blame (spec #3 §3.10, e2e flow 5). `story.txt` (8 lines) is started by Ada,
-/// its middle rewritten by Grace, moved under `src/` (line 6 changed) by Linus, and its opening
+/// its middle rewritten by Grace, moved under `src/` (line 6 changed) by Lars, and its opening
 /// sharpened by Ada; one unrelated commit sits in between. Blame at HEAD has six groups:
 /// [1 Sharpen] [2 Start] [3-4 Middle] [5 Start] [6 Move] [7-8 Start].
 pub fn file_history(r: &TestRepo) {
@@ -351,7 +351,7 @@ pub fn file_history(r: &TestRepo) {
     r.write("story.txt", &story(v));
     r.commit_all_as("Start the story", "Ada Lovelace", "ada@example.com");
     r.write("other.txt", "unrelated\n");
-    r.commit_all_as("Unrelated change", "Linus Torvalds", "linus@example.com");
+    r.commit_all_as("Unrelated change", "Lars Tidemann", "lars@example.com");
     v[2] = "It grew a middle part";
     v[3] = "with a twist or two.";
     r.write("story.txt", &story(v));
@@ -360,7 +360,7 @@ pub fn file_history(r: &TestRepo) {
     r.git(&["mv", "story.txt", "src/story.txt"]);
     v[5] = "until the day it moved under src.";
     r.write("src/story.txt", &story(v));
-    r.commit_all_as("Move the story under src", "Linus Torvalds", "linus@example.com");
+    r.commit_all_as("Move the story under src", "Lars Tidemann", "lars@example.com");
     v[0] = "Once upon a sharper time";
     r.write("src/story.txt", &story(v));
     r.commit_all_as("Sharpen the opening", "Ada Lovelace", "ada@example.com");
@@ -418,7 +418,7 @@ pub fn sync(r: &TestRepo) {
     r.git(&["commit", "-q", "-m", "Local side"]);
     r.switch("main");
     r.switch_new("feature/new");
-    r.commit_as("New feature", "Linus Torvalds", "linus@example.com");
+    r.commit_as("New feature", "Lars Tidemann", "lars@example.com");
     r.switch("main");
     r.push_from_clone("main", "remote.txt", "remote\n", "Remote change");
     r.push_from_clone("diverged", "remote-side.txt", "remote\n", "Remote side");

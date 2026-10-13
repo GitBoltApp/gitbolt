@@ -168,82 +168,74 @@ function repoIdOf(page: Page, path: string): Promise<number> {
   }), { url: harnessWs, path });
 }
 
-test("the checked-out worktree's WIP is row 0 (\"now\") above newer commits; a linked worktree's docks above its HEAD (K37)", async ({ page }) => {
+// One repo and page for these (each was a test of its own, paying for a page load and a fixture),
+// in an order where each starts from what it needs: the layout first, the open worktree cleaned
+// last. Row 0's place at rest is graph.spec.ts's first check.
+test("WIP rows: the message cell spans Author and Date (K100); row 0 stays the open worktree's across a refresh, a linked one's docks above its HEAD; Compare with working tree targets the open worktree, even clean (K37)", async ({ page }) => {
   const repo = freshFixture('basic');
-  await page.goto(openUrl(repo));
-  const r = rows(page);
-  // The stash and the hotfix are newer than main's HEAD (the merge): main's WIP is above them
-  // anyway, and wt-hotfix's sits right on its HEAD.
-  await expect(r.nth(0)).toContainText('// WIP');
-  await expect(r.nth(0)).not.toContainText('wt-hotfix');
-  await expect(r.nth(1)).toContainText('Experiment');
-  await expect(r.nth(2)).toContainText('wt-hotfix');
-  await expect(r.nth(3)).toContainText('Hotfix: null check');
-  await expect(r.nth(4)).toContainText("Merge branch 'feature/login'");
-
-  // Selected, it stays selected (and row 0) across a refresh that brings an even newer commit
-  // on another branch.
-  await r.nth(0).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
-  await expect(page.getByTestId('wip-header')).toBeVisible();
-  const newer = git(repo, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Newer elsewhere');
-  git(repo, 'branch', 'elsewhere', newer);
-  const res = await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'refsUpdated', repo: await repoIdOf(page, repo) } });
-  expect(res.ok()).toBe(true);
-  await expect(r.nth(1)).toContainText('Newer elsewhere', { timeout: 5000 });
-  await expect(r.nth(0)).toContainText('// WIP');
-  await expect(r.nth(0)).not.toContainText('wt-hotfix');
-  await expect(r.nth(0)).toHaveAttribute('aria-selected', 'true');
-  await expect(r.nth(3)).toContainText('wt-hotfix');
-
-  // Ctrl+click a commit: the WIP and that commit compare (K27).
-  await r.filter({ hasText: 'Fix typo' }).click({ modifiers: ['Control'] });
-  await expect(page.getByTestId('compare-header')).toBeVisible();
-});
-
-test("Compare with working tree targets the open worktree, even clean, never another worktree's WIP row (K37)", async ({ page }) => {
-  const repo = freshFixture('basic');
-  await page.goto(openUrl(repo));
-  const r = rows(page);
-  // Clean the open worktree: only wt-hotfix's WIP row is left.
-  git(repo, 'checkout', '--', '.');
-  const res = await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'repoChanged', repo: await repoIdOf(page, repo), kinds: ['worktree'], worktrees: [repo] } });
-  expect(res.ok()).toBe(true);
-  await expect(r.filter({ hasText: '// WIP' })).toHaveCount(1, { timeout: 5000 });
-  await expect(r.filter({ hasText: '// WIP' })).toContainText('wt-hotfix');
-
-  await r.filter({ hasText: 'Fix typo' }).locator('[data-col="message"]').click({ button: 'right' });
-  const menu = page.getByTestId('context-menu');
-  await menu.locator('[role="menuitem"]').filter({ hasText: 'Compare with working tree' }).click();
-  await expect(page.getByTestId('compare-header')).toContainText('working tree');
-  const sides = page.locator('.compare-commits');
-  await expect(sides).toContainText('Working tree');
-  await expect(sides).not.toContainText('wt-hotfix');
-  // wt-hotfix's WIP row isn't picked into the compare.
-  await expect(r.filter({ hasText: 'wt-hotfix' })).not.toHaveAttribute('aria-selected', 'true');
-});
-
-test("K100: a WIP row's message cell spans Author and Date; a linked worktree's name and draft box never overlap", async ({ page }) => {
   await page.setViewportSize({ width: 720, height: 700 });
-  await page.goto(openUrl(freshFixture('basic')));
-  const wt = rows(page).filter({ hasText: 'wt-hotfix' });
-  await expect(wt).toHaveCount(1);
-  // No Author/Date cells on WIP rows: the message cell runs to the SHA column (or the row end).
-  await expect(wt.locator('[data-col="author"], [data-col="date"]')).toHaveCount(0);
-  const commit = rows(page).filter({ hasText: 'Hotfix: null check' });
-  const box = async (l: ReturnType<typeof rows>) => (await l.boundingBox())!;
-  const msg = await box(wt.locator('[data-col="message"]'));
-  const commitMsg = await box(commit.locator('[data-col="message"]'));
-  const commitDate = await box(commit.locator('[data-col="date"]'));
-  expect(msg.x + msg.width).toBeCloseTo(commitDate.x + commitDate.width, 0);
-  expect(msg.width).toBeGreaterThan(commitMsg.width + 50);
-  for (const w of [720, 520]) {
-    await page.setViewportSize({ width: w, height: 700 });
-    const name = await box(wt.locator('.wip-worktree'));
-    const input = await box(wt.locator('.wip-input'));
-    expect(input.width).toBeGreaterThanOrEqual(115);
-    expect(name.x >= input.x + input.width - 0.5 || input.x >= name.x + name.width - 0.5).toBe(true);
-  }
-  // The main WIP row too.
-  const main = rows(page).filter({ hasText: '// WIP' }).first();
-  await expect(main.locator('[data-col="author"]')).toHaveCount(0);
+  await page.goto(openUrl(repo));
+  const r = rows(page);
+  await test.step("K100: a WIP row's message cell spans Author and Date; a linked worktree's name and draft box never overlap", async () => {
+    const wt = r.filter({ hasText: 'wt-hotfix' });
+    await expect(wt).toHaveCount(1);
+    // No Author/Date cells on WIP rows: the message cell runs to the SHA column (or the row end).
+    await expect(wt.locator('[data-col="author"], [data-col="date"]')).toHaveCount(0);
+    const commit = r.filter({ hasText: 'Hotfix: null check' });
+    const box = async (l: ReturnType<typeof rows>) => (await l.boundingBox())!;
+    const msg = await box(wt.locator('[data-col="message"]'));
+    const commitMsg = await box(commit.locator('[data-col="message"]'));
+    const commitDate = await box(commit.locator('[data-col="date"]'));
+    expect(msg.x + msg.width).toBeCloseTo(commitDate.x + commitDate.width, 0);
+    expect(msg.width).toBeGreaterThan(commitMsg.width + 50);
+    for (const w of [720, 520]) {
+      await page.setViewportSize({ width: w, height: 700 });
+      const name = await box(wt.locator('.wip-worktree'));
+      const input = await box(wt.locator('.wip-input'));
+      expect(input.width).toBeGreaterThanOrEqual(115);
+      expect(name.x >= input.x + input.width - 0.5 || input.x >= name.x + name.width - 0.5).toBe(true);
+    }
+    // The main WIP row too.
+    await expect(r.filter({ hasText: '// WIP' }).first().locator('[data-col="author"]')).toHaveCount(0);
+    await page.setViewportSize({ width: 1280, height: 720 });
+  });
+
+  await test.step("K37: selected, the open worktree's WIP stays row 0 across a refresh that brings a newer commit; Ctrl+click compares it", async () => {
+    await r.nth(0).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
+    await expect(page.getByTestId('wip-header')).toBeVisible();
+    const newer = git(repo, 'commit-tree', 'HEAD^{tree}', '-p', 'HEAD', '-m', 'Newer elsewhere');
+    git(repo, 'branch', 'elsewhere', newer);
+    const res = await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'refsUpdated', repo: await repoIdOf(page, repo) } });
+    expect(res.ok()).toBe(true);
+    await expect(r.nth(1)).toContainText('Newer elsewhere', { timeout: 5000 });
+    await expect(r.nth(0)).toContainText('// WIP');
+    await expect(r.nth(0)).not.toContainText('wt-hotfix');
+    await expect(r.nth(0)).toHaveAttribute('aria-selected', 'true');
+    // wt-hotfix's WIP docks right on its HEAD.
+    await expect(r.nth(3)).toContainText('wt-hotfix');
+    await expect(r.nth(4)).toContainText('Hotfix: null check');
+    // Ctrl+click a commit: the WIP and that commit compare (K27).
+    await r.filter({ hasText: 'Fix typo' }).click({ modifiers: ['Control'] });
+    await expect(page.getByTestId('compare-header')).toBeVisible();
+    await page.keyboard.press('Escape');
+  });
+
+  await test.step("K37: Compare with working tree targets the open worktree, even clean, never another worktree's WIP row", async () => {
+    // Clean the open worktree: only wt-hotfix's WIP row is left.
+    git(repo, 'checkout', '--', '.');
+    const res = await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'repoChanged', repo: await repoIdOf(page, repo), kinds: ['worktree'], worktrees: [repo] } });
+    expect(res.ok()).toBe(true);
+    await expect(r.filter({ hasText: '// WIP' })).toHaveCount(1, { timeout: 5000 });
+    await expect(r.filter({ hasText: '// WIP' })).toContainText('wt-hotfix');
+    await r.filter({ hasText: 'Fix typo' }).locator('[data-col="message"]').click({ button: 'right' });
+    const menu = page.getByTestId('context-menu');
+    await menu.locator('[role="menuitem"]').filter({ hasText: 'Compare with working tree' }).click();
+    await expect(page.getByTestId('compare-header')).toContainText('working tree');
+    const sides = page.locator('.compare-commits');
+    await expect(sides).toContainText('Working tree');
+    await expect(sides).not.toContainText('wt-hotfix');
+    // wt-hotfix's WIP row isn't picked into the compare.
+    await expect(r.filter({ hasText: 'wt-hotfix' })).not.toHaveAttribute('aria-selected', 'true');
+  });
 });
+

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { KEY_LAYERS, registerKeys, type KeyHandler, type KeyLayer } from './keyRouter';
 

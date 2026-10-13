@@ -49,6 +49,7 @@
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",
+    "happy-dom": "^21.0.1",
     "jsdom": "^30.1.1",
     "tm-grammars": "1.32.22",
     "tm-themes": "1.12.12",

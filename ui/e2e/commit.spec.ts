@@ -2,35 +2,10 @@ import { chmodSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { budgetApplies, expect, test, type Page } from './test';
 import { openWip, selectWip } from './wip';
-import { freshFixture, git, openUrl } from './fixtures';
+import { git } from './fixtures';
 
-const row = (page: import('@playwright/test').Page) => page.getByRole('textbox', { name: 'Commit summary draft' }).first();
-
-test.describe('the WIP draft (spec #2 §8.2)', () => {
-  // One page for both (each was a test of its own, paying for a page load); the migration first,
-  // before the page holds a v2 draft of its own (saved again when the page unloads).
-  test('a v1 draft migrates into v2; the draft persists across a reload, unlimited, with the counter and its warning', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    await test.step('a v1 draft migrates into v2', async () => {
-      await page.evaluate(([r]) => {
-        localStorage.removeItem('gitbolt.wipDraft.v2');
-        localStorage.setItem(`gitbolt.wipDraft.v1:${r}\u0000${r}`, 'Old v1 summary');
-      }, [repo]);
-      await page.reload();
-      await expect(row(page)).toHaveValue('Old v1 summary');
-      expect(await page.evaluate(() => Object.keys(localStorage).filter((k) => k.startsWith('gitbolt.wipDraft.v1')))).toEqual([]);
-      await test.step('persists across a reload, unlimited, with the counter past 60 and its warning past 72', async () => {
-      await row(page).fill('A'.repeat(75));
-      await expect(page.getByTestId('wip-counter')).toHaveText('75');
-      await expect(page.getByTestId('wip-counter')).toHaveClass(/warn/);
-      await row(page).press('Enter');
-      await page.reload();
-      await expect(row(page)).toHaveValue('A'.repeat(75));
-    });
-  });
-  });
-});
+// The draft's storage (v1 migration, CRLF, persistence) is draft.test.ts; the fields' keys and
+// counter CommitFields.test.tsx and GraphView.wip.test.tsx; the button's labels CommitBox.test.tsx.
 
 const box = (page: Page) => page.getByTestId('commit-box');
 const summary = (page: Page) => box(page).getByRole('textbox', { name: 'Commit summary' });
@@ -58,19 +33,11 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
 
   // One page for these (each was a test of its own, paying for a page load): none commits, so
   // each starts from the same repo; each types its own draft.
-  test('the draft in the commit box: one with the row box, Enter and ↑, Amend puts it aside and back, a failed commit keeps it', async ({ page }) => {
+  test('the draft in the commit box: one with the row box, Amend puts it aside and back, a failed commit keeps it', async ({ page }) => {
     const repo = await openWip(page);
     await test.step('the row box and the commit box are one draft', async () => {
       await summary(page).fill('Typed below');
       await expect(page.getByRole('textbox', { name: 'Commit summary draft' }).first()).toHaveValue('Typed below');
-    });
-    await test.step('Enter moves to the description; ↑ comes back', async () => {
-      await summary(page).fill('Sum');
-      await summary(page).press('Enter');
-      await expect(description(page)).toBeFocused();
-      await page.keyboard.type('line 1');
-      await page.keyboard.press('ArrowUp');
-      await expect(summary(page)).toBeFocused();
     });
     await test.step('Amend: HEAD’s message, the draft put aside; clicking a commit keeps it; untick restores the draft', async () => {
       await summary(page).fill('My draft');
@@ -98,16 +65,10 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
     });
   });
 
-  test('Stage all & commit when nothing is staged; disabled reasons', async ({ page }) => {
+  test('Stage all & commit when nothing is staged', async ({ page }) => {
     const repo = await openWip(page);
     await page.locator('.wip-section[data-section="staged"]').getByRole('button', { name: 'Unstage all' }).click();
-    // Settled first: the emptied lists move the commit box, which would slide out from under a
-    // pointer resting on its button (and take the tooltip with it).
     await expect(page.getByRole('heading', { name: 'Staged (0)' })).toBeVisible();
-    // Ux round 1: the label while the summary is empty.
-    await expect(button(page)).toHaveText('Type a message to commit');
-    await button(page).hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Write a commit summary');
     await summary(page).fill('Everything');
     await expect(button(page)).toHaveText('Stage all & commit');
     await button(page).click();
@@ -118,21 +79,11 @@ test.describe('the commit box (spec #2 §8.1, §8.2)', () => {
     await expect(page.getByRole('grid', { name: 'Commit graph' }).getByRole('row').filter({ hasText: '// WIP' })).toHaveCount(0);
     await expect(box(page)).toHaveCount(0);
   });
-
-  test('a CRLF HEAD message loads without blank lines on top of the description', async ({ page }) => {
-    const repo = await openWip(page);
-    writeFileSync(join(repo, 'crlf-msg'), 'Windows\r\n\r\n\r\nbody line\r\n');
-    git(repo, 'commit', '--allow-empty', '--cleanup=verbatim', '-F', 'crlf-msg');
-    await page.reload();
-    await selectWip(page);
-    await amend(page).click();
-    await expect(amend(page)).toBeChecked();
-    await expect(description(page)).toHaveValue('body line');
-  });
 });
 
 test.describe('edit the HEAD message (spec #2 §8.3)', () => {
-  test('the pencil amends only the message; staged changes stay staged; Undo restores it', async ({ page }) => {
+  // One repo and page (each was a test of its own): the reword undone, then HEAD pushed.
+  test('the pencil amends only the message; staged changes stay staged; Undo restores it; a HEAD on its upstream says a force push will be needed', async ({ page }) => {
     const repo = await openWip(page);
     await page.getByRole('grid', { name: 'Commit graph' }).getByText('Base').click();
     await page.getByRole('button', { name: 'Edit message' }).click();
@@ -143,16 +94,13 @@ test.describe('edit the HEAD message (spec #2 §8.3)', () => {
     expect(git(repo, 'diff', '--cached', '--name-only')).toBe('notes.txt');
     await page.getByRole('toolbar', { name: 'Repository toolbar' }).getByRole('button', { name: 'Undo', exact: true }).click();
     await expect(page.getByRole('grid', { name: 'Commit graph' }).getByText('Base', { exact: true })).toBeVisible();
-  });
 
-  test('a HEAD already on its upstream says a force push will be needed', async ({ page }) => {
-    const repo = await openWip(page);
     const origin = join(dirname(repo), 'origin.git');
     git(dirname(repo), 'init', '-q', '--bare', origin);
     git(repo, 'remote', 'add', 'origin', origin);
     git(repo, 'push', '-q', '-u', 'origin', 'main');
     await page.reload();
-    await page.getByRole('grid', { name: 'Commit graph' }).getByText('Base').click();
+    await page.getByRole('grid', { name: 'Commit graph' }).getByText('Base', { exact: true }).click();
     await page.getByRole('button', { name: 'Edit message' }).click();
     await expect(page.getByRole('note')).toHaveText("This commit is on origin/main; you'll need to force push.");
     await page.keyboard.press('Escape');

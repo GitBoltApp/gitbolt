@@ -222,8 +222,8 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
     show();
     const tab = (n: RegExp) => screen.getByRole('tab', { name: n });
     expect(tab(/^Activity$/)).toHaveAttribute('aria-selected', 'true');
-    expect(tab(/^Comments2$/)).toBeTruthy();
-    expect(tab(/^Diff notes1$/)).toBeTruthy();
+    expect(tab(/^Comments\s*2$/)).toBeTruthy();
+    expect(tab(/^Diff notes\s*1$/)).toBeTruthy();
     fireEvent.click(tab(/^Diff notes/));
     expect(screen.getAllByRole('article')).toHaveLength(1);
     expect(screen.queryByText('Grace Hopper added 1 commit')).toBeNull();
@@ -364,7 +364,7 @@ describe('the MR/PR view (spec #4 §4 "4B")', () => {
   it('GitHub reviews are timeline events with the same colours', () => {
     patchForge('t', { kind: 'github', discussions: { 12: [] }, details: { 12: { value: { ...detail, mr: { ...detail.mr, review: { decision: 'approved', approvals: 1, approvalsRequired: null, reviews: [
       { user: user('Ada Lovelace'), state: 'approved', submittedAt: 1_791_100_000 },
-      { user: user('Linus T'), state: 'changesRequested', submittedAt: 1_791_100_100 },
+      { user: user('Lars T'), state: 'changesRequested', submittedAt: 1_791_100_100 },
       { user: user('Alan T'), state: 'commented', submittedAt: 1_791_100_200 },
     ] } } }, at: 1 } } });
     show();

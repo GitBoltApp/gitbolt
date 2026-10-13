@@ -17,14 +17,14 @@ use serde_json::{json, Value};
 use std::sync::Arc;
 
 /// The commit author's email: not public on the forge (`/avatar?email=` has nothing for it).
-const EMAIL: &str = "margaret@personal.example";
-const NAME: &str = "Margaret Hamilton";
+const EMAIL: &str = "maren@personal.example";
+const NAME: &str = "Maren Holt";
 
 fn provider(f: &FakeForge, avatars: Option<Arc<DiskAvatarCache>>) -> GitLabProvider {
     GitLabProvider::new(GITLAB_HOST, &HostEndpoints { api: f.gitlab_api(), web: f.gitlab_web(), avatars: None }, Secret::new(GITLAB_TOKEN), avatars).with_change_counter(f.change_counter())
 }
 
-fn margaret(f: &FakeForge, id: u64) -> FakeUser {
+fn maren(f: &FakeForge, id: u64) -> FakeUser {
     FakeUser { id, username: format!("mham{id}"), name: NAME.into(), email: None, avatar_url: Some(format!("{}/uploads/m{id}.png", f.gitlab_web())) }
 }
 
@@ -44,11 +44,11 @@ fn authored_by(iid: u64, username: &str) -> FakeMergeRequest {
     }
 }
 
-/// Margarets as forge users (none with a public email), each the author of an MR when `in_mrs`.
+/// Marens as forge users (none with a public email), each the author of an MR when `in_mrs`.
 fn seed(f: &FakeForge, ids: &[u64], in_mrs: bool) {
     let mut s = f.current_seed();
     for (i, id) in ids.iter().enumerate() {
-        let m = margaret(f, *id);
+        let m = maren(f, *id);
         if in_mrs {
             s.gitlab.merge_requests.push(authored_by(30 + i as u64, &m.username));
         }
@@ -66,7 +66,7 @@ fn assert_no_email_in_queries(f: &FakeForge) {
     for r in f.requests() {
         if r.path != "/api/v4/avatar" {
             let q = r.query.to_lowercase();
-            assert!(!q.contains("personal.example") && !q.contains("margaret%40") && !q.contains("margaret@"), "{} {}", r.path, r.query);
+            assert!(!q.contains("personal.example") && !q.contains("maren%40") && !q.contains("maren@"), "{} {}", r.path, r.query);
         }
     }
 }
@@ -84,11 +84,11 @@ async fn an_mr_authors_name_gives_a_commit_author_their_picture_with_no_search()
     assert_eq!(p.avatar_for_email(EMAIL).await.unwrap(), None, "the email isn't public");
     let project = p.project("group/project").await.unwrap().value;
     p.open_mrs(&project, MrFilter::All).await.unwrap();
-    let found = p.avatar_for_name(EMAIL, "  margaret   HAMILTON ").await.unwrap().unwrap();
+    let found = p.avatar_for_name(EMAIL, "  maren   HOLT ").await.unwrap().unwrap();
     assert_eq!(found.mime, "image/png");
     assert!(searches(&f).is_empty(), "known from the MR list: no search");
     assert!(f.requests().iter().any(|r| r.path == "/uploads/m21.png"));
-    assert_eq!(p.avatar_for_name(EMAIL, "Margaret").await.unwrap(), Some(found.clone()), "kept under the email");
+    assert_eq!(p.avatar_for_name(EMAIL, "Maren").await.unwrap(), Some(found.clone()), "kept under the email");
 
     // A second ask, and the next session: from the disk cache, no request at all.
     f.clear_requests();
@@ -109,7 +109,7 @@ async fn a_name_never_seen_is_searched_once_by_name_only() {
     assert_eq!(p.avatar_for_email(EMAIL).await.unwrap(), None);
     let found = p.avatar_for_name(EMAIL, NAME).await.unwrap().unwrap();
     assert_eq!(found.mime, "image/png");
-    assert_eq!(searches(&f), ["search=margaret%20hamilton&per_page=5"]);
+    assert_eq!(searches(&f), ["search=maren%20holt&per_page=5"]);
     // A second ask: no new request.
     let before = f.requests().len();
     assert_eq!(p.avatar_for_name(EMAIL, NAME).await.unwrap(), Some(found.clone()));
@@ -124,8 +124,8 @@ async fn a_name_never_seen_is_searched_once_by_name_only() {
     let next = provider(&f, Some(cache(&dir)));
     assert_eq!(next.avatar_for_name(stranger, "Nobody Known").await.unwrap(), None);
     assert_eq!(searches(&f).len(), 2, "the miss is remembered");
-    // A part of a name is no match: the search finds Margaret Hamilton, who isn't "Margaret".
-    assert_eq!(next.avatar_for_name(stranger, "Margaret").await.unwrap(), None);
+    // A part of a name is no match: the search finds Maren Holt, who isn't "Maren".
+    assert_eq!(next.avatar_for_name(stranger, "Maren").await.unwrap(), None);
     assert_eq!(searches(&f).len(), 3);
     assert_no_email_in_queries(&f);
 }

@@ -6,8 +6,6 @@ import { expect, test, type Page } from './test';
 const openAll = (...paths: string[]) => `/?${paths.map((p) => `repo=${encodeURIComponent(p)}`).join('&')}`;
 const graph = (page: Page) => page.getByRole('grid', { name: 'Commit graph' });
 const row = (page: Page, text: string) => page.getByRole('row').filter({ hasText: text });
-/** The visible tab page (hidden tabs stay in the DOM, `display: none`, under <Activity>). */
-const shownTab = (page: Page) => page.locator('.tab-page:visible');
 
 /** The backend's id for the repo at `path` (the one the app opened: repos are shared by path). */
 function repoIdOf(page: Page, path: string): Promise<number> {
@@ -31,7 +29,7 @@ async function emit(page: Page, event: object) {
 
 test.describe('shell', () => {
   // One repo and page for these (each was a test of its own, paying for a page load).
-  test('a refs-updated event refreshes in place, a repo-changed event updates the WIP row, and the open tabs come back after a reload', async ({ page }) => {
+  test('a refs-updated event refreshes in place, a file change updates the WIP row live, and the open tabs come back after a reload', async ({ page }) => {
     const repo = freshFixture('basic');
     await page.goto(openUrl(repo));
     await test.step('a refs-updated event refreshes in place, keeping the selected commit selected', async () => {
@@ -48,11 +46,11 @@ test.describe('shell', () => {
       // The details panel still shows it.
       await expect(page.getByRole('complementary', { name: 'Commit details' })).toContainText('Fix typo');
     });
-    await test.step('a repo-changed event updates the WIP row', async () => {
+    // The watcher's own event (no emitted one): the real file system to the WIP row.
+    await test.step('a file change in the worktree updates the WIP row live', async () => {
       const mainWip = page.getByRole('row').filter({ hasText: '// WIP' }).filter({ hasNotText: 'wt-hotfix' });
       await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified');
       writeFileSync(join(repo, 'e2e-new-file.txt'), 'hello\n');
-      await emit(page, { type: 'repoChanged', repo: await repoIdOf(page, repo), kinds: ['worktree'], worktrees: [repo] });
       await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified · 1 added', { timeout: 5000 });
     });
     await test.step('restores open tabs after a reload', async () => {
@@ -65,33 +63,7 @@ test.describe('shell', () => {
     });
   });
 
-  test('two repos open as two tabs: only the active one shows; Ctrl+Tab switches', async ({ page }) => {
-    const a = freshFixture('basic');
-    const b = freshFixture('long_labels');
-    await page.goto(openAll(a, b));
-    // The last one opened is active.
-    await expect(page.locator('.tab-page')).toHaveCount(2);
-    await expect(graph(page)).toBeVisible();
-    await expect(shownTab(page)).toHaveCount(1);
-    await expect(row(page, "Merge branch 'feature/login'")).toHaveCount(0);
-    await page.keyboard.press('Control+Tab');
-    await expect(row(page, "Merge branch 'feature/login'")).toBeVisible();
-    await expect(shownTab(page)).toHaveCount(1);
-    await page.keyboard.press('Control+PageUp');
-    await expect(row(page, "Merge branch 'feature/login'")).toHaveCount(0);
-  });
-
-
-  // Needs the watcher (plan 1C Task 6, lane W2-B): passes once it has merged.
-  test('a file change in the worktree updates the WIP row live', async ({ page }) => {
-    const repo = freshFixture('basic');
-    await page.goto(openUrl(repo));
-    const mainWip = page.getByRole('row').filter({ hasText: '// WIP' }).filter({ hasNotText: 'wt-hotfix' });
-    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified');
-    writeFileSync(join(repo, 'e2e-new-file.txt'), 'hello\n');
-    await expect(mainWip.getByTestId('wip-counts')).toHaveAccessibleName('1 modified · 1 added', { timeout: 5000 });
-  });
-
+  // Two repos as two tabs, only the active one shown, Ctrl+Tab: tabs.spec.ts's two-tab test.
   test('files open in two tabs share the one diff editor across switches; Ctrl+W closes the file, then the tab', async ({ page }) => {
     const a = freshFixture('basic');
     const b = freshFixture('basic');

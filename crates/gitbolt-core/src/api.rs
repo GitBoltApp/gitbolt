@@ -4024,7 +4024,7 @@ mod tests {
         let id = open(&api, &r).await;
         let rename = r.git(&["rev-parse", "HEAD^1"]);
         let d = api.dispatch(req(serde_json::json!({"method": "commitDetails", "params": {"repo": id, "id": rename}}))).await.unwrap();
-        assert_eq!(d["coAuthors"][0]["name"], "Margaret Hamilton");
+        assert_eq!(d["coAuthors"][0]["name"], "Maren Holt");
         assert_eq!(d["committer"]["name"], "Ada Lovelace");
         assert!(d.get("summary").is_none() && d.get("body").is_none(), "the message itself comes from commitMessage");
         let bad = api.dispatch(req(serde_json::json!({"method": "commitDetails", "params": {"repo": id, "id": "HEAD"}}))).await.unwrap_err();

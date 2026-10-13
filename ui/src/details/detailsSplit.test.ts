@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clampSplit, loadSplit, saveSplit, SPLIT, splitBounds } from './detailsSplit';
 
@@ -23,8 +24,8 @@ describe('details split (feedback F13)', () => {
     expect(loadSplit()).toBe(SPLIT.default);
     localStorage.setItem(SPLIT.key, '5');
     expect(loadSplit()).toBe(SPLIT.max);
-    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('denied'); });
-    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('denied'); });
+    vi.spyOn(localStorage, 'getItem').mockImplementation(() => { throw new Error('denied'); });
+    vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('denied'); });
     expect(loadSplit()).toBe(SPLIT.default);
     expect(() => saveSplit(0.3)).not.toThrow();
   });

@@ -73,16 +73,8 @@ test.describe('WIP staging (spec #2 §7.1, §7.2)', () => {
     });
   });
 
-  test('with "After staging a file, show the next one" off, the diff follows the file to Staged', async ({ page }) => {
-    await page.addInitScript(() => localStorage.setItem('gitbolt.fileList.v1', JSON.stringify({ mode: 'path', sort: 'path', advanceAfterStage: false })));
-    await openWip(page);
-    await fileRow(page, 'unstaged', 'space name.txt').click();
-    await expect(page.getByTestId('diff-path')).toContainText('space name.txt');
-    await fileRow(page, 'unstaged', 'space name.txt').hover();
-    await page.getByRole('button', { name: 'Stage space name.txt' }).click();
-    await expect(fileRow(page, 'staged', 'space name.txt')).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByTestId('diff-path')).toContainText('space name.txt');
-  });
+  // With "After staging a file, show the next one" off, the diff follows the file to Staged:
+  // follow.test.ts (and the setting's storage fileListPrefs.test.ts).
 
   test('budget (§16): stage a file < 100 ms, best of 3', { tag: '@budget' }, async ({ page }) => {
     await openWip(page);

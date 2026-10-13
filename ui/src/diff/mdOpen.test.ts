@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { STEP_MARGIN } from './changeStepper';
 import { firstChangeTop, holdFirstChange, holdLine, OPEN_HOLD_MS } from './mdOpen';

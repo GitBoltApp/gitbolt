@@ -47,12 +47,42 @@ async function openWithDescription(page: Page, request: Parameters<typeof forgeS
 }
 
 test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
-  test('a description renders, its upload loads through the API, and its !ref opens the other MR in GitBolt', async ({ page, request }) => {
-    const badge = await openWithDescription(page, request, `## What / why\n\nCaching follows !5.\n\n\`\`\`ts\nconst cached = true;\n\`\`\`\n\n![shot](/uploads/${UPLOAD_HASH}/shot.png)`);
+  // One MR and page for these (each was a test of its own, paying for a fixture, a page load and
+  // the MR's): a description with an upload and a reference, then a long body; a long code line in
+  // a comment; a long title.
+  test('a description renders, its upload loads through the API, and its !ref opens the other MR in GitBolt; long lines, titles and bodies never push the panel sideways or squash the merge box', async ({ page, request }) => {
+    const longTitle = 'Unify the config-file lexer, parser and the standalone formatter so they share one tokenizer and stop drifting apart';
+    const longBody = Array.from({ length: 200 }, (_, i) => `Line ${i + 1} of a long description.`).join('\n\n');
+    const badge = await openWithDescription(page, request, `## What / why\n\nCaching follows !5.\n\n\`\`\`ts\nconst cached = true;\n\`\`\`\n\n![shot](/uploads/${UPLOAD_HASH}/shot.png)\n\n${longBody}`, `Try this:\n\n\`\`\`sh\necho ${'x'.repeat(400)}\n\`\`\``, longTitle);
     await pointAt(page, badge, true);
     const view = page.getByRole('dialog', { name: 'Merge request !12' });
+
+    await test.step('a long code line in a comment scrolls inside its block, and a long title wraps; the panel never scrolls sideways', async () => {
+      const pre = view.locator('.mr-note-body pre').first();
+      await expect(pre).toContainText('echo xxx');
+      const widths = await pre.evaluate((el) => {
+        const panel = el.closest('.flyout-body') as HTMLElement;
+        return { pre: [el.scrollWidth, el.clientWidth], panel: [panel.scrollWidth, panel.clientWidth] };
+      });
+      expect(widths.pre[0]).toBeGreaterThan(widths.pre[1]);
+      expect(widths.panel[0]).toBeLessThanOrEqual(widths.panel[1] + 1);
+      // A long title wraps in the header: all of it shows, nothing is cut off.
+      const title = view.locator('.flyout-title');
+      await expect(title).toContainText('stop drifting apart');
+      const t = await title.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, height: el.getBoundingClientRect().height, line: parseFloat(getComputedStyle(el).lineHeight) }));
+      expect(t.scroll).toBeLessThanOrEqual(t.client + 1);
+      expect(t.height).toBeGreaterThan(t.line * 1.5);
+    });
+
+    await test.step('the merge box keeps its height when the body overflows (a long description and activity)', async () => {
+      await expect(view.getByText('Line 200 of a long description.')).toBeAttached();
+      const box = await view.locator('.mr-merge').boundingBox();
+      expect(box?.height ?? 0).toBeGreaterThan(40);
+      await expect(view.locator('.mr-merge').getByRole('button', { name: 'Merge' })).toBeVisible();
+    });
+
     await expect(view.getByRole('heading', { name: 'What / why' })).toBeVisible();
-    await expect(view.locator('.md-code')).toContainText('const cached = true;');
+    await expect(view.locator('.mr-description .md-code')).toContainText('const cached = true;');
     const ref = view.getByRole('link', { name: '!5' });
     await ref.hover();
     await expect(page.getByRole('tooltip')).toHaveText('Open !5 in GitBolt');
@@ -67,38 +97,6 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
     await ref.click();
     await expect(page.getByRole('dialog', { name: 'Merge request !5' })).toBeVisible();
     expect(await page.content()).not.toContain(E2E_GITLAB_TOKEN);
-  });
-
-  test('a long code line in a comment scrolls inside its block, and a long title wraps; the panel never scrolls sideways', async ({ page, request }) => {
-    const long = 'Unify the config-file lexer, parser and the standalone formatter so they share one tokenizer and stop drifting apart';
-    const badge = await openWithDescription(page, request, 'Short.', `Try this:\n\n\`\`\`sh\necho ${'x'.repeat(400)}\n\`\`\``, long);
-    await pointAt(page, badge, true);
-    const view = page.getByRole('dialog', { name: 'Merge request !12' });
-    const pre = view.locator('.mr-note-body pre').first();
-    await expect(pre).toContainText('echo xxx');
-    const widths = await pre.evaluate((el) => {
-      const panel = el.closest('.flyout-body') as HTMLElement;
-      return { pre: [el.scrollWidth, el.clientWidth], panel: [panel.scrollWidth, panel.clientWidth] };
-    });
-    expect(widths.pre[0]).toBeGreaterThan(widths.pre[1]);
-    expect(widths.panel[0]).toBeLessThanOrEqual(widths.panel[1] + 1);
-    // A long title wraps in the header: all of it shows, nothing is cut off.
-    const title = view.locator('.flyout-title');
-    await expect(title).toContainText('stop drifting apart');
-    const t = await title.evaluate((el) => ({ scroll: el.scrollWidth, client: el.clientWidth, height: el.getBoundingClientRect().height, line: parseFloat(getComputedStyle(el).lineHeight) }));
-    expect(t.scroll).toBeLessThanOrEqual(t.client + 1);
-    expect(t.height).toBeGreaterThan(t.line * 1.5);
-  });
-
-  test('the merge box keeps its height when the body overflows (a long description and activity)', async ({ page, request }) => {
-    const long = Array.from({ length: 200 }, (_, i) => `Line ${i + 1} of a long description.`).join('\n\n');
-    const badge = await openWithDescription(page, request, long);
-    await pointAt(page, badge, true);
-    const view = page.getByRole('dialog', { name: 'Merge request !12' });
-    await expect(view.getByText('Line 200 of a long description.')).toBeAttached();
-    const box = await view.locator('.mr-merge').boundingBox();
-    expect(box?.height ?? 0).toBeGreaterThan(40);
-    await expect(view.locator('.mr-merge').getByRole('button', { name: 'Merge' })).toBeVisible();
   });
 
   test('a 900 KB description renders progressively with no long task over 200 ms @budget', async ({ page, request }) => {

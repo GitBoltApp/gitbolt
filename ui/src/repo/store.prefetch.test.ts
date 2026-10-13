@@ -45,14 +45,14 @@ describe('selecting a commit', () => {
     const { s, resolve, asked, prefetched } = setup();
     s.getState().selectRow(3, {});
     expect(asked).toEqual([]);
-    resolve(`details ${ids[3]}`, details(ids[3], 'noreply@github.com', ['grace@example.com', 'linus@example.com']));
+    resolve(`details ${ids[3]}`, details(ids[3], 'noreply@github.com', ['grace@example.com', 'lars@example.com']));
     await flush();
-    expect(asked).toEqual(['ada@example.com', 'noreply@github.com', 'grace@example.com', 'linus@example.com']);
+    expect(asked).toEqual(['ada@example.com', 'noreply@github.com', 'grace@example.com', 'lars@example.com']);
     expect(prefetched).toEqual([]);
-    resolve(`details ${ids[5]}`, details(ids[5], 'margaret@example.com'));
+    resolve(`details ${ids[5]}`, details(ids[5], 'maren@example.com'));
     await flush();
-    expect(prefetched).toContain('margaret@example.com');
-    expect(asked).not.toContain('margaret@example.com');
+    expect(prefetched).toContain('maren@example.com');
+    expect(asked).not.toContain('maren@example.com');
   });
 
   it('asks at once when the details are cached already', async () => {

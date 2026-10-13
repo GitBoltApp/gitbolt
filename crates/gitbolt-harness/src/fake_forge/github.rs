@@ -85,12 +85,12 @@ pub(crate) fn avatar(r: &FakeRequest) -> Reply {
 
 // --- GitHub commit-author avatars ---
 /// A commit author whose email GitHub links to an account, and one it doesn't.
-pub const LINKED_AUTHOR_EMAIL: &str = "linus@personal.example";
+pub const LINKED_AUTHOR_EMAIL: &str = "lars@personal.example";
 pub const UNLINKED_AUTHOR_EMAIL: &str = "nobody@personal.example";
 
 pub fn seed_commit_authors(base: &str) -> BTreeMap<String, Option<FakeUser>> {
-    let linus = FakeUser { id: 4242, username: "linus-gh".into(), name: "Linus".into(), email: None, avatar_url: Some(format!("{base}/github-avatars/u/4242?v=4")) };
-    BTreeMap::from([(LINKED_AUTHOR_EMAIL.to_string(), Some(linus)), (UNLINKED_AUTHOR_EMAIL.to_string(), None)])
+    let lars = FakeUser { id: 4242, username: "lars-gh".into(), name: "Lars".into(), email: None, avatar_url: Some(format!("{base}/github-avatars/u/4242?v=4")) };
+    BTreeMap::from([(LINKED_AUTHOR_EMAIL.to_string(), Some(lars)), (UNLINKED_AUTHOR_EMAIL.to_string(), None)])
 }
 
 /// `/repos/{o}/{r}/commits?author=<email>`: one commit for a seeded email (its `author` the

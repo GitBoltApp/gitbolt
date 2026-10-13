@@ -328,7 +328,7 @@ describe('DetailsPanel', () => {
     it('saves once on pointer up (not per move), and ignores other pointers', async () => {
       await shown();
       const top = document.querySelector<HTMLElement>('.commit-details')!;
-      const save = vi.spyOn(Storage.prototype, 'setItem');
+      const save = vi.spyOn(localStorage, 'setItem');
       const sep = screen.getByRole('separator', { name: 'Resize commit details' });
       fireEvent.pointerDown(sep, { clientY: 250, pointerId: 1, button: 0 });
       fireEvent.pointerMove(sep, { clientY: 300, pointerId: 1 });

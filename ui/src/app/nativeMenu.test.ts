@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { Info } from 'lucide-react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 

@@ -104,7 +104,7 @@ describe('PinButton (spec §8.4, amendment 4)', () => {
       fireEvent.mouseLeave(option);
       return text;
     };
-    expect(tip(/^mainlocal/)).toBe('Pin main ↔ origin/main: both stay at the left');
+    expect(tip(/^main\s*local/)).toBe('Pin main ↔ origin/main: both stay at the left');
     expect(tip(/^hotfix/)).toBe('Pin hotfix as the trunk');
     // Two local branches track origin/main: the one named like it pairs.
     expect(tip(/^origin\/main/)).toBe('Pin main ↔ origin/main: both stay at the left');

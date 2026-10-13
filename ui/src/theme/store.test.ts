@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import { applyTheme, readThemeMirror, resolveColors, THEME_STORAGE_KEY, writeThemeMirror } from './apply';
 import { useTheme } from './store';

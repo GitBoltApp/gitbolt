@@ -157,9 +157,10 @@ describe('the Create flyout (spec #4 §4 "4C")', () => {
     createButton().focus();
     fireEvent.click(createButton());
     await screen.findByRole('button', { name: 'Creating…' });
-    for (const label of ['Title', 'Description']) expect(screen.getByLabelText(label).matches(':disabled')).toBe(true);
-    for (const name of ['Add reviewer', 'Add assignee', 'Add label', 'Target branch', 'More create options']) expect(screen.getByRole('button', { name }).matches(':disabled')).toBe(true);
-    expect(screen.getByRole('switch', { name: 'Squash commits' }).matches(':disabled')).toBe(true);
+    // happy-dom's :disabled ignores a disabled ancestor fieldset, so match that explicitly.
+    for (const label of ['Title', 'Description']) expect(screen.getByLabelText(label).matches(':disabled, fieldset[disabled] *')).toBe(true);
+    for (const name of ['Add reviewer', 'Add assignee', 'Add label', 'Target branch', 'More create options']) expect(screen.getByRole('button', { name }).matches(':disabled, fieldset[disabled] *')).toBe(true);
+    expect(screen.getByRole('switch', { name: 'Squash commits' }).matches(':disabled, fieldset[disabled] *')).toBe(true);
     fail({ message: 'boom' });
     const alert = await screen.findByRole('alert');
     expect(screen.getByLabelText('Title').matches(':disabled')).toBe(false);

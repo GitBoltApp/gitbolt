@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
 import { canvasMeasure, columnCount, displayCell, MAX_CH, measureColumns, MIN_CH, SAMPLE_ROWS, type Measure } from './columns';
 

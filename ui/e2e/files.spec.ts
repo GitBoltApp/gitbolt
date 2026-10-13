@@ -301,7 +301,7 @@ test.describe('file list and diff takeover', () => {
     });
   });
 
-  test('View all files: encodings in File View, wrapping, previous/next changed file, right-clicks after a scroll, the filter; what a reload remembers', async ({ page }) => {
+  test('View all files: encodings in File View, wrapping, previous/next changed file, right-clicks after a scroll, the filter', async ({ page }) => {
     await test.step('View all files opens unchanged files in File View with their encoding', async () => {
       await selectRow(page, 'Rename guide and update assets');
       await page.getByRole('button', { name: 'View all files' }).click();
@@ -460,17 +460,7 @@ test.describe('file list and diff takeover', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('region', { name: 'Diff' })).toHaveCount(0);
     });
-    await test.step('Path/Tree and the sort are remembered across a reload; View all files is not (H31)', async () => {
-      // View all files is on (the steps before): a reload doesn't keep it.
-      await page.getByRole('button', { name: 'Sort by status' }).click();
-      await listMode(page, 'Tree').click();
-      await page.reload();
-      await selectRow(page, 'Rename guide and update assets');
-      await expect(listMode(page, 'Tree')).toHaveAttribute('aria-pressed', 'true');
-      await expect(page.getByRole('button', { name: 'View all files' })).toHaveAttribute('aria-pressed', 'false');
-      await listMode(page, 'Path').click();
-      await expect(page.getByRole('button', { name: 'Sort by status' })).toHaveAttribute('aria-pressed', 'true');
-    });
+    // What a reload remembers (Path/Tree and the sort, not View all files, H31): fileListPrefs.test.ts.
   });
 
   test('opening files: the Shiki-highlighted Inline diff, the file menu and Open in, the toolbar Open in for a WIP file, Enter and → from the graph', async ({ page, request, browserName }) => {
@@ -556,16 +546,8 @@ test.describe('file list and diff takeover', () => {
       // Every row's tooltip shows at once.
       await menu.getByRole('menuitem', { name: /^Copy path/ }).hover();
       await expect(page.getByRole('tooltip')).toHaveText('Copy "src/app.php"');
-      // Copy path | Rel | Abs |.
-      await menu.getByRole('button', { name: /absolute path/ }).click();
-      await expect(menu).toBeHidden();
-      if (browserName === 'chromium') await expect.poll(clip).toBe(`${fixtures.details}/src/app.php`);
-      await row.click({ button: 'right' });
-      await expect(menu).toBeVisible();
-      await menu.getByRole('button', { name: /repository-relative path/ }).click();
-      if (browserName === 'chromium') await expect.poll(clip).toBe('src/app.php');
-      // Forge link: no upstream is known (never fetched), so its label copies the permalink.
-      await row.click({ button: 'right' });
+      // Copy path's Rel and Abs variants: FileList.menu.test.tsx. Forge link: no upstream is known
+      // (never fetched), so its label copies the permalink.
       await expect(menu.getByRole('button', { name: /on its branch/ })).toHaveAttribute('aria-disabled', 'true');
       await menu.getByText('Forge link').click();
       if (browserName === 'chromium') await expect.poll(clip).toBe(`https://gitlab.example.com/group/project/-/blob/${sha}/src/app.php`);
@@ -588,41 +570,22 @@ test.describe('file list and diff takeover', () => {
       expect(file).toMatch(/\/[0-9a-f]{12}\/src\/app\.php$/);
       expect(statSync(file).mode & 0o777).toBe(0o444);
       expect(readFileSync(file, 'utf8')).toBe(execFileSync('git', ['-C', fixtures.details, 'show', 'HEAD^1:src/app.php'], { encoding: 'utf8' }));
-      // The last used is remembered (the submenu starts on it); the file manager opens the folder.
-      await row.click({ button: 'right' });
-      await openIn.hover();
-      await expect(sub.locator('[data-active="true"]')).toHaveAttribute('data-row-id', 'opener.jetbrains-phpstorm');
-      await sub.getByRole('menuitem', { name: 'Show in Files' }).click();
-      await expect.poll(async () => (await launches()).length).toBe(before + 2);
-      expect((await launches()).at(-1)).toEqual({ program: '/fake/bin/nautilus', args: ['--new-window', `${fixtures.details}/src`] });
-      expect(await page.evaluate(() => localStorage.getItem('gitbolt.openIn.v1'))).toBe(JSON.stringify({ last: 'file-manager' }));
-      // H32: "Other…" hands the file to the system's Open With chooser (recorded by the harness).
-      await row.click({ button: 'right' });
-      await openIn.hover();
-      await sub.getByRole('menuitem', { name: 'Other…' }).click();
-      await expect.poll(async () => (await launches()).length).toBe(before + 3);
-      expect((await launches()).at(-1)).toEqual({ program: 'open-with-chooser', args: [file] });
+      // The last opener remembered, Show in Files and Other… (H32): FileList.menu.test.tsx and
+      // builders.test.ts, the launches themselves the core's openers tests.
       // Escape closes the menu and gives the list its focus back.
       await row.click({ button: 'right' });
       await page.keyboard.press('Escape');
       await expect(menu).toBeHidden();
       await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
-      expect((await launches()).length).toBe(before + 3);
-      // A WIP file opens the working-tree file itself.
+      expect((await launches()).length).toBe(before + 1);
+      // A WIP file opens the working-tree file itself (a staged one too: OpenInMenu.test.tsx).
       await page.getByRole('row').filter({ hasText: '// WIP' }).locator('[data-col="message"]').click({ position: { x: 3, y: 3 } });
       const unstaged = page.getByRole('listbox', { name: 'Unstaged' });
       await unstaged.getByRole('option').and(page.locator('[data-path="notes.txt"]')).click({ button: 'right' });
       await openIn.hover();
       await sub.getByRole('menuitem', { name: 'Open in VS Code' }).click();
-      await expect.poll(async () => (await launches()).length).toBe(before + 4);
+      await expect.poll(async () => (await launches()).length).toBe(before + 2);
       expect((await launches()).at(-1)).toEqual({ program: '/fake/bin/code', args: [`${fixtures.details}/notes.txt`] });
-      // A staged file opens the working-tree file too (fix round 2), not a copy of the index.
-      const staged = page.getByRole('listbox', { name: 'Staged' });
-      await staged.getByRole('option').and(page.locator('[data-path="src/app.php"]')).click({ button: 'right' });
-      await openIn.hover();
-      await sub.getByRole('menuitem', { name: 'Open in VS Code' }).click();
-      await expect.poll(async () => (await launches()).length).toBe(before + 5);
-      expect((await launches()).at(-1)).toEqual({ program: '/fake/bin/code', args: [`${fixtures.details}/src/app.php`] });
       // View (K58) opens the diff in the center; its File variant opens the whole file.
       await unstaged.getByRole('option').and(page.locator('[data-path="docs/manual.txt"]')).click({ button: 'right' });
       await menu.getByRole('menuitem', { name: 'View' }).click();
@@ -676,40 +639,5 @@ test.describe('file list and diff takeover', () => {
       await expect(page.getByTestId('diff-path')).toContainText('feature.txt');
       await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
     });
-  });
-});
-
-test('Esc and ← return to the graph with its selection and scroll position unchanged, its lanes drawn', async ({ page }) => {
-  await page.setViewportSize({ width: 1280, height: 500 });
-  await page.goto(openUrl(fixtures.longHistory));
-  const grid = page.getByRole('grid', { name: 'Commit graph' });
-  await expect(grid).toBeVisible();
-  // The canvas's drawn band (lanes and nodes) covers the viewport, with no scroll event since the
-  // graph showed again: it used to stay at the top, off screen, until the next scroll.
-  const lanesDrawn = () => grid.evaluate((g) => {
-    const c = g.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!;
-    const top = parseFloat(c.style.top);
-    return top <= g.scrollTop && top + c.getBoundingClientRect().height >= g.scrollTop + g.clientHeight;
-  });
-  await grid.evaluate((el) => { el.scrollTop = 600; });
-  await page.getByRole('row').filter({ hasText: 'Commit 30' }).click();
-  const top = await grid.evaluate((el) => el.scrollTop);
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('region', { name: 'Diff' })).toBeVisible();
-  // The hidden graph hands focus to the file list, so Escape has somewhere to land.
-  await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
-  await page.keyboard.press('Escape');
-  await expect(grid).toBeVisible();
-  await expect(grid).toBeFocused();
-  expect(await grid.evaluate((el) => el.scrollTop)).toBe(top);
-  expect(await lanesDrawn()).toBe(true);
-  await expect(page.getByRole('row').filter({ hasText: 'Commit 30' })).toHaveAttribute('aria-selected', 'true');
-  await test.step('→ opens the file, ← closes it: the same', async () => {
-    await page.keyboard.press('ArrowRight');
-    await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
-    await page.keyboard.press('ArrowLeft');
-    await expect(grid).toBeFocused();
-    expect(await grid.evaluate((el) => el.scrollTop)).toBe(top);
-    expect(await lanesDrawn()).toBe(true);
   });
 });

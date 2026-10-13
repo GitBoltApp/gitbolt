@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeAll, describe, expect, it } from 'vitest';
 import type { Action } from './actions';
 

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AvatarPayload } from '../api/gen/AvatarPayload';
 import { AVATAR_CACHE_ENTRIES, LARGEST_AVATAR_PX, createAvatarStore, isDecoded } from './avatarStore';
@@ -51,10 +52,10 @@ describe('avatar store', () => {
     const avatars = createAvatarStore(fetch);
     avatars.requestVisible(['ada@example.com'], 3);
     avatars.prefetchOne('grace@example.com', 4);
-    avatars.request('linus@example.com', -1);
+    avatars.request('lars@example.com', -1);
     await flush();
     await flush();
-    expect(Object.fromEntries(fetch.mock.calls.map((c) => [c[0], c[1]]))).toEqual({ 'ada@example.com': 3, 'grace@example.com': 4, 'linus@example.com': undefined });
+    expect(Object.fromEntries(fetch.mock.calls.map((c) => [c[0], c[1]]))).toEqual({ 'ada@example.com': 3, 'grace@example.com': 4, 'lars@example.com': undefined });
   });
 
   it('a "no avatar" answer holds for the tab that asked: another repo asks again (only its own forge is asked)', async () => {
@@ -81,11 +82,11 @@ describe('avatar store', () => {
     const avatars = createAvatarStore(fetch);
     avatars.requestVisible(['Ada@Example.com', 'nobody@example.com'], 3, new Map([['Ada@Example.com', 'Ada Lovelace']]));
     avatars.prefetchOne('grace@example.com', 4, 'Grace Hopper');
-    avatars.request('linus@example.com', undefined, '  ');
+    avatars.request('lars@example.com', undefined, '  ');
     await flush();
     await flush();
     expect(fetch.mock.calls.map((c) => [...c])).toEqual(
-      expect.arrayContaining([['ada@example.com', 3, 'Ada Lovelace'], ['nobody@example.com', 3], ['grace@example.com', 4, 'Grace Hopper'], ['linus@example.com']]),
+      expect.arrayContaining([['ada@example.com', 3, 'Ada Lovelace'], ['nobody@example.com', 3], ['grace@example.com', 4, 'Grace Hopper'], ['lars@example.com']]),
     );
     expect(fetch).toHaveBeenCalledTimes(4);
   });

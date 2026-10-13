@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   DRAFT_STORAGE_KEY, EMPTY_DRAFT, draftMessage, flushDrafts, normalizeDraft, pruneWipDrafts, readWipDraft, rekeyWipDrafts, reloadDrafts, splitMessage, withMergeMessage, writeWipDraft,
@@ -14,6 +15,13 @@ describe('the WIP draft (spec #2 §8.2)', () => {
     expect(normalizeDraft({ summary: 'Fix\r', description: '\r\n\r\nBody\r\nline 2\rline 3' })).toEqual({ summary: 'Fix\n', description: 'Body\nline 2\nline 3' });
     expect(splitMessage('Fix x\r\n\r\nWhy:\r\nbecause\r\n')).toEqual({ summary: 'Fix x', description: 'Why:\nbecause' });
     expect(splitMessage('One line')).toEqual({ summary: 'One line', description: '' });
+  });
+
+  it("Amend's text from a CRLF HEAD message (its summary, a newline, its body) has no blank lines on top of the description", () => {
+    // CommitBox's toggleAmend: `${summary}\n${body}`, the body as git keeps a verbatim CRLF message.
+    for (const body of ['\r\n\r\nbody line\r\n', '\r\nbody line', 'body line\r\n']) {
+      expect(splitMessage(`Windows\n${body}`)).toEqual({ summary: 'Windows', description: 'body line' });
+    }
   });
 
   it('makes the commit and stash message: the summary, then a blank line and the description', () => {
@@ -78,7 +86,7 @@ describe('the WIP draft (spec #2 §8.2)', () => {
 
   it('keeps the v1 keys when the v2 write fails', () => {
     localStorage.setItem('gitbolt.wipDraft.v1:/r\u0000/r', 'Old');
-    const spy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('quota'); });
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota'); });
     reloadDrafts();
     spy.mockRestore();
     expect(localStorage.getItem('gitbolt.wipDraft.v1:/r\u0000/r')).toBe('Old');
@@ -100,7 +108,7 @@ describe('the WIP draft (spec #2 §8.2)', () => {
   });
 
   it('works with blocked storage', () => {
-    const spy = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
+    const spy = vi.spyOn(localStorage, 'getItem').mockImplementation(() => { throw new Error('blocked'); });
     expect(() => reloadDrafts()).not.toThrow();
     writeWipDraft('/r', '/r', { summary: 'mem', description: '' });
     expect(() => flushDrafts()).not.toThrow();

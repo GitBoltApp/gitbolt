@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { MonacoHost } from './host';
 

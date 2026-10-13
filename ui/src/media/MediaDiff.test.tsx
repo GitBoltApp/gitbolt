@@ -132,7 +132,7 @@ describe('MediaDiff', () => {
     const [oldFace, newFace] = fonts.add.mock.calls.map((c) => c[0] as FakeFontFace);
     expect(oldFace.family).not.toBe(newFace.family);
     const sample = container.querySelector<HTMLElement>('.font-sample')!;
-    expect(sample.style.fontFamily).toBe(`"${oldFace.family}"`);
+    expect(sample.style.fontFamily.replaceAll('"', '')).toBe(oldFace.family); // quoted in jsdom, bare in happy-dom
     expect(sample.querySelectorAll('.font-line')).toHaveLength(5);
     expect(sample).toHaveTextContent('The quick brown fox jumps over the lazy dog');
     const glyphs = screen.getAllByTestId('font-glyphs')[0].children;

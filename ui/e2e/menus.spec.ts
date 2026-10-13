@@ -87,16 +87,7 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
       await action(menu, 'Copy message').click();
       await expect(menu).toBeHidden();
       await copied(page, 'Fix typo');
-
-      const sha = await row(page, 'Fix typo').getByTestId('sha').textContent();
-      // Each pick (the row's own or a variant's) runs and closes the menu: reopen between them.
-      await row(page, 'Fix typo').locator('[data-col="message"]').click({ button: 'right' });
-      await variant(action(menu, 'Copy SHA'), 'Copy the short id').click();
-      await copied(page, sha!.slice(0, 6)); // SHORT_SHA_LEN (format/sha.ts, H15)
-
-      await row(page, 'Fix typo').locator('[data-col="message"]').click({ button: 'right' });
-      await action(menu, 'Copy SHA').click();
-      await copied(page, sha!);
+      // Copy SHA's label and its Short variant: builders.test.ts.
     });
     await test.step("a branch label chip: Copy branch name (Local, Remote), Compare with HEAD names both branches; main's own chip compares with the working tree; a local-only branch has no Remote", async () => {
       const menu = await labelMenu(page, 'Login validation');
@@ -126,16 +117,8 @@ test.describe('the commit and label context menus (spec §7 target table)', () =
       await expect(page.getByRole('tooltip')).toHaveText('Compare feature/login with HEAD (main)');
       await page.keyboard.press('Escape');
 
-      // Each pick (the label or a variant) runs and closes the menu, as every context-menu pick
-      // does (ContextMenu.tsx's `finish`): reopen it before each one.
-      await labelMenu(page, 'Login validation');
-      await action(menu, 'Copy branch name').click();
-      await copied(page, 'feature/login');
-
-      await labelMenu(page, 'Login validation');
-      await variant(action(menu, 'Copy branch name'), 'Copy the local branch name').click();
-      await copied(page, 'feature/login');
-
+      // The remote variant names the remote branch (the label and the Local variant copy the local
+      // name: builders.test.ts).
       await labelMenu(page, 'Login validation');
       await variant(action(menu, 'Copy branch name'), /^Copy "origin\/feature\/login"/).click();
       await copied(page, 'origin/feature/login');
@@ -224,10 +207,7 @@ test.describe('forge rows (a GitLab remote, fixtures.details) and the Monaco con
       await expect(rel).toHaveText('src/app.php:5-7');
       await rel.click();
       await copied(page, 'src/app.php:5-7');
-
-      await line.click({ button: 'right' });
-      await variant(action(menu, 'Copy location'), /absolute path/).click();
-      await copied(page, `${fixtures.details}/src/app.php:5-7`);
+      // Its Abs variant, the absolute path: builders.test.ts.
     });
     await test.step('pressing a popup trigger again closes it and does not reopen it: a toolbar caret, then the branch picker', async () => {
       // Esc out of whatever the last step left, back to the plain graph.

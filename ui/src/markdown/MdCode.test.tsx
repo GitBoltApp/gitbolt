@@ -1,8 +1,10 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-// jsdom has no IntersectionObserver: every block counts as near the viewport. The queue is
-// tested on its own; here `highlightCode` stands for "the tokens the queue answers".
+// happy-dom's IntersectionObserver never fires; without one every block counts as near the viewport.
+vi.stubGlobal('IntersectionObserver', undefined);
+
+// The queue is tested on its own; here `highlightCode` stands for "the tokens the queue answers".
 const shiki = vi.hoisted(() => ({ highlightCode: vi.fn() }));
 vi.mock('./highlightQueue', () => ({
   queueHighlight: (code: string, lang: string) => ({ result: Promise.resolve(shiki.highlightCode(code, lang)), cancel: () => {} }),

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GbError } from '../api/gen/GbError';
 import type { WriteResult } from '../api/gen/WriteResult';

@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { act } from '@testing-library/react';

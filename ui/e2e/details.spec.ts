@@ -23,12 +23,12 @@ test.describe('commit details', () => {
     await test.step('co-authors, the signature badge and initials avatars', async () => {
       const panel = page.getByRole('complementary', { name: 'Commit details' });
       // The harness has no avatar provider: every avatar shows its initials.
-      await expect(panel.getByTestId('co-author')).toHaveText(['MHMargaret Hamilton', 'LTLinus Torvalds']);
+      await expect(panel.getByTestId('co-author')).toHaveText(['MHMaren Holt', 'LTLars Tidemann']);
       await expect(panel.getByTestId('signature-badge')).toHaveAttribute('data-kind', 'unsigned');
       await expect(panel.getByTestId('author').getByTestId('avatar')).toHaveText('GH');
       await expect(panel.getByTestId('committer').getByTestId('avatar')).toHaveText('AL');
       await panel.getByTestId('co-author').first().hover();
-      await expect(page.getByRole('tooltip')).toHaveText('Margaret Hamilton <margaret@example.com>');
+      await expect(page.getByRole('tooltip')).toHaveText('Maren Holt <maren@example.com>');
       // F14: the author too.
       await panel.getByTestId('author').getByText('Grace Hopper').hover();
       await expect(page.getByRole('tooltip')).toHaveText('Grace Hopper <grace@example.com>');
@@ -220,7 +220,7 @@ test.describe('commit details', () => {
       await expect.poll(width).toBeLessThanOrEqual(401); // 1px of border
       expect(await width()).toBeGreaterThanOrEqual(400);
     });
-    await test.step('the header stays put, only the message scrolls, and the split resizes and persists (F13)', async () => {
+    await test.step('the header stays put, only the message scrolls, and the split resizes (F13)', async () => {
       // Tall enough that the default 25 % top clears the header's minimum (`splitBounds`) under the
       // shell's toolbar and status bar.
       await page.setViewportSize({ width: 1280, height: 900 });
@@ -251,21 +251,17 @@ test.describe('commit details', () => {
       await message.evaluate((el) => { el.scrollTop = el.scrollHeight; });
       expect((await panel.locator('.commit-header').boundingBox())!.y).toBe(headerY);
       expect(await top.evaluate((el) => el.scrollTop)).toBe(0);
-      // The ratio persists (localStorage).
-      await page.keyboard.press('ArrowDown');
-      const kept = await sep.getAttribute('aria-valuenow');
-      await page.reload();
-      await page.getByRole('row').filter({ hasText: 'Rename guide and update assets' }).click();
-      await expect(page.getByRole('separator', { name: 'Resize commit details' })).toHaveAttribute('aria-valuenow', kept!);
+      // The ratio persists (localStorage, read back on the next load): detailsSplit.test.ts.
     });
   });
 
   // Measured on the painted pixels, at the zooms CEF's page zoom renders like (the device scale):
   // the shield's ink centre against the hash digits'. Before J8 the icon was 1.5 device px low
-  // at 150% and 200%; rounding leaves at most 1 device px, and never low.
-  test('J8: the signature icon is centred on the hash digits\' ink at every zoom, never below it', async ({ browser, browserName }) => {
+  // at 150% and 200%; rounding leaves at most 1 device px, and never low. Checked at those two
+  // scales, where it showed (each scale is a context of its own, with a cold bundle).
+  test('J8: the signature icon is centred on the hash digits\' ink at 150% and 200%, never below it', async ({ browser, browserName }) => {
     test.skip(browserName !== 'chromium', 'the CEF runtime is Chromium');
-    for (const dsf of [1, 1.25, 1.5, 2]) {
+    for (const dsf of [1.5, 2]) {
       const context = await browser.newContext({ deviceScaleFactor: dsf, baseURL: test.info().project.use.baseURL });
       const page = await context.newPage();
       await page.goto(openUrl(fixtures.details));
@@ -304,7 +300,7 @@ test.describe('commit details', () => {
 // Feedback F12: the panel swaps to the next commit in one render, once its details, message and
 // file list are all in. A MutationObserver records the panel after every DOM change; each
 // recorded state must be one commit's complete content: never empty, never a mix of two commits.
-test('switching commits never renders an empty or partial panel', async ({ page }) => {
+test('switching commits never renders an empty or partial panel; Esc and ← return to the graph unchanged', async ({ page }) => {
   await page.setViewportSize({ width: 1280, height: 900 });
   await page.goto(openUrl(fixtures.longHistory));
   await expect(page.getByRole('grid', { name: 'Commit graph' })).toBeVisible();
@@ -351,4 +347,37 @@ test('switching commits never renders an empty or partial panel', async ({ page 
   }
   expect(seen).toContain('Commit 42');
   expect(seen).toContain('Commit 48');
+
+  // The same repo and page (this was files.spec.ts's test, paying for a page load of its own).
+  await test.step('Esc and ← return to the graph with its selection and scroll position unchanged, its lanes drawn', async () => {
+    await page.setViewportSize({ width: 1280, height: 500 });
+    const grid = page.getByRole('grid', { name: 'Commit graph' });
+    // The canvas's drawn band (lanes and nodes) covers the viewport, with no scroll event since the
+    // graph showed again: it used to stay at the top, off screen, until the next scroll.
+    const lanesDrawn = () => grid.evaluate((g) => {
+      const c = g.querySelector<HTMLElement>('[data-testid="graph-canvas"]')!;
+      const top = parseFloat(c.style.top);
+      return top <= g.scrollTop && top + c.getBoundingClientRect().height >= g.scrollTop + g.clientHeight;
+    });
+    await grid.evaluate((el) => { el.scrollTop = 600; });
+    await page.getByRole('row').filter({ hasText: 'Commit 30' }).click();
+    const top = await grid.evaluate((el) => el.scrollTop);
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('region', { name: 'Diff' })).toBeVisible();
+    // The hidden graph hands focus to the file list, so Escape has somewhere to land.
+    await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
+    await page.keyboard.press('Escape');
+    await expect(grid).toBeVisible();
+    await expect(grid).toBeFocused();
+    expect(await grid.evaluate((el) => el.scrollTop)).toBe(top);
+    expect(await lanesDrawn()).toBe(true);
+    await expect(page.getByRole('row').filter({ hasText: 'Commit 30' })).toHaveAttribute('aria-selected', 'true');
+    // → opens the file, ← closes it: the same.
+    await page.keyboard.press('ArrowRight');
+    await expect(page.getByRole('listbox', { name: 'Changed files' })).toBeFocused();
+    await page.keyboard.press('ArrowLeft');
+    await expect(grid).toBeFocused();
+    expect(await grid.evaluate((el) => el.scrollTop)).toBe(top);
+    expect(await lanesDrawn()).toBe(true);
+  });
 });

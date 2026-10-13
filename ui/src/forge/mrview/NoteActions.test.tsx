@@ -121,8 +121,9 @@ describe('a comment header: reactions, edit and delete', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add reaction' }));
     fireEvent.change(screen.getByRole('searchbox', { name: 'Search emoji' }), { target: { value: 'unicorn' } });
     await waitFor(() => expect(screen.getByRole('button', { name: ':unicorn:' })).toHaveTextContent('🦄'));
-    // jsdom: the closed context menu's element is no longer "shown" once boxes are real again.
-    rects.mockRestore();
+    // The closed context menu's element is no longer "shown" once nothing has a box again (happy-dom's
+    // real getClientRects gives every element one, so the mock itself goes empty).
+    rects.mockImplementation(() => [] as unknown as DOMRectList);
     fireEvent.keyDown(document.activeElement!, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Add reaction' })).toBeNull();
   });

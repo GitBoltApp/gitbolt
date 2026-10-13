@@ -111,12 +111,12 @@ mod tests {
 
     #[test]
     fn parses_co_author_trailers_case_insensitively() {
-        let msg = "Fix\n\nBody\n\nCo-authored-by: Margaret Hamilton <margaret@example.com>\nco-authored-by: Linus Torvalds <linus@example.com>\nCO-AUTHORED-BY: Dup <MARGARET@example.com>\nSigned-off-by: X <x@y>\n";
+        let msg = "Fix\n\nBody\n\nCo-authored-by: Maren Holt <maren@example.com>\nco-authored-by: Lars Tidemann <lars@example.com>\nCO-AUTHORED-BY: Dup <MAREN@example.com>\nSigned-off-by: X <x@y>\n";
         assert_eq!(
             co_authors(msg),
             vec![
-                CoAuthor { name: "Margaret Hamilton".into(), email: "margaret@example.com".into() },
-                CoAuthor { name: "Linus Torvalds".into(), email: "linus@example.com".into() },
+                CoAuthor { name: "Maren Holt".into(), email: "maren@example.com".into() },
+                CoAuthor { name: "Lars Tidemann".into(), email: "lars@example.com".into() },
             ]
         );
         assert!(co_authors("Co-authored-by: nobody").is_empty());
@@ -147,7 +147,7 @@ mod tests {
         assert_eq!((d.author.name.as_str(), d.author.email.as_str()), ("Grace Hopper", "grace@example.com"));
         assert_eq!(d.committer.name, "Ada Lovelace");
         assert!(d.committer.time >= d.author.time);
-        assert_eq!(d.co_authors.iter().map(|c| c.email.as_str()).collect::<Vec<_>>(), vec!["margaret@example.com", "linus@example.com"]);
+        assert_eq!(d.co_authors.iter().map(|c| c.email.as_str()).collect::<Vec<_>>(), vec!["maren@example.com", "lars@example.com"]);
         assert_eq!(d.parents, vec![r.git(&["rev-parse", "HEAD^1^1"])]);
         assert!(!d.signed);
         // The message itself is served by `commitMessage`; the fixture's round-trips exactly.

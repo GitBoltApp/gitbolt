@@ -26,7 +26,7 @@ afterAll(() => {
   if (saved.p) Object.defineProperty(HTMLElement.prototype, 'offsetParent', saved.p);
 });
 
-const row = (name: string): RowPayload => ({ id: name.padEnd(40, '0'), kind: 'commit', lane: 0, color: 0, segments: [], summary: name, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
+const row = (name: string): RowPayload => ({ id: `${name}-`.padEnd(40, '0'), kind: 'commit', lane: 0, color: 0, segments: [], summary: name, bodyFirstLine: '', authorName: 'A', authorEmail: '', authorTime: 0, committerTime: 0, parents: [], mrRefs: [], wip: null });
 const graphOf = (names: string[]): GraphPayload => ({ rows: names.map(row), labels: [], maxLanes: 1, pinnedRefs: [], head: { branch: null, target: null, detached: false, unborn: false }, truncated: false, worktrees: [] });
 const names = (n: number, prefix = 'c') => Array.from({ length: n }, (_, i) => `${prefix}${i}`);
 const rowH = METRICS.rowH;

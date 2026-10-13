@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+// jsdom: happy-dom resolves a blob: <img> at once, so the data-loading/error states never show
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 

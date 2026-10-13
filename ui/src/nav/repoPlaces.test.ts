@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { DiffContentsPayload } from '../api/gen/DiffContentsPayload';
 import type { FileChange } from '../api/gen/FileChange';

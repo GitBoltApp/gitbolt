@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
 
 // pdf.js itself, stubbed: a loading task that never finishes (a slow parse), or one that fails.

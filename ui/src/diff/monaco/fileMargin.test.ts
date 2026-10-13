@@ -1,3 +1,4 @@
+// @vitest-environment happy-dom
 import { describe, expect, it, vi } from 'vitest';
 import { DEFAULT_LINE_NUMBER_CHARS, FileMarginStrip, NUMBER_GAP_PX } from './fileMargin';
 

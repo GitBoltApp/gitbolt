@@ -136,7 +136,7 @@ test.describe('diff viewer controls', () => {
     await selectCommit(page);
   });
 
-  test('the view modes and toggles: Hunk, Inline and Split, the colours, Word wrap; the picked mode is remembered across a reload', async ({ page }) => {
+  test('the view modes and toggles: Hunk, Inline and Split, the colours, Word wrap; what a file shows: an EOL-only banner, a large file, Ignore whitespace, File View, an unchanged file', async ({ page }) => {
     await test.step('Inline pressed by default; Hunk, Inline and Split views', async () => {
       await open(page, 'src/app.php');
       const d = diff(page);
@@ -196,16 +196,45 @@ test.describe('diff viewer controls', () => {
       await expect.poll(() => oldLongLine.count()).toBeGreaterThan(1);
     });
 
-    await test.step('the picked mode is remembered across a reload', async () => {
-      await expect(diff(page).getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true');
-      await page.reload();
-      await selectCommit(page);
-      await open(page, 'src/app.php');
+    // The picked mode and toggles are remembered app-wide (a reload included): diffPrefs.test.ts.
+    // Back to the defaults (Inline, Word wrap off) for the steps after this one.
+    await test.step('what a file shows: an EOL-only banner, a large file asks first, Ignore whitespace, File View, and an unchanged file with Diff View off', async () => {
       const d = diff(page);
-      await expect(d.getByRole('button', { name: 'Split' })).toHaveAttribute('aria-pressed', 'true');
-      await expect(d.getByRole('button', { name: 'Inline' })).toHaveAttribute('aria-pressed', 'false');
-      // The reloaded page's first diff loads the editor's chunk again: allow for a cold start.
-      await expect.poll(() => sideRatio(page), { timeout: 15_000 }).toBeGreaterThan(0.8);
+      await d.getByRole('button', { name: 'Word wrap' }).click();
+      await expect(d.getByRole('button', { name: 'Word wrap' })).toHaveAttribute('aria-pressed', 'false');
+      await d.getByRole('button', { name: 'Inline' }).click();
+      // An EOL-only change shows a banner.
+      await open(page, 'crlf.txt');
+      await expect(d.getByRole('note')).toHaveText('Only line endings changed (CRLF → LF)');
+      // A large file asks before loading.
+      await open(page, 'big.txt');
+      await expect(d.getByText('Large file — load anyway?')).toBeVisible();
+      await d.getByRole('button', { name: 'Load anyway' }).click();
+      // Shown once its (80,000-line) diff has computed.
+      await expect(d.getByTestId('text-diff')).toContainText('line 00000 of the big file', { timeout: 15_000 });
+      // Ignore whitespace hides a re-indentation.
+      await open(page, 'ws.txt');
+      await d.getByRole('button', { name: 'Split' }).click();
+      await expect.poll(() => d.locator('.editor.modified .line-insert').count(), { timeout: 15_000 }).toBeGreaterThan(0);
+      // The diff recomputes after the toggle: wait for that result, so "no inserted lines" can't be
+      // read off the gap in between.
+      const before = await computedCount(page);
+      await d.getByRole('button', { name: /Ignore whitespace/ }).click();
+      await expect(d.getByRole('button', { name: /Ignore whitespace/ })).toHaveAttribute('aria-pressed', 'true');
+      await expect.poll(() => computedCount(page)).toBeGreaterThan(before);
+      await expect(d.locator('.editor.modified .line-insert')).toHaveCount(0);
+      // File View shows the whole file at the commit.
+      await open(page, 'src/app.php');
+      await d.getByRole('button', { name: 'File View' }).click();
+      await expect(d.getByTestId('file-view')).toContainText('enum Suit: string');
+      await d.getByRole('button', { name: 'Diff View' }).click();
+      await expect(d.getByTestId('text-diff')).toBeVisible();
+      // An unchanged file from View all files has Diff View disabled.
+      await page.getByRole('button', { name: 'View all files' }).click();
+      await open(page, 'latin1.txt');
+      await expect(d.getByTestId('file-view')).toBeVisible();
+      await expect(d.getByRole('button', { name: 'File View' })).toHaveAttribute('aria-pressed', 'true');
+      await expect(d.getByRole('button', { name: 'Diff View' })).toBeDisabled();
     });
   });
 
@@ -364,12 +393,11 @@ test.describe('diff viewer controls', () => {
     // samples what is actually painted (`checkVisibility`: laid out, visible, no ancestor at
     // opacity 0), text and images, in every frame from the click on.
     await test.step('K7: a file, ×, then another: the first is never painted again (text and image pairs)', async () => {
+      // Text to text, text to image, image to image.
       for (const [first, second, stale, fresh] of [
         ['ws.txt', 'src/app.php', 'fn main() {', 'enum Suit'],
-        ['crlf.txt', 'docs/manual.txt', 'second', 'Step one.'],
         ['src/app.php', 'logo.png', 'enum Suit', 'img:6×4'],
         ['logo.png', 'icon.svg', 'img:6×4', 'img:16×16'],
-        ['icon.svg', 'logo.png', 'img:16×16', 'img:6×4'],
       ] as const) {
         const at = `${first}, ×, then ${second}`;
         await open(page, first);
@@ -455,32 +483,31 @@ test.describe('diff viewer controls', () => {
       expect(orphaned).toEqual([]);
     });
 
-    // In every mode, from a prefetched neighbour (ws.txt) and from a file loaded on the click
-    // (crlf.txt): app.php swaps in whole. Neither ws.txt (4 lines) nor crlf.txt (3) shows a line
-    // past 5. Hunk: app.php's line 20 sits inside its collapsed region and 52 is shown; Inline and
-    // Split show line 10 (its first change, line 5, is on the first screen: no reveal).
+    // In every mode, from a prefetched neighbour (ws.txt) or from a file loaded on the click
+    // (crlf.txt), the two taken in turn: app.php swaps in whole. Neither ws.txt (4 lines) nor
+    // crlf.txt (3) shows a line past 5. Hunk: app.php's line 20 sits inside its collapsed region
+    // and 52 is shown; Inline and Split show line 10 (its first change, line 5, is on the first
+    // screen: no reveal).
     await test.step('every mode: switching files swaps in the new diff whole, never a blank editor, Loading or (Hunk) the full file', async () => {
-      for (const [mode, marker, hidden] of [['Hunk', '52', '20'], ['Inline', '10', null], ['Split', '10', null]] as const) {
-        for (const from of ['ws.txt', 'crlf.txt']) {
-          const at = `${mode}, from ${from}`;
-          await open(page, from);
-          const d = diff(page);
-          await d.getByRole('button', { name: mode }).click();
-          await expect(d.getByRole('button', { name: mode })).toHaveAttribute('aria-pressed', 'true');
-          await expect.poll(() => computedCount(page), { timeout: 15_000 }).toBeGreaterThan(0);
-          const stop = await sampleFrames(page);
-          await fileRow(page, 'src/app.php').click();
-          await expect(d.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${marker}$`) })).toBeVisible();
-          const frames = await stop();
-          expect(frames.filter((f) => f.phase === 'post').length, at).toBeGreaterThan(3);
-          expect(frames.filter((f) => f.lines.length === 0 || f.busy), at).toEqual([]);
-          if (hidden) expect(frames.filter((f) => f.lines.includes(hidden)), at).toEqual([]);
-          // Header and editor switch together: app.php's path only over app.php's diff, the
-          // previous path only over the previous diff.
-          expect(frames.filter((f) => (f.path === 'src/app.php') !== f.lines.includes(marker)), at).toEqual([]);
-          expect(frames.at(-1), at).toMatchObject({ path: 'src/app.php' });
-          expect(frames.at(-1)!.lines, at).toContain('5');
-        }
+      for (const [mode, marker, hidden, from] of [['Hunk', '52', '20', 'ws.txt'], ['Inline', '10', null, 'crlf.txt'], ['Split', '10', null, 'ws.txt']] as const) {
+        const at = `${mode}, from ${from}`;
+        await open(page, from);
+        const d = diff(page);
+        await d.getByRole('button', { name: mode }).click();
+        await expect(d.getByRole('button', { name: mode })).toHaveAttribute('aria-pressed', 'true');
+        await expect.poll(() => computedCount(page), { timeout: 15_000 }).toBeGreaterThan(0);
+        const stop = await sampleFrames(page);
+        await fileRow(page, 'src/app.php').click();
+        await expect(d.locator('.editor.modified .margin-view-overlays .line-numbers').filter({ hasText: new RegExp(`^${marker}$`) })).toBeVisible();
+        const frames = await stop();
+        expect(frames.filter((f) => f.phase === 'post').length, at).toBeGreaterThan(3);
+        expect(frames.filter((f) => f.lines.length === 0 || f.busy), at).toEqual([]);
+        if (hidden) expect(frames.filter((f) => f.lines.includes(hidden)), at).toEqual([]);
+        // Header and editor switch together: app.php's path only over app.php's diff, the
+        // previous path only over the previous diff.
+        expect(frames.filter((f) => (f.path === 'src/app.php') !== f.lines.includes(marker)), at).toEqual([]);
+        expect(frames.at(-1), at).toMatchObject({ path: 'src/app.php' });
+        expect(frames.at(-1)!.lines, at).toContain('5');
       }
     });
 
@@ -637,51 +664,6 @@ test.describe('diff viewer controls', () => {
     // Before J16 a reopen remounted the panel and its lazy chunk suspended: React holds a
     // revealed Suspense boundary back ~300 ms. Now it's the diff's own present, tens of ms.
     if (budgetApplies()) for (const t of reopens) expect(t, `cold ${cold} ms, reopens ${reopens.join(', ')} ms`).toBeLessThan(Math.min(cold / 3, 200));
-  });
-
-  test('what a file shows: an EOL-only banner, a large file asks first, Ignore whitespace, File View, and an unchanged file with Diff View off', async ({ page }) => {
-    const d = diff(page);
-    await test.step('an EOL-only change shows a banner', async () => {
-      await open(page, 'crlf.txt');
-      await expect(d.getByRole('note')).toHaveText('Only line endings changed (CRLF → LF)');
-    });
-
-    await test.step('a large file asks before loading', async () => {
-      await open(page, 'big.txt');
-      await expect(d.getByText('Large file — load anyway?')).toBeVisible();
-      await d.getByRole('button', { name: 'Load anyway' }).click();
-      // Shown once its (80,000-line) diff has computed.
-      await expect(d.getByTestId('text-diff')).toContainText('line 00000 of the big file', { timeout: 15_000 });
-    });
-
-    await test.step('Ignore whitespace hides a re-indentation', async () => {
-      await open(page, 'ws.txt');
-      await d.getByRole('button', { name: 'Split' }).click();
-      await expect.poll(() => d.locator('.editor.modified .line-insert').count(), { timeout: 15_000 }).toBeGreaterThan(0);
-      // The diff recomputes after the toggle: wait for that result, so "no inserted lines" can't be
-      // read off the gap in between.
-      const before = await computedCount(page);
-      await d.getByRole('button', { name: /Ignore whitespace/ }).click();
-      await expect(d.getByRole('button', { name: /Ignore whitespace/ })).toHaveAttribute('aria-pressed', 'true');
-      await expect.poll(() => computedCount(page)).toBeGreaterThan(before);
-      await expect(d.locator('.editor.modified .line-insert')).toHaveCount(0);
-    });
-
-    await test.step('File View shows the whole file at the commit', async () => {
-      await open(page, 'src/app.php');
-      await d.getByRole('button', { name: 'File View' }).click();
-      await expect(d.getByTestId('file-view')).toContainText('enum Suit: string');
-      await d.getByRole('button', { name: 'Diff View' }).click();
-      await expect(d.getByTestId('text-diff')).toBeVisible();
-    });
-
-    await test.step('an unchanged file from View all files has Diff View disabled', async () => {
-      await page.getByRole('button', { name: 'View all files' }).click();
-      await open(page, 'latin1.txt');
-      await expect(d.getByTestId('file-view')).toBeVisible();
-      await expect(d.getByRole('button', { name: 'File View' })).toHaveAttribute('aria-pressed', 'true');
-      await expect(d.getByRole('button', { name: 'Diff View' })).toBeDisabled();
-    });
   });
 });
 

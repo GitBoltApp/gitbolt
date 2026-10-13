@@ -6,7 +6,7 @@ const openBoth = (a: string, b: string) => `/?repo=${encodeURIComponent(a)}&repo
 test.describe('tabs', () => {
   // Each `test.step` below was a test of its own, paying for a page load; they run in an order
   // where each starts from what it needs.
-  test('one tab: the hamburger, About, an update, the profile picker, renaming a tab (kept across a reload), profiles swap the tab set', async ({ page, request }) => {
+  test('one tab: the hamburger, About, an update, the profile picker, a renamed tab kept across a reload, profiles swap the tab set', async ({ page, request }) => {
     await test.step('the hamburger lists only working actions, with shortcuts', async () => {
       const a = freshFixture('basic');
       await page.goto(`/?repo=${encodeURIComponent(a)}`);
@@ -36,8 +36,9 @@ test.describe('tabs', () => {
       // The fake GitHub's release (never the real one), served slowly enough to see the download.
       const seed = await forgeSeed(request);
       const github = seed.github as Record<string, unknown>;
-      github.releases = [{ tagName: 'v0.99.0', name: 'GitBolt 0.99.0', body: '## Added\n\n- Updates from GitHub', assets: [{ name: 'GitBolt_0.99.0_amd64.deb', size: 2 * 1024 * 1024 }, { name: 'SHA256SUMS', size: 0 }] }];
-      github.downloadChunkDelayMs = 60;
+      // 16 chunks of 64 KiB, 30 ms apart: about half a second of progress.
+      github.releases = [{ tagName: 'v0.99.0', name: 'GitBolt 0.99.0', body: '## Added\n\n- Updates from GitHub', assets: [{ name: 'GitBolt_0.99.0_amd64.deb', size: 1024 * 1024 }, { name: 'SHA256SUMS', size: 0 }] }];
+      github.downloadChunkDelayMs = 30;
       await setForgeSeed(request, seed);
       await page.getByRole('button', { name: 'Menu' }).click();
       await page.getByRole('menuitem', { name: 'Help' }).hover();
@@ -53,7 +54,7 @@ test.describe('tabs', () => {
       await pill.click();
       const dialog = page.getByRole('dialog', { name: 'Update to GitBolt 0.99.0' });
       await expect(dialog.getByRole('heading', { name: 'Added' })).toBeVisible();
-      await expect(dialog).toContainText('GitBolt_0.99.0_amd64.deb · 2.0 MB');
+      await expect(dialog).toContainText('GitBolt_0.99.0_amd64.deb · 1.0 MB');
       await expect(dialog.getByRole('button', { name: 'Install 0.99.0' })).toBeVisible();
       await expect(dialog.getByRole('button', { name: 'View on GitHub' })).toBeVisible();
       await page.keyboard.press('Escape');
@@ -73,27 +74,7 @@ test.describe('tabs', () => {
       await page.keyboard.press('Escape');
       await expect(page.getByRole('dialog', { name: 'Edit profile' })).toBeHidden();
     });
-    await test.step('rename field: click inside, Shift+arrows, type, Enter', async () => {
-      const tab = page.getByRole('tab').first();
-      await tab.click({ button: 'right' });
-      await page.getByRole('menuitem', { name: /Rename/ }).click();
-      const input = page.getByLabel('Tab name');
-      await input.fill('Backend');
-      await input.click(); // a click inside keeps editing
-      await expect(input).toBeFocused();
-      await input.dblclick(); // selects a word, still editing
-      await expect(input).toBeFocused();
-      await input.press('End');
-      await page.keyboard.press('Shift+ArrowLeft');
-      await page.keyboard.press('Shift+ArrowLeft');
-      await expect(input).toBeFocused();
-      expect(await input.evaluate((el: HTMLInputElement) => el.value.slice(el.selectionStart!, el.selectionEnd!))).toBe('nd');
-      await page.keyboard.type('X');
-      await expect(input).toHaveValue('BackeX');
-      await page.keyboard.press('Enter');
-      await expect(tab).toContainText('BackeX');
-      await expect(page.getByLabel('Tab name')).toHaveCount(0);
-    });
+    // The rename field's keys (a click inside, Shift+arrows, Enter, Esc, blur): TabBar.test.tsx.
     await test.step('rename via the tab menu persists across reload', async () => {
       const tab = page.getByRole('tab').first();
       await tab.click({ button: 'right' });
@@ -122,19 +103,30 @@ test.describe('tabs', () => {
   });
 
   test('two tabs: only the active one is watched; a drag reorders them; middle-click closes, Ctrl+Shift+T reopens, Ctrl+W closes', async ({ page, request }) => {
-    await test.step('only the active tab\'s repo is watched', async () => {
+    await test.step('only the active tab shows, and only its repo is watched; Ctrl+Tab and Ctrl+PageUp switch', async () => {
       const a = freshFixture('basic');
       const b = freshFixture('long_labels');
       await page.goto(openBoth(a, b));
       const tabs = page.getByRole('tab');
       await expect(tabs).toHaveCount(2);
+      // The last one opened is active; a hidden tab stays in the DOM (`display: none`).
       await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+      await expect(page.locator('.tab-page')).toHaveCount(2);
+      await expect(page.locator('.tab-page:visible')).toHaveCount(1);
+      const merge = page.getByRole('row').filter({ hasText: "Merge branch 'feature/login'" });
+      await expect(merge).toHaveCount(0);
       const watched = async () => (await (await request.get(`${harnessHttp}/test/watched`)).json()) as number[];
       await expect.poll(watched).toHaveLength(1);
       const first = (await watched())[0];
       await page.keyboard.press('Control+Tab');
       await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
+      await expect(merge).toBeVisible();
+      await expect(page.locator('.tab-page:visible')).toHaveCount(1);
       await expect.poll(async () => { const w = await watched(); return w.length === 1 && w[0] !== first; }).toBe(true);
+      await page.keyboard.press('Control+PageUp');
+      await expect(merge).toHaveCount(0);
+      await page.keyboard.press('Control+PageUp');
+      await expect(merge).toBeVisible();
     });
     await test.step('drag reorders tabs', async () => {
       const tabs = page.getByRole('tab');
@@ -234,56 +226,8 @@ test.describe('tabs', () => {
       const work = page.getByRole('button', { name: 'Tab group: Work' });
       await expect(work).toBeVisible();
       await expect(strip.locator('.tab.grouped')).toHaveText([l0, l1]);
-
-      // The last group in the strip: its last tab leaves it to the right, into the empty strip,
-      // once its middle is past the group's end.
-      const drag = async (tab: number, dx: number) => {
-        const b = (await tabs.nth(tab).boundingBox())!;
-        await page.mouse.move(b.x + b.width / 2, y);
-        await page.mouse.down();
-        await page.mouse.move(b.x + b.width / 2 + Math.sign(dx) * 10, y, { steps: 3 });
-        await page.mouse.move(b.x + b.width / 2 + dx, y, { steps: 6 });
-        await page.mouse.up();
-        await expect(strip).not.toHaveClass(/reordering/); // settled and committed
-      };
-      // (The Open repository tab the steps above left comes first.)
-      const last = (await tabs.count()) - 1;
-      const [g0, g1] = [await tabs.nth(last - 1).getAttribute('data-tab-id'), await tabs.nth(last).getAttribute('data-tab-id')];
-      const grouped = strip.locator('.tab.grouped');
-      await drag(last, (await tabs.nth(last).boundingBox())!.width * 0.75);
-      await expect(grouped).toHaveCount(1);
-      await expect(grouped).toHaveAttribute('data-tab-id', g0!);
-      await expect(tabs.nth(last)).toHaveAttribute('data-tab-id', g1!);
-
-      // Back, as the first tab of that one-tab group: dragged left over its tab and onto the chip,
-      // its left edge still right of the chip's left edge, it lands after the chip.
-      const chipBox = (await work.boundingBox())!;
-      await drag(last, chipBox.x + chipBox.width / 2 - (await tabs.nth(last).boundingBox())!.x);
-      await expect(grouped).toHaveCount(2);
-      await expect(tabs.nth(last - 1)).toHaveAttribute('data-tab-id', g1!);
-      await expect(tabs.nth(last)).toHaveAttribute('data-tab-id', g0!);
-      const keys = await strip.locator('[data-strip-key]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.stripKey!.split(':')[0]));
-      expect(keys).toEqual(['tab', 'chip', 'tab', 'tab']);
-
-      // Between two groups, in neither: the Open tab in a group of its own, then Work's last tab
-      // dragged left past Work's chip (its left edge just past it): the chip moves aside for it.
-      await tabs.nth(0).click({ button: 'right' });
-      await page.getByRole('menuitem', { name: 'Add to new group' }).click();
-      await expect(strip.locator('.tab-group-chip')).toHaveCount(2);
-      const workBox = (await work.boundingBox())!;
-      const b0 = (await tabs.nth(last).boundingBox())!;
-      await page.mouse.move(b0.x + b0.width / 2, y);
-      await page.mouse.down();
-      await page.mouse.move(b0.x + b0.width / 2 - 10, y, { steps: 3 });
-      await page.mouse.move(b0.x + b0.width / 2 + workBox.x - 16 - b0.x, y, { steps: 8 });
-      await expect(tabs.nth(last)).not.toHaveAttribute('data-group-color');
-      await expect.poll(async () => (await work.boundingBox())!.x).toBeGreaterThan(workBox.x + b0.width / 2); // aside
-      await page.mouse.up();
-      await expect(strip).not.toHaveClass(/reordering/);
-      await expect(tabs.nth(1)).toHaveAttribute('data-tab-id', g0!);
-      await expect(tabs.nth(1)).not.toHaveClass(/grouped/);
-      const keys2 = await strip.locator('[data-strip-key]').evaluateAll((els) => els.map((el) => (el as HTMLElement).dataset.stripKey!.split(':')[0]));
-      expect(keys2).toEqual(['chip', 'tab', 'tab', 'chip', 'tab']);
+      // Dragging into, out of and between groups (the drop zones, the chip moving aside):
+      // useTabDrag.test.ts and TabBar.groups.test.tsx.
 
       // A double-click on the empty space: a new tab on the Open repository screen.
       const before = await tabs.count();
@@ -293,39 +237,32 @@ test.describe('tabs', () => {
     });
   });
 
-  test('a later launch\'s path (openRequested) opens in a new tab, or focuses the one showing it', async ({ page }) => {
+  // One page for both (each was a test of its own): the forward queued before the page listened,
+  // then live ones.
+  test('a path forwarded before the page listened opens at boot, once; a later launch\'s path (openRequested) opens in a new tab, or focuses the one showing it', async ({ page }) => {
     const a = freshFixture('basic');
     const b = freshFixture('long_labels');
+    const c = freshFixture('basic');
+    const emit = async (path: string) => expect((await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'openRequested', path } })).ok()).toBe(true);
+    // App startup: the backend queues the forward; no page is listening for the event yet.
+    await emit(b);
     await page.goto(`/?repo=${encodeURIComponent(a)}`);
     const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(1);
-    await expect(page.locator('.tab-page:visible .graph-row').first()).toBeVisible();
-    const emit = async (path: string) => expect((await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'openRequested', path } })).ok()).toBe(true);
-    await emit(b);
     await expect(tabs).toHaveCount(2);
     await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(page.locator('.tab-page:visible .graph-row').first()).toBeVisible();
+    await emit(c);
+    await expect(tabs).toHaveCount(3);
+    await expect(tabs.nth(2)).toHaveAttribute('aria-selected', 'true');
     await emit(a);
     await expect(tabs.nth(0)).toHaveAttribute('aria-selected', 'true');
-    await expect(tabs).toHaveCount(2);
-    await page.waitForTimeout(300); // nothing left in the queue to open again
-    await expect(tabs).toHaveCount(2);
-  });
-
-  test('a path forwarded before the page listened opens at boot, once', async ({ page }) => {
-    const a = freshFixture('basic');
-    const b = freshFixture('long_labels');
-    // App startup: the backend queues the forward; no page is listening for the event yet.
-    expect((await page.request.post(`${harnessHttp}/test/emit`, { data: { type: 'openRequested', path: b } })).ok()).toBe(true);
-    await page.goto(`/?repo=${encodeURIComponent(a)}`);
-    const tabs = page.getByRole('tab');
-    await expect(tabs).toHaveCount(2);
-    await expect(tabs.nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(tabs).toHaveCount(3);
+    // Nothing is left in the queue to open again.
     await page.evaluate(() => window.__gb!.flush());
     await page.reload();
     await expect(page.locator('.tab-page:visible .graph-row').first()).toBeVisible();
-    await expect(tabs).toHaveCount(2);
+    await expect(tabs).toHaveCount(3);
   });
-
 
   // Spec §17.3: switching to a loaded tab paints its cached snapshot in < 50 ms. Measured from the
   // click to two animation frames later (the frame that paints it); a sample only counts if the
