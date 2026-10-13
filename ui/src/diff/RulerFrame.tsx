@@ -1,12 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useTheme } from '../theme/store';
 import { THEMES } from '../theme/themes';
-import { markRects, RULER_WIDTH, rulerColors, scrollTopAt, sliderOf, sliderPointAt, wheelPixels, type RulerMark } from './mdRuler';
+import { markRects, RULER_WIDTH, rulerColors, sliderOf, type RulerMark } from './mdRuler';
+import { bindRulerPointer } from './rulerPointer';
 
 const MEASURE_GAP_MS = 100;
-/** How long after a release the view still follows the content: a quick click's jump lays out
- * its chunk a frame or two later (measured: under 50 ms). */
-const SETTLE_MS = 250;
 
 /**
  * A diff view's scroll pane (`pane`, the box's first child) with an overview ruler at its right
@@ -97,29 +95,14 @@ export function RulerFrame({ pane, active = true, split = false, marks, watchCon
     };
     remeasure.current = schedule;
     const onScroll = () => { if (!scrollFrame) scrollFrame = requestAnimationFrame(() => { scrollFrame = 0; place(); }); };
-    // A press holds the slider's grabbed point (`at`, a fraction of its height) on the pointer,
-    // with the pane's metrics of that moment, not the last measure's: a chunk lays out at its
-    // real height (`content-visibility`, from an estimate) once the view reaches it, and the
-    // content grows under the press. Moving the pointer, or the content changing, puts it back,
-    // and the content changing still does for SETTLE_MS after the release, unless the user moves on.
-    let drag: { y: number; at: number } | null = null;
-    let settle = 0;
-    const release = () => {
-      clearTimeout(settle);
-      settle = 0;
-      drag = null;
-    };
-    const follow = () => {
-      if (!drag) return;
-      const h = el.clientHeight;
-      el.scrollTop = scrollTopAt(drag.y - box.getBoundingClientRect().top, h, el.scrollHeight, h, drag.at);
-    };
-    const onMove = (e: PointerEvent) => {
-      if (!drag) return;
-      drag.y = e.clientY;
-      follow();
-    };
-    const changed = () => { follow(); schedule(); };
+    const pointer = bindRulerPointer(box, sl, {
+      visible: () => el.clientHeight,
+      content: () => el.scrollHeight,
+      top: () => el.scrollTop,
+      setTop: (t) => { el.scrollTop = t; },
+    }, () => el.focus({ preventScroll: true }));
+    const { release } = pointer;
+    const changed = () => { pointer.follow(); schedule(); };
     // Resizes of the pane and of its top-level content (a chunk growing, a diagram drawn, a
     // virtual list's height).
     const ro = new ResizeObserver(changed);
@@ -132,37 +115,6 @@ export function RulerFrame({ pane, active = true, split = false, marks, watchCon
     // An image's load doesn't bubble: caught on its way down.
     el.addEventListener('load', changed, true);
 
-    const onUp = () => {
-      if (drag && !settle) settle = window.setTimeout(release, SETTLE_MS);
-      sl.classList.remove('ruler-active');
-      window.removeEventListener('pointermove', onMove);
-      window.removeEventListener('pointerup', onUp);
-      window.removeEventListener('pointercancel', onUp);
-    };
-    const onDown = (e: PointerEvent) => {
-      if (e.button !== 0) return;
-      e.preventDefault();
-      el.focus({ preventScroll: true });
-      // On the track, the view jumps to centre there; on the slider, the drag holds the point grabbed.
-      const h = el.clientHeight;
-      release();
-      const at = e.target === sl ? sliderPointAt(e.clientY - box.getBoundingClientRect().top, h, el.scrollHeight, el.scrollTop, h) : 0.5;
-      drag = { y: e.clientY, at };
-      follow();
-      sl.classList.add('ruler-active');
-      window.addEventListener('pointermove', onMove);
-      window.addEventListener('pointerup', onUp);
-      window.addEventListener('pointercancel', onUp);
-    };
-    const onWheel = (e: WheelEvent) => {
-      e.preventDefault();
-      release();
-      el.scrollTop += wheelPixels(e, visible);
-    };
-    const onClick = (e: MouseEvent) => e.stopPropagation();
-    box.addEventListener('pointerdown', onDown);
-    box.addEventListener('wheel', onWheel, { passive: false });
-    box.addEventListener('click', onClick);
     for (const type of ['wheel', 'keydown', 'pointerdown'] as const) el.addEventListener(type, release, { passive: true });
     schedule();
     return () => {
@@ -173,14 +125,10 @@ export function RulerFrame({ pane, active = true, split = false, marks, watchCon
       ro.disconnect();
       mo.disconnect();
       offTheme();
-      onUp();
-      release();
+      pointer.dispose();
       for (const type of ['wheel', 'keydown', 'pointerdown'] as const) el.removeEventListener(type, release);
       el.removeEventListener('scroll', onScroll);
       el.removeEventListener('load', changed, true);
-      box.removeEventListener('pointerdown', onDown);
-      box.removeEventListener('wheel', onWheel);
-      box.removeEventListener('click', onClick);
       setRuled(false);
     };
   }, [pane, active, split, watchContent]);

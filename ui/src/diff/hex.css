@@ -11,16 +11,10 @@
 .hex-view { flex: 1; min-height: 0; display: flex; overflow: hidden; background: var(--app-bg0); }
 .hex-side { flex: 0 1 auto; min-width: 0; display: flex; border-right: 1px solid var(--section-border); }
 .hex-pane { position: relative; min-width: 0; overflow: hidden; box-sizing: border-box; }
-/* The view's one vertical scrollbar, at its far right (the panes' own are hidden): a native
-   scroller, the changes' marks under its thumb. As wide as the other diffs' rulers (30px, the
-   RulerFrame's .ruler-strip), with the same full-width square slider. */
+/* The view's one vertical scrollbar, at its far right (the panes' own are hidden): the other
+   diffs' overview ruler (30px, RulerFrame's .ruler-strip), the changes' marks under its
+   .ruler-slider (diff.css), driven by hexPanes.ts. */
 .hex-bar { flex: none; width: 30px; margin-left: auto; position: relative; }
-.hex-scroller { position: absolute; inset: 0; overflow-x: hidden; overflow-y: auto; }
-.hex-scroller::-webkit-scrollbar { width: 30px; }
-.hex-scroller::-webkit-scrollbar-thumb { border: 0; border-radius: 0; }
-/* Its spacer is given a width: WebKit leaves a zero-width box out of the scrollable height (the
-   bar then had nothing to scroll there); 1px never shows past the bar. */
-.hex-spacer { width: 1px; }
 .hex-marks { position: absolute; inset: 0; pointer-events: none; }
 .hex-mark { position: absolute; }
 .hex-mark-removed { background: color-mix(in srgb, var(--red) 60%, transparent); }

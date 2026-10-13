@@ -3,6 +3,8 @@ import type { HexSide } from '../../api/gen/HexSide';
 import { useAppState } from '../../app/state';
 import { currentEditorTheme } from '../../theme/editorThemes';
 import { byteRange, byteRuns, changedRows, charText, dumpBytes, hexRowChars, hexText, mergeBlocks, NARROW_ROW_BYTES, offsetLabel, ROW_BYTES, rowsOf, runsIn, selectedBytes, stepChange, type ByteRun, type PaneKind } from '../hexModel';
+import { sliderOf } from '../mdRuler';
+import { bindRulerPointer } from '../rulerPointer';
 import { clampEditorFont, EDITOR_SCROLLBAR } from '../options';
 import { overflowLayer } from './overflow';
 import { monaco } from './setup';
@@ -126,28 +128,28 @@ export class HexPanes implements HexView {
   private readonly ro = new ResizeObserver(() => this.layout());
   private readonly unsubFont: () => void;
   private disposed = false;
-  /** The view's one vertical scrollbar, at its far right: a native scroller over a spacer as tall
-   * as the editors' content, with the changes' marks under it. */
+  /** The view's one vertical scrollbar, at its far right: the other diffs' overview ruler (a
+   * viewport slider over the changes' marks, `bindRulerPointer`) driving the editors' scroll. */
   private readonly bar = document.createElement('div');
-  private readonly scroller = document.createElement('div');
-  private readonly spacer = document.createElement('div');
+  private readonly slider = document.createElement('div');
   private readonly marks = document.createElement('div');
+  private readonly pointer: ReturnType<typeof bindRulerPointer>;
 
   constructor(el: HTMLElement, hooks: HexHooks) {
     this.el = el;
     this.hooks = hooks;
     this.bar.className = 'hex-bar';
     this.marks.className = 'hex-marks';
-    this.scroller.className = 'hex-scroller';
-    this.spacer.className = 'hex-spacer';
-    this.scroller.appendChild(this.spacer);
-    this.bar.append(this.marks, this.scroller);
+    this.slider.className = 'ruler-slider';
+    this.slider.hidden = true;
+    this.bar.append(this.marks, this.slider);
     el.appendChild(this.bar);
-    // The scrollbar dragged (or wheeled over): the editors follow. Its own echo of an editor's
-    // scroll (`syncBar`) is already where they are.
-    this.scroller.addEventListener('scroll', () => {
-      if (!this.sides.length || Math.abs(this.scroller.scrollTop - this.primary().ed.getScrollTop()) < 1) return;
-      this.scrollAll(this.scroller.scrollTop);
+    // The editors' scroll is the truth: the bar only moves them, and `syncBar` follows them back.
+    this.pointer = bindRulerPointer(this.bar, this.slider, {
+      visible: () => (this.sides.length ? this.primary().ed.getLayoutInfo().height : 0),
+      content: () => (this.sides.length ? this.primary().ed.getScrollHeight() : 0),
+      top: () => (this.sides.length ? this.primary().ed.getScrollTop() : 0),
+      setTop: (top) => { if (this.sides.length) this.scrollAll(top); },
     });
     this.ro.observe(el);
     this.unsubFont = useAppState.subscribe((s, prev) => {
@@ -266,12 +268,15 @@ export class HexPanes implements HexView {
     this.marks.replaceChildren(...nodes);
   }
 
-  /** The scrollbar's content as tall as the editors', at their scroll position. */
+  /** The slider where the editors' viewport is (RulerFrame's `place`). */
   private syncBar(): void {
     if (!this.sides.length) return;
     const ed = this.primary().ed;
-    this.spacer.style.height = `${ed.getScrollHeight()}px`;
-    if (Math.abs(this.scroller.scrollTop - ed.getScrollTop()) >= 1) this.scroller.scrollTop = ed.getScrollTop();
+    const h = ed.getLayoutInfo().height;
+    const s = sliderOf(h, ed.getScrollHeight(), ed.getScrollTop(), h);
+    this.slider.hidden = !s.needed;
+    this.slider.style.height = `${s.height}px`;
+    this.slider.style.transform = `translateY(${s.top}px)`;
   }
 
   /**
@@ -505,6 +510,7 @@ export class HexPanes implements HexView {
     this.el.style.removeProperty('--hex-pane-w');
     this.el.style.removeProperty('--hex-text-w');
     delete this.el.dataset.rowBytes;
+    this.pointer.dispose();
     this.bar.remove();
     this.hooks.onDispose();
   }

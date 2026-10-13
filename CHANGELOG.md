@@ -13,6 +13,8 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ### Fixed
 
+- The hex view's right-hand bar scrolls like the other diffs' overview ruler: a click jumps there
+  and keeps dragging, the slider drags from the point grabbed, and the wheel scrolls.
 - Compare with working tree against an older commit lists binary files (images and the like)
   changed in a later commit; they were dropped as unchanged.
 - A submodule with uncommitted changes inside, still at its recorded commit, no longer offers a

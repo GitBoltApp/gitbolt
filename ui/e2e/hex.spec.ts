@@ -102,8 +102,17 @@ test.describe('the hex view', () => {
       expect(Math.abs(barBox.x + barBox.width - (view.x + view.width))).toBeLessThan(1);
       expect(await d.locator('.hex-pane .scrollbar.vertical').evaluateAll((els) => els.filter((e) => (e as HTMLElement).offsetWidth > 0).length)).toBe(0);
       await expect(bar.locator('.hex-mark')).toHaveCount(4);
-      await bar.locator('.hex-scroller').evaluate((e) => { e.scrollTop = 3000; });
-      await expect.poll(together).toBe(3000);
+      // The wheel over it scrolls by the wheel's pixels; a press on its track jumps the view to
+      // centre there, as the other diffs' rulers and Monaco's do.
+      const top = await together();
+      await bar.hover();
+      await page.mouse.wheel(0, 3000);
+      await expect.poll(together).toBe(top + 3000);
+      await page.mouse.click(barBox.x + barBox.width / 2, barBox.y + barBox.height - 4);
+      await expect.poll(together).toBeGreaterThan(top + 3000);
+      const end = await together();
+      await page.mouse.click(barBox.x + barBox.width / 2, barBox.y + 4);
+      await expect.poll(together).toBeLessThan(end);
       // Closed: its diff hides the graph.
       await d.getByRole('button', { name: 'Close diff' }).click();
       await expect(d).toHaveCount(0);
