@@ -12,3 +12,9 @@ describe('header.css motion (J19)', () => {
     expect(rule('.mr-button')).toMatch(/transition:\s*background-color var\(--motion-fast\)/);
   });
 });
+
+describe('header.css signature card', () => {
+  it("wraps its lines, so git's long detail reads without a sideways scroll", () => {
+    expect(rule('.sig-card')).toMatch(/white-space:\s*normal/);
+  });
+});

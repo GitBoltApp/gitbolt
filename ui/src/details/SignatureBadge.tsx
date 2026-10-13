@@ -22,7 +22,7 @@ function card(title: string, s: SignaturePayload | null): ReactNode {
     s.trust && `Trust: ${s.trust}`,
     s.detail,
   ].filter(Boolean) : [];
-  return <div className="hovercard"><div className="hovercard-title">{title}</div>{lines.map((l, i) => <div key={i}>{l}</div>)}</div>;
+  return <div className="hovercard sig-card"><div className="hovercard-title">{title}</div>{lines.map((l, i) => <div key={i}>{l}</div>)}</div>;
 }
 
 /**
@@ -31,7 +31,7 @@ function card(title: string, s: SignaturePayload | null): ReactNode {
  * git; a signed one is verified when selected (the selection starts the check with the details
  * and prefetches the neighbours'; cached per commit id by `services.signature`). The box stays
  * empty for `CHECKING_DELAY_MS`, then shows a dim "checking" shield. The status, signer, key, fingerprint, trust and detail show in a hover
- * card, portaled so the details panel can't clip it.
+ * card, portaled so the details panel can't clip it; its lines wrap, and the pointer may move into it.
  */
 export function SignatureBadge({ id, signed }: { id: string; signed: boolean }) {
   const services = useRepoView((s) => s.services);
@@ -64,9 +64,11 @@ export function SignatureBadge({ id, signed }: { id: string; signed: boolean }) 
   else if (!result) [kind, label] = ['loading', 'Checking signature…'];
   else if (result.status === 'error') [kind, label] = ['error', 'Signature check failed'];
   else [kind, label] = [result.value.kind, LABEL[result.value.kind]];
-  if (result?.status === 'error') content = <div className="hovercard"><div className="hovercard-title">{label}</div><div>{result.message}</div></div>;
+  if (result?.status === 'error') content = <div className="hovercard sig-card"><div className="hovercard-title">{label}</div><div>{result.message}</div></div>;
   else content = card(label, result?.status === 'ready' ? result.value : null);
-  const { triggerProps, tooltip, hide } = useHoverTooltip({ content });
+  // Interactive: git's detail ("gpg.ssh.allowedSignersFile needs to be configured…") can be
+  // long; the pointer may move into the card to select or copy it.
+  const { triggerProps, tooltip, hide } = useHoverTooltip({ content, interactive: true });
   // Focusable, and focus shows the same card (the hover tooltip only needs the trigger element).
   const onFocus = (e: FocusEvent<HTMLElement>) => triggerProps.onMouseEnter(e as unknown as MouseEvent<HTMLElement>);
   return (

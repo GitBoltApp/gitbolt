@@ -13,6 +13,9 @@ All notable changes to GitBolt are listed here, newest first. The format follows
 
 ### Fixed
 
+- A signed commit's status card wraps git's message (such as an unknown key's), and the pointer
+  can move into it to read or copy the text; the message scrolled sideways in a card that closed
+  on the way to the scrollbar.
 - The hex view's right-hand bar scrolls like the other diffs' overview ruler: a click jumps there
   and keeps dragging, the slider drags from the point grabbed, and the wheel scrolls.
 - Compare with working tree against an older commit lists binary files (images and the like)

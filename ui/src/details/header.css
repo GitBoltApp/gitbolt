@@ -16,6 +16,8 @@
 /* Content of a HoverTooltip (portaled, so it's positioned by .hover-tooltip). */
 .hovercard { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
 .hovercard-title { color: var(--text-selected); font-weight: 600; }
+/* The signature card's lines wrap: git's detail is a sentence, wider than the tooltip's 320px. */
+.sig-card { white-space: normal; }
 /* An explicit pointer: WebKit leaves a link at `auto` until it is hovered (H5). */
 .msg-link { color: var(--link); text-decoration: none; cursor: pointer; }
 .msg-link:hover { text-decoration: underline; }

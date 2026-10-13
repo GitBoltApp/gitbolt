@@ -68,6 +68,20 @@ describe('SignatureBadge', () => {
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
+  it("keeps the card open while the pointer moves into it, so git's long detail can be read and copied", async () => {
+    const detail = 'gpg.ssh.allowedSignersFile needs to be configured and exist for ssh signature verification';
+    renderBadge(async () => ({ ...verified, kind: 'unknownKey', detail }), 'c'.repeat(40), true);
+    const badge = await screen.findByRole('img', { name: 'Unknown key' });
+    fireEvent.mouseEnter(badge);
+    const card = screen.getByRole('tooltip');
+    expect(card).toHaveTextContent(detail);
+    expect(card.querySelector('.sig-card')).not.toBeNull(); // its lines wrap (header.css)
+    fireEvent.mouseLeave(badge, { relatedTarget: card });
+    expect(screen.getByRole('tooltip')).toBe(card);
+    fireEvent.mouseLeave(card, { relatedTarget: document.body });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   it('keeps its box empty for the first 300 ms of a check, then shows the dim "checking" shield', () => {
     vi.useFakeTimers();
     try {
