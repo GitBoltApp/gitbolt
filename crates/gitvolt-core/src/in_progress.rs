@@ -146,9 +146,6 @@ pub fn read(root: &Path) -> Result<Option<InProgress>, GbError> {
         },
         S::Rebase | S::RebaseInteractive | S::ApplyMailboxRebase => {
             let merge = git_dir.join("rebase-merge").is_dir();
-            if merge {
-                crate::legacy::adopt_rebase_notes(&git_dir);
-            }
             let dir = if merge { "rebase-merge" } else { "rebase-apply" };
             let f = |n: &str| text(&format!("{dir}/{n}"));
             let num = |n: &str| f(n).and_then(|s| s.parse().ok()).unwrap_or(0);
@@ -295,28 +292,6 @@ mod tests {
             }
             other => panic!("{other:?}"),
         }
-    }
-
-    /// GitBolt (the old name) paused this rebase: its notes, under GitBolt's names, still make it
-    /// GitVolt's own once read.
-    #[test]
-    fn a_rebase_gitbolt_paused_is_gitvolts_own() {
-        let r = TestRepo::new();
-        r.commit("base");
-        r.commit("first");
-        r.commit("second");
-        r.git(&["-c", "sequence.editor=sed -i.orig 1s/^pick/edit/", "rebase", "-q", "-i", "HEAD~1"]);
-        let git_dir = r.path().join(".git");
-        std::fs::write(git_dir.join("rebase-merge/gitbolt-irebase"), "x\n").unwrap();
-        std::fs::write(git_dir.join("rebase-merge/gitbolt-refused"), "old note\n").unwrap();
-        std::fs::write(git_dir.join(REFUSED), "GitVolt's own\n").unwrap();
-        match read(r.path()).unwrap() {
-            Some(InProgress::Rebase { gitvolt, .. }) => assert!(gitvolt),
-            other => panic!("{other:?}"),
-        }
-        assert!(git_dir.join(GITVOLT_MARKER).is_file());
-        assert!(!git_dir.join("rebase-merge/gitbolt-irebase").exists());
-        assert_eq!(std::fs::read_to_string(git_dir.join(REFUSED)).unwrap(), "GitVolt's own\n", "a note GitVolt has is never overwritten");
     }
 
     /// UX L (the flaky e2e "flow 2b"): GitVolt's Edit stop moves HEAD off git's commit (the note

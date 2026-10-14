@@ -5,6 +5,11 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
 
 ## [Unreleased]
 
+### Removed
+
+- **GitBolt's paused rebases:** a rebase GitBolt left paused can no longer be continued in GitVolt;
+  finish or abort it in a terminal.
+
 ## [0.7.0] - 2026-10-14
 
 ### Changed

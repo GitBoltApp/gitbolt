@@ -13,12 +13,9 @@ ARCHITECTURE.md
 docs/dev-setup.md
 docs/website.md
 crates/gitvolt-core/src/legacy.rs
-ui/src/demo/handlers/remotes.ts
-ui/src/demo/engine/remote/fetch.test.ts
 crates/gitvolt-core/src/migrate.rs
 crates/gitvolt-core/src/instance.rs
 crates/gitvolt-core/src/logging.rs
-crates/gitvolt-core/src/in_progress.rs
 crates/gitvolt-core/src/netops.rs
 crates/gitvolt-core/src/forge/mod.rs
 crates/gitvolt-forge/src/tokens.rs
@@ -33,7 +30,6 @@ scripts/package-arch.sh
 scripts/test-package-arch.sh
 scripts/test-windows-installers.sh
 scripts/test-name.sh
-scripts/rename-gitvolt.py
 packaging/windows/gitvolt.nsi
 packaging/windows/gitvolt.wxs
 ui/src/app/legacyStorage.ts

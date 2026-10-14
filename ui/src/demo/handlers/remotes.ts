@@ -20,9 +20,6 @@ const mrRefs = (m: MrHead, remote: string) =>
     ? { src: `refs/merge-requests/${m.number}/head`, dst: `${COMPARE_REFS}${remote}/mr/${m.number}` }
     : { src: `refs/pull/${m.number}/head`, dst: `${COMPARE_REFS}${remote}/pr/${m.number}` };
 
-/** GitBolt's Compare refs, under its old name (the core's legacy.rs `COMPARE_REFS`). */
-const LEGACY_COMPARE_REFS = 'refs/gitbolt/compare/';
-
 /** A failed remote's short reason (the core's `fetch_reason`): the demo's only failure is a remote
  *  it can't reach. */
 const reasonOf = (e: GbError) => (e.message.startsWith(NOT_IN_DEMO) ? 'not in the demo' : e.message);
@@ -62,11 +59,11 @@ async function fetchRepo(ctx: DemoContext, repo: number, background: boolean, re
           failed.push({ name: n, error: err });
         }
       }
-      // One Compare at a time: the MR heads fetched before it go (GitBolt's too, under its old name).
+      // One Compare at a time: the MR heads fetched before it go.
       if (extra) {
         const refs = demo.refMap();
         for (const [name] of refs) {
-          if (!(name.startsWith(COMPARE_REFS) || name.startsWith(LEGACY_COMPARE_REFS)) || name === extra.dst) continue;
+          if (!name.startsWith(COMPARE_REFS) || name === extra.dst) continue;
           // A delete writes no reflog.
           await updateRef(viewOf(demo), demo.gitdir, name, demo.resolveRef(refs, name), null, '', nowSeconds(ctx));
           changed = true;

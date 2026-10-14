@@ -170,13 +170,11 @@ describe('fetch', () => {
     await commitInOrigin(t, origin, 'main', 'n.txt', 'n\n', 'Elsewhere');
     await git.writeRef({ fs: t.memfs, dir: t.dir, ref: 'refs/remotes/origin/gone', value: base });
     await git.writeRef({ fs: t.memfs, dir: t.dir, ref: `${COMPARE_REFS}origin/mr/2`, value: base });
-    await git.writeRef({ fs: t.memfs, dir: t.dir, ref: 'refs/gitbolt/compare/origin/mr/1', value: base });
     await expect(remoteHandlers.fetch({ repo: id, background: false, mrHead: { kind: 'gitlab', number: 4 } }, ctx)).rejects.toMatchObject({ kind: 'InvalidInput' });
     const r = await remoteHandlers.fetch({ repo: id, background: false, remote: 'origin', mrHead: { kind: 'gitlab', number: 4 } }, ctx);
     expect(r).toMatchObject({ status: 'done', changed: true });
     expect(await t.rev(`${COMPARE_REFS}origin/mr/4`)).toBe(head);
     await expect(t.rev(`${COMPARE_REFS}origin/mr/2`)).rejects.toBeTruthy();
-    await expect(t.rev('refs/gitbolt/compare/origin/mr/1')).rejects.toBeTruthy();
     // A command-line refspec fetches that ref only: the tracking refs neither move nor get pruned.
     expect(await t.rev('refs/remotes/origin/main')).toBe(base);
     expect(await t.rev('refs/remotes/origin/gone')).toBe(base);
