@@ -39,8 +39,10 @@ export const goToChange = (dir: 'next' | 'previous') => {
  * column holds `leading` at its far left: the controller's "Open in…" (J1), there for images too.
  * Every pick goes through `useDiffPrefs`, which persists it (plan 1B amendment 3).
  *
- * `canStep`: a text diff is shown (not loading, an error, the large-file prompt, a binary
- * summary or File View), so Previous/Next change have something to move through.
+ * File View (not File History's `views` switch, which keeps them in place, off) hides what never applies there: Previous/Next change, Hunk | Inline | Split and
+ * Ignore whitespace (there's no diff). Word wrap stays: it wraps the file's editor.
+ * `canStep`: a text diff is shown (not loading, an error, the large-file prompt or a binary
+ * summary), so Previous/Next change have something to move through.
  * `textTools`: the text-diff groups apply at all. Not for an image diff (H26), unless it's an
  * SVG's Source, which is a text diff.
  * `binary`: a hex view (lane K) is shown: always side by side, so the view mode doesn't apply
@@ -66,6 +68,8 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary
     setView(view);
   };
   const inDiff = target.view === 'diff';
+  // File History's `views` switch (File | Changes) keeps the controls in place, off, so the switch doesn't shift the bar.
+  const hideNoDiff = !inDiff && !views;
   // The rendered Markdown diff is Split or one column (Inline): a Hunk pick shows it as Inline.
   const mode: DiffMode = rendered && !binary && prefs.mode === 'hunk' ? 'inline' : prefs.mode;
   return (
@@ -85,18 +89,22 @@ export function DiffToolbar({ target, canDiff, canStep, textTools = true, binary
         {history}
         {textTools && (
           <>
-            <div className="diff-toolbar-group" role="group" aria-label="Changes">
-              <IconButton label="Previous change" tip="Previous change (Shift+F7)" disabled={!canStep} onClick={() => goToChange('previous')}><ArrowUp size={14} /></IconButton>
-              <IconButton label="Next change" tip="Next change (F7)" disabled={!canStep} onClick={() => goToChange('next')}><ArrowDown size={14} /></IconButton>
-            </div>
+            {!hideNoDiff && (
+              <div className="diff-toolbar-group" role="group" aria-label="Changes">
+                <IconButton label="Previous change" tip="Previous change (Shift+F7)" disabled={!canStep} onClick={() => goToChange('previous')}><ArrowUp size={14} /></IconButton>
+                <IconButton label="Next change" tip="Next change (F7)" disabled={!canStep} onClick={() => goToChange('next')}><ArrowDown size={14} /></IconButton>
+              </div>
+            )}
+            {!hideNoDiff && (
             <div className="segmented" role="group" aria-label="View mode">
               {MODES.map(([m, label]) => binary || page || table || (rendered && m === 'hunk')
                 // `aria-disabled`, so the tooltip still shows on hover.
                 ? <HoverTooltip key={m} content={binary ? BINARY_MODE_TIP : page ? PAGE_MODE_TIP : table ? TABLE_MODE_TIP : RENDERED_HUNK_TIP} disabled={binary && m !== 'inline'}><button type="button" aria-pressed={page ? m === 'split' : !rendered && !table && prefs.mode === m} aria-disabled="true">{label}</button></HoverTooltip>
                 : <button key={m} type="button" aria-pressed={mode === m} disabled={!inDiff} onClick={() => setPrefs({ mode: m })}>{label}</button>)}
             </div>
+            )}
             <div className="diff-toolbar-group" role="group" aria-label="Display">
-              <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} blockedTip={page ? PAGE_AS_IS_TIP : table ? TABLE_WHITESPACE_TIP : rendered && !binary ? RENDERED_WHITESPACE_TIP : undefined} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>
+              {!hideNoDiff && <IconToggle label="Ignore whitespace" tip="Ignore leading and trailing whitespace" pressed={prefs.ignoreWhitespace} disabled={!inDiff || binary} blockedTip={page ? PAGE_AS_IS_TIP : table ? TABLE_WHITESPACE_TIP : rendered && !binary ? RENDERED_WHITESPACE_TIP : undefined} onClick={() => setPrefs({ ignoreWhitespace: !prefs.ignoreWhitespace })}><Pilcrow size={14} /></IconToggle>}
               <IconToggle label="Word wrap" tip="Word wrap" pressed={prefs.wordWrap} disabled={binary} blockedTip={page ? PAGE_AS_IS_TIP : table ? TABLE_WRAP_TIP : rendered && !binary ? RENDERED_WRAP_TIP : undefined} onClick={() => setPrefs({ wordWrap: !prefs.wordWrap })}><WrapText size={14} /></IconToggle>
             </div>
           </>

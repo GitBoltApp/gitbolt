@@ -1,5 +1,7 @@
 import { budgetApplies, expect, test, type Locator, type Page } from './test';
-import { fixtures, openUrl } from './fixtures';
+import { mkdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fixtures, freshFixture, git, openUrl } from './fixtures';
 
 // Diff prefs persist in localStorage (plan 1B amendment 3). Every test starts from the defaults
 // (Inline, no toggles): the key is cleared on the test's first page load only, so a reload inside
@@ -227,6 +229,9 @@ test.describe('diff viewer controls', () => {
       await open(page, 'src/app.php');
       await d.getByRole('button', { name: 'File View' }).click();
       await expect(d.getByTestId('file-view')).toContainText('enum Suit: string');
+      // What only a diff uses is hidden in File View; Word wrap stays.
+      for (const name of ['Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Next change']) await expect(d.getByRole('button', { name, exact: true })).toHaveCount(0);
+      await expect(d.getByRole('button', { name: 'Word wrap' })).toBeVisible();
       await d.getByRole('button', { name: 'Diff View' }).click();
       await expect(d.getByTestId('text-diff')).toBeVisible();
       // An unchanged file from View all files has Diff View disabled.
@@ -285,7 +290,7 @@ test.describe('diff viewer controls', () => {
 
     await test.step('toolbar: at narrow centre widths nothing overlaps, and every control stays inside the bar', async () => {
       // With the default 400 px details panel: 1280 px gives an 880 px centre (one row, too narrow
-      // to centre File/Diff View: it moves left), 1060 px a 660 px one (just under the 760 px
+      // to centre File/Diff View: the bar wraps), 1060 px a 660 px one (under the 900 px
       // wrapping breakpoint) and 900 px a 500 px one. At 720 px the panel
       // clamps to 400 (innerWidth − CENTER_MIN), so the centre is CENTER_MIN, 320 px.
       for (const width of [1280, 1060, 900, 720]) {
@@ -311,6 +316,11 @@ test.describe('diff viewer controls', () => {
           expect(b.x + b.width).toBeLessThanOrEqual(bar.x + bar.width + 0.5);
           expect(b.y + b.height).toBeLessThanOrEqual(bar.y + bar.height + 0.5);
         }
+        // Labels never wrap: each text button stays one line tall, down to the narrowest centre.
+        for (const name of ['File View', 'Diff View', 'Hunk', 'Inline', 'Split', 'Blame', 'History']) {
+          const b = (await d.getByRole('toolbar', { name: 'Diff options' }).getByRole('button', { name, exact: true }).boundingBox())!;
+          expect(b.height, `${name} wraps at ${width} px`).toBeLessThanOrEqual(26);
+        }
         for (let i = 0; i < boxes.length; i++) {
           for (let j = i + 1; j < boxes.length; j++) {
             const [a, b] = [boxes[i], boxes[j]];
@@ -320,6 +330,43 @@ test.describe('diff viewer controls', () => {
         }
         await page.keyboard.press('Escape');
       }
+
+      // The Markdown (Source/Rendered) and CSV (Source/Table) toggles join the bar: no button is
+      // clipped by its group and no group overlaps another, whether the bar wraps or not.
+      const repo = freshFixture('details');
+      mkdirSync(join(repo, 'docs'), { recursive: true });
+      writeFileSync(join(repo, 'docs/keys.md'), '# Keys\n\n| Key | Action |\n| --- | --- |\n| Escape | Cancel |\n| Up, Down | Move |\n');
+      writeFileSync(join(repo, 'docs/scores.csv'), 'name,score\nada,3\nbob,4\n');
+      git(repo, 'add', 'docs/keys.md', 'docs/scores.csv');
+      git(repo, 'commit', '-m', 'Add narrow-bar docs');
+      await page.goto(openUrl(repo));
+      await page.getByRole('row').filter({ hasText: 'Add narrow-bar docs' }).click();
+      for (const width of [1280, 1060, 900, 720]) {
+        await page.setViewportSize({ width, height: 700 });
+        for (const [path, view] of [['docs/keys.md', 'Markdown view'], ['docs/scores.csv', 'Table view']]) {
+          await open(page, path);
+          const d = diff(page);
+          const bar = d.getByRole('toolbar', { name: 'Diff options' });
+          await expect(d.getByRole('group', { name: view })).toBeVisible();
+          // Rendered Markdown table cells only break a word that can't fit on a line of its own.
+          if (path.endsWith('.md')) await expect(d.locator('.md td').first()).toHaveCSS('overflow-wrap', 'break-word', { timeout: 15_000 });
+          const clipped = await bar.evaluate((el) => [...el.querySelectorAll('button')]
+            .filter((b) => b.scrollWidth > b.clientWidth).map((b) => b.textContent));
+          expect(clipped, `clipped buttons for ${path} at ${width} px`).toEqual([]);
+          const groups = await bar.evaluate((el) => [...el.querySelectorAll('.segmented, .diff-toolbar-group')].map((g) => g.getBoundingClientRect().toJSON()));
+          for (let i = 0; i < groups.length; i++) {
+            for (let j = i + 1; j < groups.length; j++) {
+              const [a, b] = [groups[i], groups[j]];
+              const apart = a.right <= b.left + 0.5 || b.right <= a.left + 0.5 || a.bottom <= b.top + 0.5 || b.bottom <= a.top + 0.5;
+              // A segmented group inside a toolbar group nests (contained, not overlapping).
+              const nested = (o: DOMRect, i2: DOMRect) => i2.left >= o.left - 0.5 && i2.right <= o.right + 0.5 && i2.top >= o.top - 0.5 && i2.bottom <= o.bottom + 0.5;
+              expect(apart || nested(a, b) || nested(b, a), `groups ${i} and ${j} overlap for ${path} at ${width} px`).toBe(true);
+            }
+          }
+        }
+        await page.keyboard.press('Escape');
+      }
+      await selectCommit(page); // the next step wants the details fixture's own commit
     });
 
     await test.step('a toolbar click leaves the focus in the file list: ↓ then opens the next file', async () => {

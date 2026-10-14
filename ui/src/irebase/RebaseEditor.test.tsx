@@ -36,6 +36,13 @@ describe('the interactive rebase editor (spec #3 §4.1)', () => {
     expect(document.querySelector('.irebase-base')!.textContent).toContain('Base');
   });
 
+  it('the footer hints are key caps, one unbreakable item each', () => {
+    show();
+    const hints = [...document.querySelectorAll('.irebase-keys .irebase-hint')];
+    expect(hints.map((h) => h.textContent)).toEqual(['PPick', 'RReword', 'SSquash', 'FFixup', 'DDrop', 'EEdit', 'Ctrl↑/↓Move', 'EnterMessage', 'EscCancel']);
+    expect(hints[0].querySelector('kbd.sc-key')!.textContent).toBe('P');
+    expect(hints[6].querySelectorAll('kbd.sc-key').length).toBe(3);
+  });
   it('letters set the selected rows\' action; Ctrl+↓ moves them; a folded row shows ↓', () => {
     show();
     fireEvent.click(row('c'));

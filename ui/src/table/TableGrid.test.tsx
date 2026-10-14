@@ -48,8 +48,8 @@ describe('CsvTable', () => {
     render(<Csv text={'id,description\n1,a fairly long description\n'} fontPx={16} />);
     const table = screen.getByRole('table');
     // Spare width goes to the columns by their widths (fr), the gutter (2ch) keeps its own.
-    expect(table.style.getPropertyValue('--csv-cols')).toMatch(/^calc\(2ch \+ 16px\) minmax\(calc\(3ch \+ 16px\), 3fr\) minmax\(calc\(25ch \+ 16px\), 25fr\)$/);
-    expect(table.style.getPropertyValue('--csv-width')).toBe('calc(30ch + 48px)');
+    expect(table.style.getPropertyValue('--csv-cols')).toMatch(/^calc\(2ch \+ 16px\) minmax\(calc\(3ch \+ 17px\), 3fr\) minmax\(calc\(25ch \+ 17px\), 25fr\)$/);
+    expect(table.style.getPropertyValue('--csv-width')).toBe('calc(30ch + 50px)');
     expect(table.style.getPropertyValue('--csv-row-h')).toBe(`${rowHeight(16)}px`);
     expect(table).toHaveAttribute('data-font-zoom');
   });

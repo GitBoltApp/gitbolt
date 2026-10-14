@@ -212,7 +212,7 @@ export function MergeBox({ tabId, kind, mr: listed, detail }: { tabId: string; k
   );
   return (
     <section className="mr-merge" aria-label="Merge">
-      <div className="mr-merge-top">
+      <div className={`mr-merge-top${st.note ? '' : ' no-note'}`}>
         <span className={`mr-merge-dot ${st.tone}`} aria-hidden><Icon size={13} className={mr.state === 'merging' ? 'spin' : undefined} /></span>
         <div className="mr-merge-title">{st.title}</div>
         {/* Always in the layout: the reason, or what is ready, or an empty line. */}

@@ -11,6 +11,4 @@
 .sc-keys { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
 .sc-alt { display: inline-flex; align-items: center; gap: 6px; }
 .sc-or { color: var(--text-secondary); font-size: 11px; }
-.sc-chord { display: inline-flex; gap: 3px; vertical-align: middle; }
-.sc-key { font: inherit; font-size: 11px; line-height: 1; min-width: 18px; padding: 3px 6px; box-sizing: border-box; text-align: center; border: 1px solid var(--section-border); border-bottom-width: 2px; border-radius: 4px; background: var(--app-bg0); color: var(--text-selected); }
 .sc-empty { padding: 16px 4px; color: var(--text-secondary); }

@@ -27,7 +27,7 @@
 .md blockquote { padding: 0 1em; color: var(--text-secondary); border-left: 3px solid var(--section-border); }
 .md hr { height: 2px; margin: 16px 0; border: 0; background: var(--section-border); }
 .md table { display: block; width: max-content; max-width: 100%; overflow: auto; border-collapse: collapse; }
-.md th, .md td { padding: 4px 10px; border: 1px solid var(--section-border); }
+.md th, .md td { overflow-wrap: break-word; /* not `anywhere` (inherited from .md): that drops min-content to one letter, so a narrow column split "Escape" */ padding: 4px 10px; border: 1px solid var(--section-border); }
 .md th { font-weight: 600; }
 .md tr:nth-child(2n) { background: var(--panel-bg1); }
 /* A file's front matter: keys on the left (compact, muted), values wrapping in the rest of the

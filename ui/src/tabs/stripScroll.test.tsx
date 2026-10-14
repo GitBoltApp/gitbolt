@@ -1,7 +1,7 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TabGroup } from '../api/gen/TabGroup';
-import { WHEEL_LINE_PX, wheelDelta } from './stripScroll';
+import { reveal, WHEEL_LINE_PX, wheelDelta } from './stripScroll';
 
 vi.mock('../api/client', () => ({
   api: { openIn: vi.fn(async () => null), saveProfile: vi.fn(async () => null), saveSettings: vi.fn(async () => null), appInfo: vi.fn(async () => ({ appVersion: 'x', gitVersion: 'y' })) },
@@ -112,16 +112,16 @@ describe('TabBar: the strip scrolls under the wheel', () => {
 
 describe('TabBar: the active tab is scrolled into view', () => {
   let revealed: string[];
-  let options: unknown[];
+  const real = reveal.tab;
+  const scrollIntoView = vi.fn();
   beforeEach(() => {
     revealed = [];
-    options = [];
-    Element.prototype.scrollIntoView = function (this: Element, o?: boolean | ScrollIntoViewOptions) {
-      revealed.push((this as HTMLElement).dataset.tabId ?? '?');
-      options.push(o);
-    };
+    reveal.tab = (_strip, tab) => { revealed.push(tab.dataset.tabId ?? '?'); };
+    scrollIntoView.mockClear();
+    Element.prototype.scrollIntoView = scrollIntoView;
   });
   afterEach(() => {
+    reveal.tab = real;
     delete (Element.prototype as Partial<Element>).scrollIntoView;
     useAppState.setState({ profile: EMPTY_PROFILE });
   });
@@ -134,7 +134,8 @@ describe('TabBar: the active tab is scrolled into view', () => {
     update((p) => activateTab(p, 'd')); // Ctrl+4, paste-to-go, a close's neighbour
     update((p) => ({ ...p, tabs: [...p.tabs, tab('e')], activeTab: 'e' })); // a new tab
     expect(revealed).toEqual(['a', 'b', 'd', 'e']);
-    expect(options.every((o) => JSON.stringify(o) === JSON.stringify({ inline: 'nearest', block: 'nearest' }))).toBe(true);
+    // Never scrollIntoView: it would scroll the page around the website's demo frame too.
+    expect(scrollIntoView).not.toHaveBeenCalled();
     // A click goes through the store too.
     fireEvent.click(screen.getByText('a'));
     expect(revealed.at(-1)).toBe('a');
@@ -161,5 +162,33 @@ describe('TabBar: the active tab is scrolled into view', () => {
     } finally {
       vi.unstubAllGlobals();
     }
+  });
+});
+
+describe('reveal.tab: the strip scrolls just enough, and nothing else does', () => {
+  const box = (left: number, width: number) => ({ left, right: left + width, top: 0, bottom: 30, width, height: 30, x: left, y: 0, toJSON() {} }) as DOMRect;
+  const at = (strip: HTMLElement, left: number, width: number) => {
+    const tab = document.createElement('div');
+    strip.getBoundingClientRect = () => box(100, 300);
+    tab.getBoundingClientRect = () => box(left - strip.scrollLeft, width);
+    return tab;
+  };
+
+  it('a tab past the right edge brings its right edge in; past the left, its left edge', () => {
+    const strip = document.createElement('div');
+    overflowing(strip);
+    reveal.tab(strip, at(strip, 450, 80));
+    expect(strip.scrollLeft).toBe(130);
+    reveal.tab(strip, at(strip, 150, 80));
+    expect(strip.scrollLeft).toBe(50);
+    reveal.tab(strip, at(strip, 200, 80)); // already in view: no move
+    expect(strip.scrollLeft).toBe(50);
+  });
+
+  it('a tab wider than the strip shows its left edge', () => {
+    const strip = document.createElement('div');
+    overflowing(strip);
+    reveal.tab(strip, at(strip, 500, 400));
+    expect(strip.scrollLeft).toBe(400);
   });
 });

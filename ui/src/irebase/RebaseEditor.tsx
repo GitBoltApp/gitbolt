@@ -22,7 +22,8 @@ import { inspectBase, useBaseInspected, useInspectSelection } from './inspect';
 import { editSession, editState, redoPlan, sessionOf, undoPlan, useRebaseSessions } from './session';
 import { cancelRebase, flattenWarning, reloadRebase, startRebase } from './start';
 import './editor.css';
-import { displayChord } from '../ui/platformKeys';
+import { chordKeycaps, displayChord } from '../ui/platformKeys';
+import '../ui/keycaps.css';
 
 const short = (oid: string) => oid.slice(0, 7);
 const NO_STATE = { selected: [], base: { oid: '' } } as unknown as EditorState;
@@ -174,6 +175,12 @@ function ChipGhost({ tabId }: { tabId: string }) {
 }
 
 /** The interactive rebase editor (spec #3 §4.1), in place of the graph (3A's center view). */
+/** The footer's key hints: [chord, label, dropped first on a narrow panel]. */
+const HINTS: [string | string[], string, boolean?][] = [
+  ['P', 'Pick'], ['R', 'Reword'], ['S', 'Squash'], ['F', 'Fixup', true], ['D', 'Drop'], ['E', 'Edit', true],
+  [['Mod+↑', '↓'], 'Move'], ['Enter', 'Message', true], ['Esc', 'Cancel'],
+];
+
 export function RebaseEditor({ tabId }: CenterViewProps<object>) {
   const session = useRebaseSessions((x) => x.sessions[tabId]);
   const root = useRef<HTMLElement>(null);
@@ -232,7 +239,16 @@ export function RebaseEditor({ tabId }: CenterViewProps<object>) {
         </li>
       </ol>
       <footer className="irebase-footer">
-        <span className="irebase-keys">P Pick · R Reword · S Squash · F Fixup · D Drop · E Edit · {displayChord('Mod+↑')}/↓ Move · Enter Message · Esc Cancel</span>
+        <HoverTooltip content={HINTS.map(([c, l]) => `${[c].flat().map(displayChord).join('/')} ${l}`).join(', ')}>
+          <span className="irebase-keys">
+            {HINTS.map(([chord, label, minor]) => (
+              <span key={label} className={`irebase-hint${minor ? ' is-minor' : ''}`}>
+                {[chord].flat().map((c, i) => <span key={i} className="sc-chord">{i > 0 && '/'}{chordKeycaps(c).map((k, n) => <kbd key={n} className="sc-key">{k}</kbd>)}</span>)}
+                {label}
+              </span>
+            ))}
+          </span>
+        </HoverTooltip>
         <button type="button" className="commit-neutral" aria-disabled={!edited} onClick={() => edited && editState(tabId, reset)}>Reset</button>
         <button ref={cancelButton} type="button" className="commit-neutral" onClick={() => void cancelRebase(tabId)}>Cancel</button>
         <HoverTooltip content={why[0] ?? `Rebase ${state.branch} onto ${state.base.name}`}>

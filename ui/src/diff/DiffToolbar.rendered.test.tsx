@@ -63,6 +63,17 @@ describe('the diff toolbar while the rendered Markdown diff shows (5C, R3)', () 
     expect(useDiffPrefs.getState().prefs.mode).toBe('split');
   });
 
+  it('File View hides Previous/Next, the view modes and Ignore whitespace; Diff View shows them', () => {
+    const fileTarget = { ...target, view: 'file' as const };
+    const view = (t: typeof target) => <RepoViewContext value={createRepoViewStore(1, '/r', graph, fakeServices())}><DiffToolbar target={t} canDiff canStep={false} textTools /></RepoViewContext>;
+    const { unmount } = render(view(fileTarget));
+    for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace']) expect(screen.queryByRole('button', { name })).toBeNull();
+    expect(button('Word wrap')).toBeEnabled();
+    unmount();
+    render(view(target));
+    for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', 'Ignore whitespace', 'Word wrap']) expect(button(name)).toBeInTheDocument();
+  });
+
   it("Previous/Next change use the rendered diff's stepper while one is set, else the editor", async () => {
     const step = vi.fn();
     const off = setChangeStepper(step);

@@ -205,6 +205,17 @@ describe('merging from the MR/PR view (spec #4 §2: forge options, disabled with
     expect([...top.children].map((c) => c.className.split(' ')[0])).toEqual(['mr-merge-dot', 'mr-merge-title', 'mr-merge-reason', 'mr-merge-act']);
   });
 
+  it('with no note the dot and title centre across both rows (no-note); a note removes it', async () => {
+    const top = () => document.querySelector('.mr-merge-top')!;
+    const blocked = show('gitlab', detailOf(mr, { mergeStatus: { kind: 'blocked', reason: 'The pipeline must succeed first' } }));
+    await screen.findByText('The pipeline must succeed first');
+    expect(top().classList.contains('no-note')).toBe(false);
+    blocked.unmount();
+    show('gitlab');
+    await screen.findByText('Ready to merge');
+    expect(top().classList.contains('no-note')).toBe(true);
+  });
+
   it('a failed pipeline says so, as the forge does', async () => {
     const failed = { ...mr, pipeline: { status: 'failed' as const, webUrl: null } };
     const { unmount } = show('gitlab', detailOf(failed, { mergeStatus: { kind: 'blocked', reason: 'The pipeline must succeed first' } }));

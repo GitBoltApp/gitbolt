@@ -5,6 +5,7 @@ import { useModalKeys } from '../app/modalKeys';
 import { comboOf } from '../app/shortcuts';
 import { registerKeys } from '../ui/keyRouter';
 import { filterSections, shortcutSections } from './catalog';
+import '../ui/keycaps.css';
 import './shortcuts.css';
 import { chordKeycaps, displayChord, resolveChord } from '../ui/platformKeys';
 import { ClearableInput } from '../ui/ClearableInput';

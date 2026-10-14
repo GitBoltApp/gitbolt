@@ -26,14 +26,17 @@
 .diff-toolbar-start, .diff-toolbar-end { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .diff-toolbar-end { justify-self: end; gap: 10px; }
 .diff-toolbar-group { display: flex; align-items: center; gap: 2px; }
-/* Too narrow for three columns (the end group is ~300 px, so the grid needs ~740 px): a
+/* Too narrow for three columns (the end group, with a Markdown/CSV toggle, is ~550 px, so the grid needs ~880 px): a
    wrapping row instead. The right-hand groups stay right-aligned, and wrap to their own line
    when even that doesn't fit, rather than overlapping File/Diff View. */
-@container diff-panel (max-width: 760px) {
+@container diff-panel (max-width: 900px) {
   .diff-toolbar { display: flex; flex-wrap: wrap; row-gap: 4px; }
   .diff-toolbar-end { margin-left: auto; flex-wrap: wrap; justify-content: flex-end; row-gap: 4px; }
 }
-.diff-toolbar .segmented > button { all: unset; cursor: pointer; padding: 2px 8px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
+/* A group never shrinks below its labels (its overflow:hidden would otherwise let flex squeeze it to
+   nothing and clip them): the bar wraps its groups instead. */
+.diff-toolbar .segmented { flex: none; min-width: max-content; }
+.diff-toolbar .segmented > button { all: unset; cursor: pointer; flex: none; white-space: nowrap; padding: 2px 8px; color: var(--text-secondary); transition: color var(--motion-fast), background-color var(--motion-base); }
 .diff-toolbar button[aria-pressed="true"] { background: var(--selected-row); color: var(--text-selected); }
 .diff-toolbar .segmented > button:focus-visible { outline: 1px solid var(--blue); outline-offset: -1px; }
 .diff-toolbar button:disabled, .diff-toolbar button[aria-disabled="true"] { opacity: 0.4; cursor: default; }

@@ -284,7 +284,8 @@ describe('DiffPanel', () => {
     expect(host.showDiff).not.toHaveBeenCalled();
     expect(button('File View')).toHaveAttribute('aria-pressed', 'true');
     expect(button('Diff View')).toBeDisabled();
-    for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', /Ignore whitespace/]) expect(button(name)).toBeDisabled();
+    // File View has no diff: what only a diff uses is hidden, not greyed out. Word wrap wraps the editor.
+    for (const name of ['Previous change', 'Next change', 'Hunk', 'Inline', 'Split', /Ignore whitespace/]) expect(screen.queryByRole('button', { name })).toBeNull();
     expect(button('Word wrap')).toBeEnabled();
   });
 
@@ -604,7 +605,7 @@ describe('DiffPanel', () => {
     expect(store.getState().diff?.view).toBe('file');
     expect(await screen.findByTestId('file-view')).toBeInTheDocument();
     await waitFor(() => expect(host.showFile).toHaveBeenCalledWith(expect.objectContaining({ path: 'a.txt', text: 'b\n' })));
-    expect(button('Next change')).toBeDisabled();
+    expect(screen.queryByRole('button', { name: 'Next change' })).toBeNull();
     fireEvent.click(button('Word wrap'));
     expect(host.setFileWordWrap).toHaveBeenLastCalledWith(true);
     fireEvent.click(button('Diff View'));

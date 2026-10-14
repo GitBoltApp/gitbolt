@@ -103,7 +103,11 @@
 .irebase-base .irebase-summary { grid-column: 7 / -1; }
 
 .irebase-footer { flex: none; display: flex; align-items: center; gap: 8px; min-height: 40px; padding: 4px 10px; background: var(--file-bar-bg); border-top: 1px solid var(--section-border); }
-.irebase-keys { flex: 1; min-width: 0; font-size: 11px; color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The hints are key caps; each item never splits, and they wrap onto a second line. Narrow
+   panels drop the least important ones (the full list stays in the tooltip). */
+.irebase-keys { flex: 1; min-width: 0; font-size: 11px; color: var(--text-secondary); display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: center; container-type: inline-size; }
+.irebase-hint { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+@container (max-width: 330px) { .irebase-hint.is-minor { display: none; } }
 
 /* ---- 3C T11: the chip column (spec #3 §4.1). The graph's label-chip look; the × and the "+"
    take their room always and only show on the row's hover (visibility, never display), so

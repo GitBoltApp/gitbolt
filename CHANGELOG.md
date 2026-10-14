@@ -18,6 +18,9 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
   `GitBolt.app` when the update restarts, and offers to move one left beside it to the Trash.
 - **Other names:** the command is `gitvolt`, the environment variables start with `GITVOLT_`, and
   Dock or taskbar pins of GitBolt need pinning again.
+- **Diff toolbar:** the **File View** and **Diff View** labels (and the other buttons) stay on one
+  line in a narrow panel, and **File View** no longer shows the buttons that only apply to a diff
+  (**Previous change** and **Next change**, **Hunk**, **Inline**, **Split**, **Ignore whitespace**).
 
 ### Fixed
 

@@ -19,10 +19,22 @@ const reducedMotion = () => typeof window.matchMedia === 'function' && window.ma
 /** Share of the remaining distance a glide covers each frame: a notch settles in about 4 frames. */
 const GLIDE = 0.45;
 
+/** Scrolls the strip itself just enough to show `tab`. Not `scrollIntoView`: that scrolls every
+ * scrollable ancestor too, the page around the website's demo frame included (a reload there
+ * jumped the page back up to the demo). An object, so tests can watch it. */
+export const reveal = {
+  tab(strip: HTMLElement, tab: HTMLElement) {
+    const s = strip.getBoundingClientRect();
+    const r = tab.getBoundingClientRect();
+    if (r.left < s.left) strip.scrollLeft -= s.left - r.left;
+    else if (r.right > s.right) strip.scrollLeft += Math.min(r.right - s.right, r.left - s.left);
+  },
+};
+
 /** The active tab's box, scrolled into view along the strip only (no page or panel moves). */
 function revealActive(strip: HTMLElement, active: string) {
   const el = strip.querySelector<HTMLElement>(`.tab[data-tab-id="${CSS.escape(active)}"]`);
-  el?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
+  if (el) reveal.tab(strip, el);
 }
 
 /**

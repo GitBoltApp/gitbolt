@@ -22,8 +22,9 @@ export interface GridRow {
 
 export { rowHeight };
 
-/** A cell's padding, both sides (table.css `.csv-cell`). */
-const CELL_PAD = 16;
+/** A cell's padding, both sides, and its right border (table.css `.csv-cell`): a column at its
+ * measured width shows its widest text whole, without an ellipsis. */
+const CELL_PAD = 17;
 const gutterCh = (gutter: number[]) => gutter.reduce((a, b) => a + b, 0);
 const gutterPx = (gutter: number[]) => gutter.length * 8 + 8;
 const round = (n: number) => Math.round(n * 10) / 10;
