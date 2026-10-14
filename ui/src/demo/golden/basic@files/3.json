@@ -1,0 +1,51 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "Stale",
+    "message": "file_1.txt changed on disk",
+    "stderr": null
+  },
+  "events": [
+    {
+      "interactive": true,
+      "kind": "save",
+      "label": "save file_1.txt",
+      "op": 3,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "save",
+      "message": "file_1.txt changed on disk",
+      "op": 3,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "writeWorktreeFile",
+    "params": {
+      "base": "0000000000000000000000000000000000000000",
+      "path": "file_1.txt",
+      "repo": "$repo",
+      "text": "stale\n",
+      "worktree": "$wt"
+    }
+  }
+}

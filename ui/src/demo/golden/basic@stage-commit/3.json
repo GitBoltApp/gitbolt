@@ -1,0 +1,94 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "stage",
+      "label": "stage file_1.txt",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stage",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stage",
+    "params": {
+      "paths": [
+        "file_1.txt"
+      ],
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": null,
+      "undoBlocked": "Nothing to undo"
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": "stage file_1.txt"
+    },
+    "wip": {
+      "staged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "object",
+              "oid": "065e9d1c71aa492e9588ac906ff84e1b552aa388"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+            },
+            "oldPath": null,
+            "path": "file_1.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

@@ -6,8 +6,8 @@
       "file": "orbital.gbdemo",
       "group": null,
       "open": "active",
-      "digest": "62ead2b8485ffaa9",
-      "bytes": 3419382
+      "digest": "a332450a8d8636da",
+      "bytes": 4026270
     },
     {
       "name": "basic",
@@ -38,8 +38,8 @@
       "file": "stack.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "63d2d51f23a1970c",
-      "bytes": 5298
+      "digest": "ab35002ce07973f5",
+      "bytes": 6588
     },
     {
       "name": "wip_staging",
@@ -62,8 +62,8 @@
       "file": "previews.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "a610f8c04840d218",
-      "bytes": 610134
+      "digest": "b81751efa4da5edb",
+      "bytes": 609670
     },
     {
       "name": "submodules",
@@ -78,8 +78,8 @@
       "file": "lfs.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "c24001b2a4bb68cd",
-      "bytes": 46045
+      "digest": "19ffc009bb0b94be",
+      "bytes": 45812
     }
   ],
   "groups": [

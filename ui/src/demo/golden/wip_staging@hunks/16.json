@@ -1,0 +1,11 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": []
+}

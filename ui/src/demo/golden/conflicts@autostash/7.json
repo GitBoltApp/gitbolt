@@ -1,0 +1,194 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 4,
+          "kind": "checkout",
+          "label": "checkout main",
+          "op": 5
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 4,
+        "kind": "checkout",
+        "label": "checkout main",
+        "op": 5
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "checkout",
+      "label": "checkout main",
+      "op": 5,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "message": "autostash before checkout main",
+      "op": 5,
+      "step": "saving",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout main",
+      "op": 5,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout main",
+      "op": 5,
+      "step": "restoring",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout main",
+      "op": 5,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout main",
+      "op": 5,
+      "step": "restoring",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout main",
+      "op": 5,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "head",
+        "stash"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 6,
+          "kind": "checkout",
+          "label": "checkout main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "checkout",
+      "message": null,
+      "op": 5,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "checkout",
+    "params": {
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "target": {
+        "kind": "branch",
+        "name": "main"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 6,
+        "kind": "checkout",
+        "label": "checkout main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "branch": "main",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "cb3695deb3ae5130f4631d723d6a3fb77b1e3c03"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

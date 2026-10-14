@@ -30,3 +30,7 @@ test('the methods still to do are exactly the real and canned ones without a han
   expect(new Set(methods.filter((m) => isPending(HANDLERS[m])))).toEqual(new Set(PENDING));
   for (const m of PENDING) expect(COVERAGE[m], m).not.toBe('notInDemo');
 });
+
+test('every method has its handler: nothing is pending', () => {
+  expect(PENDING).toEqual([]);
+});

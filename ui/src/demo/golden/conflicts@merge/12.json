@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "stagingState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "off": null,
+    "redo": null,
+    "undo": "resolve gone.txt with incoming"
+  }
+}

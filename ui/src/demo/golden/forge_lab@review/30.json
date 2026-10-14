@@ -1,0 +1,49 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeUpdateBranch",
+    "params": {
+      "expectedSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+      "how": "rebase",
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "author": {
+      "avatarUrl": null,
+      "email": "ada@example.com",
+      "id": 101,
+      "name": "Ada Lovelace",
+      "username": "ada",
+      "webUrl": "https://gitlab.example.com/ada"
+    },
+    "autoMerge": null,
+    "conflicts": false,
+    "headSha": "00000000000000000000000000000000000b0101",
+    "labelColors": {},
+    "labels": [
+      "hud"
+    ],
+    "number": 1,
+    "pipeline": {
+      "status": "pending",
+      "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/pipelines/50001"
+    },
+    "review": {
+      "approvals": 0,
+      "approvalsRequired": null,
+      "decision": "none",
+      "reviews": []
+    },
+    "sourceBranch": "feature/hud-scale",
+    "sourceProject": "orbital/forge-lab",
+    "stacked": false,
+    "state": "open",
+    "targetBranch": "main",
+    "targetProject": "orbital/forge-lab",
+    "title": "Scale the HUD with the window",
+    "updatedAt": 1791117000,
+    "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/1"
+  }
+}

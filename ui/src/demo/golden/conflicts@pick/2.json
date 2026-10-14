@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "repoInfo",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "commonDir": "/demo/conflicts/.git",
+    "mainWorktree": null,
+    "remotes": [],
+    "submodules": {}
+  }
+}

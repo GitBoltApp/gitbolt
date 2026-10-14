@@ -1,0 +1,18 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeEditDraft",
+    "params": {
+      "body": "Round to the nearest step?",
+      "id": "2001",
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "body": "Round to the nearest step?",
+    "id": "2001",
+    "position": null,
+    "replyTo": null
+  }
+}

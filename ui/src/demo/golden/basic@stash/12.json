@@ -1,0 +1,114 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 9,
+          "kind": "stash",
+          "label": "stash \"nothing left\"",
+          "op": 10
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 9,
+        "kind": "stash",
+        "label": "stash \"nothing left\"",
+        "op": 10
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "stash",
+      "label": "stash \"nothing left\"",
+      "op": 10,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stash",
+      "message": null,
+      "op": 10,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stashPush",
+    "params": {
+      "message": "nothing left",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 6,
+        "kind": "stash",
+        "label": "stash \"WIP on main\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "status": "nothingToStash"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

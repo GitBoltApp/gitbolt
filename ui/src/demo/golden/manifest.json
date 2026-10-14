@@ -8,6 +8,12 @@
       "open": "active"
     },
     {
+      "name": "conflicts",
+      "file": "conflicts.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
       "name": "details",
       "file": "details.gbdemo",
       "group": "Playground",
@@ -26,6 +32,18 @@
       "open": "tab"
     },
     {
+      "name": "forge_lab",
+      "file": "forge_lab.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "irebase",
+      "file": "irebase.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
       "name": "lfs",
       "file": "lfs.gbdemo",
       "group": "Playground",
@@ -40,6 +58,18 @@
     {
       "name": "previews",
       "file": "previews.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "rebase_lab",
+      "file": "rebase_lab.gbdemo",
+      "group": "Playground",
+      "open": "tab"
+    },
+    {
+      "name": "stack",
+      "file": "stack.gbdemo",
       "group": "Playground",
       "open": "tab"
     },

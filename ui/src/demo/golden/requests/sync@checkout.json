@@ -1,0 +1,23 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "remote", "remote": "origin", "branch": "main" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "dev" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "reset", "params": { "repo": "$repo", "worktree": "$wt", "to": { "$rev": "HEAD~1" }, "mode": "hard", "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "remote", "remote": "origin", "branch": "dev" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "reset", "params": { "repo": "$repo", "worktree": "$wt", "to": { "$rev": "HEAD~1" }, "mode": "hard", "expect": { "head": null, "refs": {} } } },
+  { "method": "createWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "dev-local.txt" } },
+  { "method": "stage", "params": { "repo": "$repo", "worktree": "$wt", "paths": ["dev-local.txt"] } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt", "summary": "Dev, locally", "description": "", "amend": false, "stageAll": false, "expect": { "head": { "$rev": "HEAD" }, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "main" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "remote", "remote": "origin", "branch": "dev" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "remote", "remote": "origin", "branch": "dev" }, "onDiverged": "reset", "expect": { "head": null, "refs": { "refs/heads/dev": { "$rev": "dev" }, "refs/remotes/origin/dev": { "$rev": "origin/dev" } } } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "remote", "remote": "origin", "branch": "diverged" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "feature/new" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "detached", "oid": { "$rev": "main", "short": 9 } }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "remote", "remote": "origin", "branch": "dev", "local": "dev-copy" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

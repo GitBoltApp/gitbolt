@@ -1,0 +1,138 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 4,
+          "kind": "commit",
+          "label": "continue the cherry-pick",
+          "op": 7
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 4,
+        "kind": "commit",
+        "label": "continue the cherry-pick",
+        "op": 7
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "commit",
+      "label": "continue the cherry-pick",
+      "op": 7,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 2,
+          "kind": "commit",
+          "label": "cherry-pick ba61fb4 onto main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "commit",
+      "message": null,
+      "op": 7,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "pickControl",
+    "params": {
+      "action": "continue",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 2,
+        "kind": "commit",
+        "label": "cherry-pick ba61fb4 onto main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

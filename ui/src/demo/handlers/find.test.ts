@@ -12,7 +12,7 @@ async function sixty(graph?: GraphFactory) {
   const ids: string[] = [];
   for (let i = 0; i < 60; i++) {
     await t.write(`file_${i}.txt`, `content ${i}\n`);
-    ids.push(await t.commit(`Commit ${String(i).padStart(2, '0')}`, ADA));
+    ids.push(await t.commit(`Commit ${String(i).padStart(2, '0')}`, ADA, { only: [`file_${i}.txt`] }));
   }
   const newestFirst = [...ids].reverse();
   const ctx = fakeCtx(t.repo);

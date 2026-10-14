@@ -1,0 +1,96 @@
+{
+  "error": {
+    "commandId": null,
+    "detail": {
+      "kind": "autostashConflict",
+      "paths": [
+        "a.txt"
+      ],
+      "target": "feature/x"
+    },
+    "kind": "Conflict",
+    "message": "Your changes conflict with feature/x",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 5,
+          "kind": "checkout",
+          "label": "checkout feature/x",
+          "op": 7
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 5,
+        "kind": "checkout",
+        "label": "checkout feature/x",
+        "op": 7
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "checkout",
+      "label": "checkout feature/x",
+      "op": 7,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "checkout",
+      "message": "Your changes conflict with feature/x",
+      "op": 7,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "checkout",
+    "params": {
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "target": {
+        "kind": "branch",
+        "name": "feature/x"
+      },
+      "worktree": "$wt"
+    }
+  }
+}

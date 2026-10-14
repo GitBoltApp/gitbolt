@@ -1,0 +1,14 @@
+{
+  "events": [],
+  "request": {
+    "method": "commitIdentity",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "email": "you@example.com",
+    "name": "You"
+  }
+}

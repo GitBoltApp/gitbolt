@@ -6,7 +6,9 @@ import type { Handler, HandlerTable, Method } from '../transport';
 import { graphHandlers } from './graph';
 import { notInDemoHandlers } from './notInDemo';
 import { READ_HANDLERS } from './reads';
+import { PHASE4_HANDLERS } from './phase4';
 import { repoHandlers } from './repo';
+import { WRITE_HANDLERS } from './writes';
 
 const PLACEHOLDER = Symbol('a demo handler still to write');
 
@@ -18,4 +20,4 @@ export const isPending = (h: unknown): boolean => typeof h === 'function' && PLA
 
 const placeholders = Object.fromEntries(PENDING.map((m) => [m, pending(m)])) as { [M in PendingMethod]: Handler<M> };
 
-export const HANDLERS: HandlerTable = { ...placeholders, ...notInDemoHandlers, ...repoHandlers, ...graphHandlers, ...READ_HANDLERS };
+export const HANDLERS: HandlerTable = { ...placeholders, ...notInDemoHandlers, ...repoHandlers, ...graphHandlers, ...READ_HANDLERS, ...WRITE_HANDLERS, ...PHASE4_HANDLERS };

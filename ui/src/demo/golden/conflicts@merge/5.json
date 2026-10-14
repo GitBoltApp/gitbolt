@@ -1,0 +1,93 @@
+{
+  "events": [],
+  "request": {
+    "method": "conflictFile",
+    "params": {
+      "path": "a.txt",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": "d930acf5c3d6a4cccb943f2ce09fb7f015c7e5b7",
+    "current": {
+      "regions": [
+        {
+          "id": 0,
+          "lines": 1,
+          "start": 4
+        },
+        {
+          "id": 1,
+          "lines": 1,
+          "start": 16
+        }
+      ],
+      "text": "line 0\nline 1\nline 2\ncurrent three\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\ncurrent fifteen\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\n"
+    },
+    "encoding": "UTF-8",
+    "eol": "lf",
+    "incoming": {
+      "regions": [
+        {
+          "id": 0,
+          "lines": 1,
+          "start": 4
+        },
+        {
+          "id": 1,
+          "lines": 1,
+          "start": 16
+        }
+      ],
+      "text": "line 0\nline 1\nline 2\nincoming three\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nincoming fifteen\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\n"
+    },
+    "kind": "bothModified",
+    "labels": {
+      "current": "main",
+      "incoming": "feature/x"
+    },
+    "path": "a.txt",
+    "segments": [
+      {
+        "kind": "common",
+        "text": "line 0\nline 1\nline 2\n"
+      },
+      {
+        "base": [
+          "line 3\n"
+        ],
+        "current": [
+          "current three\n"
+        ],
+        "id": 0,
+        "incoming": [
+          "incoming three\n"
+        ],
+        "kind": "conflict"
+      },
+      {
+        "kind": "common",
+        "text": "line 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\n"
+      },
+      {
+        "base": [
+          "line 15\n"
+        ],
+        "current": [
+          "current fifteen\n"
+        ],
+        "id": 1,
+        "incoming": [
+          "incoming fifteen\n"
+        ],
+        "kind": "conflict"
+      },
+      {
+        "kind": "common",
+        "text": "line 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\n"
+      }
+    ],
+    "text": true
+  }
+}

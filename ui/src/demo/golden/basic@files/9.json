@@ -1,0 +1,63 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 6,
+      "kind": "discard",
+      "label": "discard notes/new.txt",
+      "touched": [
+        "notes/new.txt"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 5,
+      "kind": "restore",
+      "label": "restore file_1.txt from 1f37672",
+      "touched": [
+        "file_1.txt"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 4,
+      "kind": "restore",
+      "label": "delete file_2.txt (as in 1f37672)",
+      "touched": [
+        "file_2.txt"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed notes",
+      "entry": 3,
+      "kind": "save",
+      "label": "create notes/new.txt",
+      "touched": [
+        "notes/new.txt",
+        "notes"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed file_1.txt",
+      "entry": 1,
+      "kind": "save",
+      "label": "save file_1.txt",
+      "touched": [
+        "file_1.txt"
+      ]
+    }
+  ]
+}

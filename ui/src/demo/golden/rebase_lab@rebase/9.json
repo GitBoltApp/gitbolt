@@ -1,0 +1,101 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "resolve",
+      "label": "resolve notes.txt",
+      "op": 4,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/rebase_lab": "<version>"
+      },
+      "worktrees": [
+        "/demo/rebase_lab"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "resolve",
+      "message": null,
+      "op": 4,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "resolveFile",
+    "params": {
+      "path": "notes.txt",
+      "repo": "$repo",
+      "resolution": {
+        "kind": "incoming"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": {
+        "entry": 2,
+        "irebase": true,
+        "kind": "rebase",
+        "label": "interactive rebase lab onto main~1",
+        "target": "main~1"
+      },
+      "redo": null,
+      "redoBlocked": "Finish or abort the rebase first",
+      "undo": null,
+      "undoBlocked": "Finish or abort the rebase first"
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": "resolve notes.txt with incoming"
+    },
+    "wip": {
+      "staged": {
+        "added": 1,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 0,
+            "new": {
+              "kind": "object",
+              "oid": "9af5ee0fe4225deacd82e08f19f0c0cfd0369128"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "c82b5cd6ad139b637b987ae29c9d8491b0dbedb4"
+            },
+            "oldPath": null,
+            "path": "notes.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/rebase_lab"
+    }
+  }
+}

@@ -1,0 +1,133 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "stash",
+          "label": "stash \"Demo stash\"",
+          "op": 1
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "stash",
+        "label": "stash \"Demo stash\"",
+        "op": 1
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "stash",
+      "label": "stash \"Demo stash\"",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "stash"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 1,
+          "kind": "stash",
+          "label": "stash \"Demo stash\""
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/basic"
+    },
+    {
+      "command": null,
+      "kind": "stash",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stashPush",
+    "params": {
+      "message": "Demo stash\n\nWith a body.",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "stash",
+        "label": "stash \"Demo stash\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "oid": "d6c35256ba688bf944aaefda306c84313ee3541f",
+      "status": "stashed"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

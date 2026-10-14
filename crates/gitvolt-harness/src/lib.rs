@@ -24,6 +24,8 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 
 pub mod fake_forge;
+pub mod forge_lab;
+pub mod forge_seed;
 pub mod golden;
 pub mod media;
 pub mod orbital;
@@ -121,6 +123,9 @@ pub struct HarnessOptions {
     /// Writes are allowed only to marked fixture repositories under this directory (spec #2 §17.2).
     /// `None` = the system temp dir, where `just e2e`'s global setup and `freshFixture` build them.
     pub fixture_root: Option<PathBuf>,
+    /// The website demo's parity recordings (`golden::record`): git commits as the visitor at a
+    /// fixed instant, and the core's clock stands still at the same one.
+    pub golden: bool,
 }
 
 /// The harness's write guard (spec #2 §17.2): allowed only for a repository whose common dir sits
@@ -271,7 +276,18 @@ impl Harness {
             kind: gitvolt_core::updates::install::InstallKind::Deb,
             exe: Some("/fake/bin/gitvolt".into()),
         };
-        let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(isolated_git_env()), None)
+        let mut env = isolated_git_env();
+        if opts.golden {
+            env.retain(|(k, _)| {
+                let k = k.to_string_lossy();
+                !k.starts_with("GIT_AUTHOR_") && !k.starts_with("GIT_COMMITTER_")
+            });
+            env.extend(crate::golden::GOLDEN_GIT_ENV.iter().map(|(k, v)| ((*k).into(), (*v).into())));
+            // A recording never reaches the network: git may only reach local paths, so a remote
+            // named by a forge URL (`forge_lab`'s origin) fails instead of resolving.
+            env.push(("GIT_ALLOW_PROTOCOL".into(), "file".into()));
+        }
+        let api = Api::new(GitCli::new(Arc::new(CommandLog::new(1000))).with_env(env), None)
             .with_updates(updates)
             // The journal and temp index files: the harness's own, never ~/.local/share.
             .with_data_dir(runtime_tmp.path().join("data"))
@@ -285,6 +301,7 @@ impl Harness {
             .with_home(Some(home.clone()))
             .with_store(store.clone())
             .with_write_guard(fixture_guard(opts.fixture_root.clone().unwrap_or_else(std::env::temp_dir)));
+        let api = if opts.golden { api.with_clock(Arc::new(|| crate::golden::GOLDEN_NOW_MS)) } else { api };
         let api = Arc::new(with_fake_openers(api, launches.clone()));
         // Askpass (spec §5.4), in the private temp dir: git runs `askpass_exe` (the harness binary
         // itself unless a test names one), which asks this server over its socket.

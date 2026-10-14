@@ -1,0 +1,18 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "banners": [],
+    "paused": null,
+    "redo": null,
+    "redoBlocked": "Nothing to redo",
+    "undo": null,
+    "undoBlocked": "Nothing to undo"
+  }
+}

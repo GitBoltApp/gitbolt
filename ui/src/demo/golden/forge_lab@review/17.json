@@ -1,0 +1,11 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeDiscardReview",
+    "params": {
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": 1
+}

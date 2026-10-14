@@ -68,6 +68,11 @@ for f in "${fixtures[@]}"; do
       case "$url" in "$stage"/*)
         rest=${url#"$stage"/}; first=${rest%%/*}
         [ -n "${to[$first]:-}" ] && git -C "$target" remote set-url "$remote" "${to[$first]}${rest#"$first"}"
+      ;;
+      # Named by its forge address (the demo's fake GitLab, which nothing here serves): git
+      # fetches and pushes the bundled origin instead.
+      https://gitlab.example.com/*)
+        [ -n "${to[origin.git]:-}" ] && git -C "$target" config "url.${to[origin.git]}.insteadOf" "$url"
       ;; esac
     done
   done
@@ -94,7 +99,7 @@ cat > "$dir/README.md" <<'EOF'
 
 Add this folder in GitVolt ("Add a folder") to list every repo. What to try in each:
 
-- **orbital**: a 2D space-trading game in Rust, two years and over a thousand commits by six people. Scroll the graph; open any commit; every preview type is in its history (sprites, the HUD font, sounds, the design PDF, the press kit, tables, the save file). `balance/fuel-rework` conflicts with main (text, table, image); `feature/hud-polish` is set up for an interactive rebase onto main; `feature/autopilot` is ahead of origin, `feature/station-ui` behind, `feature/trade-routes` diverged; two stashes; main has staged and unstaged changes. `git -C .remotes/orbital-origin.git update-ref refs/heads/main refs/demo/teammate` plays the teammate's push, then Fetch.
+- **orbital**: a 2D space-trading game in Rust, two years and over a thousand commits by six people. Scroll the graph; open any commit; every preview type is in its history (sprites, the HUD font, sounds, the design PDF, the press kit, tables, the save file). `balance/fuel-rework` conflicts with main (text, table, image); `feature/hud-polish` is set up for an interactive rebase onto main; `feature/autopilot` is ahead of origin, `feature/station-ui` behind, `feature/trade-routes` diverged; two stashes; main has staged and unstaged changes, and a second worktree (`.worktrees/orbital-release`, on release/1.2) has its own. `git -C .remotes/orbital-origin.git update-ref refs/heads/main refs/demo/teammate` plays the teammate's push, then Fetch.
 - **basic**: the game's website: a small history with a merged branch, a tag, a stash and a dirty linked worktree.
 - **sync**: the modding kit: a remote that moved. Fetch, pull, push; `main` is behind, `feature/lua-hooks` has diverged, `feature/mod-manifest` has no upstream.
 - **conflicts**: merge `feature/price-rework` into `main` for text, binary and delete/modify conflicts, then resolve them.

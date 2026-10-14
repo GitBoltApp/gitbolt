@@ -1,0 +1,23 @@
+{
+  "events": [],
+  "request": {
+    "method": "integratePreview",
+    "params": {
+      "kind": "rebase",
+      "repo": "$repo",
+      "target": "main",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "ahead": 6,
+    "behind": 1,
+    "conflicts": [
+      "notes.txt"
+    ],
+    "lossyMerge": null,
+    "merged": false,
+    "stacked": [],
+    "updateRefsDefault": true
+  }
+}

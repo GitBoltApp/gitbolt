@@ -1,0 +1,155 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 2,
+          "kind": "undo",
+          "label": "undo commit \"Demo commit\"",
+          "op": 5
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 2,
+        "kind": "undo",
+        "label": "undo commit \"Demo commit\"",
+        "op": 5
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "undo",
+      "label": "undo commit \"Demo commit\"",
+      "op": 5,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": {
+          "entry": 1,
+          "kind": "commit",
+          "label": "commit \"Demo commit\""
+        },
+        "redoBlocked": null,
+        "undo": null,
+        "undoBlocked": "Nothing to undo"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/basic"
+    },
+    {
+      "command": null,
+      "kind": "undo",
+      "message": null,
+      "op": 5,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 1,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": {
+        "entry": 1,
+        "kind": "commit",
+        "label": "commit \"Demo commit\""
+      },
+      "redoBlocked": null,
+      "undo": null,
+      "undoBlocked": "Nothing to undo"
+    },
+    "outcome": {
+      "label": "commit \"Demo commit\"",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "object",
+              "oid": "065e9d1c71aa492e9588ac906ff84e1b552aa388"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+            },
+            "oldPath": null,
+            "path": "file_1.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

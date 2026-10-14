@@ -1,0 +1,44 @@
+{
+  "events": [
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    }
+  ],
+  "request": {
+    "method": "forgeRepoProjects",
+    "params": {
+      "refresh": false,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "remotes": [
+      {
+        "account": "gitlab",
+        "error": null,
+        "host": "gitlab.example.com",
+        "path": "orbital/forge-lab",
+        "project": {
+          "archived": false,
+          "cloneHttps": "https://gitlab.example.com/orbital/forge-lab.git",
+          "cloneSsh": "git@gitlab.example.com:orbital/forge-lab.git",
+          "defaultBranch": "main",
+          "forkOf": null,
+          "host": "gitlab.example.com",
+          "id": 4242,
+          "kind": "gitlab",
+          "name": "forge-lab",
+          "owner": "orbital",
+          "ownerAvatarUrl": null,
+          "path": "orbital/forge-lab",
+          "updatedAt": 1791648000,
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab"
+        },
+        "remote": "origin"
+      }
+    ],
+    "target": "origin",
+    "targetChosen": false
+  }
+}

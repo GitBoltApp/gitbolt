@@ -1,0 +1,22 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "commitIdentity", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "headOnUpstream", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stage", "params": { "repo": "$repo", "worktree": "$wt", "paths": ["file_1.txt"] } },
+  { "method": "stagingState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stagingUndo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stagingRedo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt", "summary": "Demo commit", "description": "Made in the demo.\n\n# kept as git keeps it", "amend": false, "stageAll": false, "expect": { "head": { "$rev": "HEAD" }, "refs": {} } } },
+  { "method": "headOnUpstream", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "redo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "redo" } } },
+  { "method": "editHeadMessage", "params": { "repo": "$repo", "worktree": "$wt", "message": "Demo commit, reworded", "expect": { "head": { "$rev": "HEAD" }, "refs": {} } } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt", "summary": "Nothing here", "description": "", "amend": false, "stageAll": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt:wt-hotfix", "summary": "Hotfix in its worktree", "description": "", "amend": false, "stageAll": true, "expect": { "head": null, "refs": {} } } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt:wt-hotfix" } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt:wt-hotfix", "entry": { "$entry": "undo" } } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

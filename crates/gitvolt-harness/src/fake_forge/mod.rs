@@ -36,6 +36,8 @@ pub const GITLAB_READONLY_TOKEN: &str = "glpat-FAKE-e2e-readonly";
 pub const GITHUB_TOKEN: &str = "ghp_FAKE-e2e-octocat";
 pub const GITHUB_FINE_TOKEN: &str = "github_pat_FAKE-e2e-fine-grained";
 pub const GITHUB_READONLY_TOKEN: &str = "ghp_FAKE-e2e-readonly";
+/// The visitor's token in the demo's golden recordings (never in a fixture).
+pub const DEMO_TOKEN: &str = "glpat-FAKE-demo-you";
 pub const FAKE_PNG: &[u8] = b"\x89PNG\r\n\x1a\nfake";
 /// Project uploads' bytes, by file name (64×48, 1 s videos): `clip.webm` (VP9: every Chromium
 /// plays it), `screen.mp4` (H.264: a build without the proprietary codecs can't),

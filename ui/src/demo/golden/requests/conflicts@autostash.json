@@ -1,0 +1,21 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "queueState", "params": { "repo": "$repo" } },
+  { "method": "writeWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "a.txt", "text": "line 0\nline 1\nline 2\ncurrent three\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\ncurrent fifteen\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nlocal twenty-five\nline 26\nline 27\nline 28\nline 29\n", "base": { "$hash": "repo/a.txt" } } },
+  { "method": "integrate", "params": { "repo": "$repo", "worktree": "$wt", "kind": "merge", "target": "clean", "expect": { "head": null, "refs": {} }, "confirm": { "autostash": false } } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "feature/x" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "main" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "writeWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "a.txt", "text": "line 0\nline 1\nline 2\nlocal three\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\ncurrent fifteen\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nlocal twenty-five\nline 26\nline 27\nline 28\nline 29\n", "base": { "$hash": "repo/a.txt" } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "feature/x" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "feature/x" }, "expect": { "head": null, "refs": {} }, "confirmAutostash": true } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "resolveFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "a.txt", "resolution": { "kind": "current" } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "main" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "applyKeptStash", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "banner" } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "feature/x" }, "expect": { "head": null, "refs": {} }, "confirmAutostash": true } },
+  { "method": "dismissBanner", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "banner" }, "dropStash": false } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

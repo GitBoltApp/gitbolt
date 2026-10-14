@@ -1,0 +1,161 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 7,
+          "kind": "branch",
+          "label": "delete branch demo/renamed",
+          "op": 7
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 7,
+        "kind": "branch",
+        "label": "delete branch demo/renamed",
+        "op": 7
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "branch",
+      "label": "delete branch demo/renamed",
+      "op": 7,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "config"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 4,
+          "kind": "branch",
+          "label": "delete branch demo/renamed"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/basic"
+    },
+    {
+      "command": null,
+      "kind": "branch",
+      "message": null,
+      "op": 7,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "deleteBranch",
+    "params": {
+      "branch": "demo/renamed",
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "force": false,
+      "local": true,
+      "remote": null,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 4,
+        "kind": "branch",
+        "label": "delete branch demo/renamed"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "status": "deleted"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/basic"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+            },
+            "oldPath": null,
+            "path": "file_1.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

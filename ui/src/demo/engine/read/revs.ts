@@ -5,17 +5,26 @@ import { readRaw } from './trees';
 import { demoOf, fail, ig, isNotFound, type ReadRepo } from './seam';
 import { worktreeOf } from './worktrees';
 
-/** A ref name as git resolves it (`refs/<n>`, `refs/tags/<n>`, `refs/heads/<n>`, `refs/remotes/<n>`,
- *  `refs/remotes/<n>/HEAD`; `HEAD` the main worktree's), through 1a's refs. Null when there's none. */
+/** The full ref a name means to git (itself, `refs/<n>`, `refs/tags/<n>`, `refs/heads/<n>`,
+ *  `refs/remotes/<n>`, `refs/remotes/<n>/HEAD`, the first that exists), through 1a's refs; null
+ *  when there's none. */
+export function dwimRefName(repo: ReadRepo, name: string): string | null {
+  const demo = demoOf(repo);
+  const refs = demo.refMap();
+  for (const full of [name, `refs/${name}`, `refs/tags/${name}`, `refs/heads/${name}`, `refs/remotes/${name}`, `refs/remotes/${name}/HEAD`]) {
+    if (demo.resolveRef(refs, full) !== null) return full;
+  }
+  return null;
+}
+
+/** What a ref name resolves to as git dwims it (`dwimRefName`; `HEAD` the main worktree's), not
+ *  peeled. Null when there's none. */
 export async function resolveRefName(repo: ReadRepo, name: string): Promise<string | null> {
   const demo = demoOf(repo);
   const refs = demo.refMap();
   if (name === 'HEAD') return demo.head(refs).target;
-  for (const full of [name, `refs/${name}`, `refs/tags/${name}`, `refs/heads/${name}`, `refs/remotes/${name}`, `refs/remotes/${name}/HEAD`]) {
-    const oid = demo.resolveRef(refs, full);
-    if (oid) return oid;
-  }
-  return null;
+  const full = dwimRefName(repo, name);
+  return full === null ? null : demo.resolveRef(refs, full);
 }
 
 export async function peelToCommit(repo: ReadRepo, oid: string): Promise<string | null> {
@@ -79,6 +88,18 @@ export async function ancestors(repo: ReadRepo, tip: string): Promise<Set<string
   return demo.reach(tip);
 }
 
+/** `a` is `b` or one of its ancestors. */
+export async function isAncestor(repo: ReadRepo, a: string, b: string): Promise<boolean> {
+  return a === b || (await ancestors(repo, b)).has(a);
+}
+
+/** The core's `short`: an oid's first 7 bytes, or the whole string when they'd split a character
+ *  (chip oids come from the request unvalidated). */
+export function shortOid(oid: string): string {
+  const bytes = new TextEncoder().encode(oid);
+  return bytes.length <= 7 || (bytes[7] & 0xc0) === 0x80 ? oid : new TextDecoder().decode(bytes.slice(0, 7));
+}
+
 /** The core's `relation`: commits reachable from `a` and not `b`, and the reverse (1a's `aheadBehind`). */
 export async function relation(repo: ReadRepo, a: string, b: string): Promise<[number, number]> {
   const demo = demoOf(repo);
@@ -87,11 +108,15 @@ export async function relation(repo: ReadRepo, a: string, b: string): Promise<[n
 }
 
 export async function mergeBaseOf(repo: ReadRepo, a: string, b: string): Promise<string | null> {
+  return (await mergeBasesOf(repo, a, b))[0] ?? null;
+}
+
+/** Every best common ancestor of `a` and `b` (more than one after a criss-cross merge). */
+export async function mergeBasesOf(repo: ReadRepo, a: string, b: string): Promise<string[]> {
   try {
-    const bases = await git.findMergeBase({ ...ig(repo), oids: [a, b] });
-    return (bases[0] as string | undefined) ?? null;
+    return (await git.findMergeBase({ ...ig(repo), oids: [a, b] })) as string[];
   } catch {
-    return null;
+    return [];
   }
 }
 

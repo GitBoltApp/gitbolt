@@ -1,0 +1,13 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "conflictFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "c.txt" } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt", "summary": "Merge branch 'other'", "description": "", "amend": false, "stageAll": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "resolveFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "c.txt", "resolution": { "kind": "text", "text": "ours and theirs\n" }, "base": { "$hash": "repo/c.txt" } } },
+  { "method": "stagingUndo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stagingRedo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stage", "params": { "repo": "$repo", "worktree": "$wt", "paths": ["side.txt"] } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt", "summary": "Merge branch 'other'", "description": "", "amend": false, "stageAll": false, "expect": { "head": { "$rev": "HEAD" }, "refs": {} } } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

@@ -23,6 +23,7 @@ mod forge_gitlab_mrs;
 mod forge_mrs;
 mod forge_poll_cost;
 mod forge_review;
+mod forge_seed;
 mod forge_stacks;
 mod golden;
 mod markdown_images;

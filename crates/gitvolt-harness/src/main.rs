@@ -72,6 +72,7 @@ async fn harness_main() {
                 "irebase" => fixtures::irebase(&repo),
                 "rebase_lab" => fixtures::rebase_lab(&repo),
                 "file_history" => fixtures::file_history(&repo),
+                "forge_lab" => gitvolt_harness::forge_lab::build(&repo),
                 // The showcase repositories (previews, submodules, lfs).
                 other if ["orbital", "previews", "submodules", "lfs"].contains(&other) && gitvolt_harness::showcase::build(other, &repo) => {}
                 other => panic!("unknown fixture {other}"),
@@ -79,8 +80,8 @@ async fn harness_main() {
             std::fs::write(root.join(FIXTURE_MARKER), "").expect("write fixture marker");
             println!("{}", repo.path().display());
         }
-        Some("golden") if args.len() == 5 => {
-            if let Err(e) = gitvolt_harness::golden::write(Path::new(&args[1]), &args[2], Path::new(&args[3]), Path::new(&args[4])).await {
+        Some("golden") if args.len() == 5 || (args.len() == 6 && args[5] == "--events") => {
+            if let Err(e) = gitvolt_harness::golden::write(Path::new(&args[1]), &args[2], Path::new(&args[3]), Path::new(&args[4]), args.len() == 6).await {
                 eprintln!("{e}");
                 std::process::exit(2);
             }
@@ -110,7 +111,7 @@ async fn harness_main() {
             std::fs::write(dir.join("docking-chime.wav"), wav(&docking_chime(2))).expect("write the chime");
         }
         _ => {
-            eprintln!("usage: gitvolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitvolt-harness fixture <orbital|basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|wip_crlf|sync|conflicts|stack|rebase60|worktrees|irebase|rebase_lab|file_history|previews|submodules|lfs> <dir> | gitvolt-harness showcase <orbital|basic|sync|conflicts|stack|wip_staging|rebase_lab|previews|submodules|lfs> <dir> | gitvolt-harness media preview <dir> | gitvolt-harness media frames <dir> <version> | gitvolt-harness media wav <dir> | gitvolt-harness golden <requests.json> <fixture> <fixture-root> <out-dir> | gitvolt-harness golden-defaults <out.json>");
+            eprintln!("usage: gitvolt-harness serve [--port N] [--config-dir DIR] [--fixture-root DIR] | gitvolt-harness fixture <orbital|basic|unborn|long_labels|wide|details|long_history|diff_view|merge_lock|wip_staging|wip_conflict|wip_crlf|sync|conflicts|stack|rebase60|worktrees|irebase|rebase_lab|file_history|forge_lab|previews|submodules|lfs> <dir> | gitvolt-harness showcase <orbital|basic|sync|conflicts|stack|wip_staging|rebase_lab|previews|submodules|lfs> <dir> | gitvolt-harness media preview <dir> | gitvolt-harness media frames <dir> <version> | gitvolt-harness media wav <dir> | gitvolt-harness golden <requests.json> <fixture> <fixture-root> <out-dir> [--events] | gitvolt-harness golden-defaults <out.json>");
             std::process::exit(2);
         }
     }

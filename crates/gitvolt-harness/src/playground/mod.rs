@@ -202,6 +202,10 @@ pub fn conflicts(r: &TestRepo) {
     p.commit("ilse", "Reprice for the 1.1 balance pass");
 }
 
+/// The `stack` playground repo's project on the demo's fake GitLab: its branches are there, its
+/// MRs aren't yet (Create stack MRs makes them).
+pub const STACK_PROJECT: &str = "orbital/cargo";
+
 pub fn stack(r: &TestRepo) {
     let mut p = Play::new(r, 2026, 6, 1, 9);
     p.write("Cargo.toml", "[package]\nname = \"orbital-cargo\"\nversion = \"0.4.0\"\nedition = \"2021\"\n\n[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n");
@@ -224,6 +228,25 @@ pub fn stack(r: &TestRepo) {
     p.write("Cargo.toml", "[package]\nname = \"orbital-cargo\"\nversion = \"0.4.1\"\nedition = \"2021\"\n\n[dependencies]\nserde = { version = \"1\", features = [\"derive\"] }\n");
     p.commit("rafe", "Bump the crate to 0.4.1");
     p.git("rafe", &["switch", "-q", "feature/cargo-tests"]);
+    p.origin("rafe");
+    for b in ["main", "feature/cargo-model", "feature/cargo-ui", "feature/cargo-tests"] {
+        p.git("rafe", &["push", "-q", "-u", "origin", b]);
+    }
+    p.git("rafe", &["remote", "set-head", "origin", "main"]);
+    // Named by its forge address, as Orbital's (the demo maps it to the bundled origin).
+    p.git("rafe", &["remote", "set-url", "origin", &crate::forge_seed::forge_url(STACK_PROJECT)]);
+    let people: Vec<crate::fake_forge::FakeUser> = crate::orbital::people::PEOPLE.iter().enumerate().map(|(i, who)| crate::fake_forge::FakeUser { id: 101 + i as u64, username: who.handle.into(), name: who.name.into(), email: Some(who.email.into()), avatar_url: None }).collect();
+    let mut members = vec![crate::forge_seed::me()];
+    members.extend(people.iter().cloned());
+    let gitlab = crate::fake_forge::GitLabSeed {
+        version: "18.9.1-ee".into(),
+        projects: vec![crate::forge_seed::project(1702, STACK_PROJECT, "2026-10-01T10:00:00Z")],
+        users: people,
+        members,
+        labels: vec![crate::fake_forge::FakeLabel { name: "stack".into(), color: "#5cb85c".into(), description: None }],
+        ..Default::default()
+    };
+    crate::forge_seed::write(r.root(), &crate::forge_seed::ForgeFile { version: crate::forge_seed::VERSION, host: crate::fake_forge::GITLAB_HOST.into(), project: STACK_PROJECT.into(), me: "you".into(), gitlab }).expect("write the stack's forge.json");
 }
 
 fn ship_rs(edited: bool) -> String {

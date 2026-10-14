@@ -1,0 +1,243 @@
+{
+  "events": [],
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": null,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/main",
+      "detached": false,
+      "target": "c16bf7640626e88a5edc4e25cad518624b5f9a7f",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/conflicts",
+        "isHead": true,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 1,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/feature/x",
+        "name": "feature/x",
+        "remotes": [],
+        "row": 5,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/clean",
+        "name": "clean",
+        "remotes": [],
+        "row": 6,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 3,
+    "openWorktree": "/demo/conflicts",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "",
+        "authorName": "",
+        "authorTime": 0,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 0,
+        "id": "wip:/demo/conflicts",
+        "kind": "wip",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "c16bf7640626e88a5edc4e25cad518624b5f9a7f"
+        ],
+        "segments": [
+          68157440
+        ],
+        "summary": "// WIP",
+        "wip": {
+          "added": 1,
+          "conflicted": 0,
+          "deleted": 0,
+          "modified": 0,
+          "renamed": 0,
+          "worktreeName": null,
+          "worktreePath": "/demo/conflicts"
+        }
+      },
+      {
+        "authorEmail": "you@example.com",
+        "authorName": "You",
+        "authorTime": 1800000000,
+        "bodyFirstLine": "This reverts commit 65c4f8a83e13a47c2d5a3eac9cb08a82967204d2.",
+        "color": 0,
+        "committerTime": 1800000000,
+        "id": "c16bf7640626e88a5edc4e25cad518624b5f9a7f",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "65c4f8a83e13a47c2d5a3eac9cb08a82967204d2"
+        ],
+        "segments": [
+          67108864,
+          1048576
+        ],
+        "summary": "Revert \"Clean change\"",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225900,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1800000000,
+        "id": "65c4f8a83e13a47c2d5a3eac9cb08a82967204d2",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "632358a3ab796a694fa737f44f4ddf58017f0fbf"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Clean change",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226080,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1800000000,
+        "id": "632358a3ab796a694fa737f44f4ddf58017f0fbf",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "53856dcacdb9e2fc6169f11d1b0f3e22da2e712d"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Feature edits",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226260,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226260,
+        "id": "53856dcacdb9e2fc6169f11d1b0f3e22da2e712d",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "c079762dbbd0c96bcd89adf02837069211bd84dd"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Main edits",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226080,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1767226080,
+        "id": "ba61fb45af4beeafbe4a30620f83dde2e496b273",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "c079762dbbd0c96bcd89adf02837069211bd84dd"
+        ],
+        "segments": [
+          2097152,
+          5243905
+        ],
+        "summary": "Feature edits",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225900,
+        "bodyFirstLine": "",
+        "color": 2,
+        "committerTime": 1767225900,
+        "id": "8dab509573f27f280772a278c81aba3ebe112693",
+        "kind": "commit",
+        "lane": 2,
+        "mrRefs": [],
+        "parents": [
+          "c079762dbbd0c96bcd89adf02837069211bd84dd"
+        ],
+        "segments": [
+          2097152,
+          6292481,
+          9439234
+        ],
+        "summary": "Clean change",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "c079762dbbd0c96bcd89adf02837069211bd84dd",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0,
+          4194305,
+          8388610
+        ],
+        "summary": "Base",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "c16bf7640626e88a5edc4e25cad518624b5f9a7f",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/conflicts"
+      }
+    ]
+  }
+}

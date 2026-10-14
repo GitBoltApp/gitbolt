@@ -1,0 +1,42 @@
+{
+  "events": [
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 12,
+          "kind": "checkout",
+          "label": "checkout feature/x"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    }
+  ],
+  "request": {
+    "method": "dismissBanner",
+    "params": {
+      "dropStash": false,
+      "entry": 13,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "banners": [],
+    "paused": null,
+    "redo": null,
+    "redoBlocked": "Nothing to redo",
+    "undo": {
+      "entry": 12,
+      "kind": "checkout",
+      "label": "checkout feature/x"
+    },
+    "undoBlocked": null
+  }
+}

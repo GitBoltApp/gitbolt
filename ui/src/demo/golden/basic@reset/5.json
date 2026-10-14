@@ -1,0 +1,93 @@
+{
+  "error": {
+    "commandId": null,
+    "detail": {
+      "branch": "main",
+      "files": 1,
+      "kind": "resetDiscards",
+      "to": "4f624c7"
+    },
+    "kind": "DirtyWorktree",
+    "message": "Reset main to 4f624c7 and discard changes to 1 file? You can undo this.",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 5,
+          "kind": "reset",
+          "label": "reset main to 4f624c7 (hard)",
+          "op": 5
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 5,
+        "kind": "reset",
+        "label": "reset main to 4f624c7 (hard)",
+        "op": 5
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "reset",
+      "label": "reset main to 4f624c7 (hard)",
+      "op": 5,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "reset",
+      "message": "Reset main to 4f624c7 and discard changes to 1 file? You can undo this.",
+      "op": 5,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "reset",
+    "params": {
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "mode": "hard",
+      "repo": "$repo",
+      "to": "4f624c760503f39b11585ee6ce2f2fe87c15fbf7",
+      "worktree": "$wt"
+    }
+  }
+}

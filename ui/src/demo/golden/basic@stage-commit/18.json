@@ -1,0 +1,155 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 7,
+          "kind": "undo",
+          "label": "undo commit \"Hotfix in its worktree\"",
+          "op": 10
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 7,
+        "kind": "undo",
+        "label": "undo commit \"Hotfix in its worktree\"",
+        "op": 10
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "undo",
+      "label": "undo commit \"Hotfix in its worktree\"",
+      "op": 10,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/.extra/basic/wt-hotfix": "<version>"
+      },
+      "worktrees": [
+        "/demo/.extra/basic/wt-hotfix"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": {
+          "entry": 1,
+          "kind": "commit",
+          "label": "commit \"Hotfix in its worktree\""
+        },
+        "redoBlocked": null,
+        "undo": null,
+        "undoBlocked": "Nothing to undo"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/.extra/basic/wt-hotfix"
+    },
+    {
+      "command": null,
+      "kind": "undo",
+      "message": null,
+      "op": 10,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 1,
+      "repo": "$repo",
+      "worktree": "$wt:wt-hotfix"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": {
+        "entry": 1,
+        "kind": "commit",
+        "label": "commit \"Hotfix in its worktree\""
+      },
+      "redoBlocked": null,
+      "undo": null,
+      "undoBlocked": "Nothing to undo"
+    },
+    "outcome": {
+      "label": "commit \"Hotfix in its worktree\"",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/.extra/basic/wt-hotfix"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "cbd03493c413b61eb5ab8a5a4eb17712286e5d8b"
+            },
+            "oldPath": null,
+            "path": "file_0.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/.extra/basic/wt-hotfix"
+    }
+  }
+}

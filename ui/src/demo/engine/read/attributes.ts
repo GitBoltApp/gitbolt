@@ -161,3 +161,10 @@ export function worktreeEncoding(a: Attrs): string | null {
 export function binaryByAttr(a: Attrs): boolean {
   return a.get('diff') === false;
 }
+
+/** `conflict-marker-size` for `path`: the length of the markers a merge writes (7 unless set). */
+export async function markerSizeOf(attrs: AttrReader, path: string): Promise<number> {
+  const v = (await attrs.get(path)).get('conflict-marker-size');
+  const n = typeof v === 'string' && /^\+?\d+$/.test(v) ? Number(v) : 0;
+  return n > 0 ? n : 7;
+}

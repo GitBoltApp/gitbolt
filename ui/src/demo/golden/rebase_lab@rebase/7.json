@@ -1,0 +1,214 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 3,
+          "kind": "rebase",
+          "label": "interactive rebase lab onto main~1",
+          "op": 3
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 3,
+        "kind": "rebase",
+        "label": "interactive rebase lab onto main~1",
+        "op": 3
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "rebase",
+      "label": "interactive rebase lab onto main~1",
+      "op": 3,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/rebase_lab": "<version>"
+      },
+      "worktrees": [
+        "/demo/rebase_lab"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": {
+          "entry": 2,
+          "irebase": true,
+          "kind": "rebase",
+          "label": "interactive rebase lab onto main~1",
+          "target": "main~1"
+        },
+        "redo": null,
+        "redoBlocked": "Finish or abort the rebase first",
+        "undo": null,
+        "undoBlocked": "Finish or abort the rebase first"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/rebase_lab"
+    },
+    {
+      "command": null,
+      "kind": "rebase",
+      "message": null,
+      "op": 3,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "interactiveRebase",
+    "params": {
+      "base": "main~1",
+      "branch": "lab",
+      "chips": [],
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "refs/heads/lab": "6b4392f0043d152bd0f34fe06d8f592b77d5306e",
+        "refs/heads/main": "d6e4077d13d05dce7fc992c5989776bce9c11ca5"
+      },
+      "repo": "$repo",
+      "rows": [
+        {
+          "action": "pick",
+          "oid": "6b4392f0043d152bd0f34fe06d8f592b77d5306e"
+        },
+        {
+          "action": "fixup",
+          "oid": "8d326b5693455b1fe1f606e1969573651b521312"
+        },
+        {
+          "action": "reword",
+          "message": "L4 Refine four, reworded\n",
+          "oid": "a3ecf4458d6e92ecf9c938a98baed24379c9fbff"
+        },
+        {
+          "action": "drop",
+          "oid": "ce11b76b5ad95e71cfde139632b8b556fa558850"
+        },
+        {
+          "action": "squash",
+          "oid": "05cf838d1304e3e27d06bce536e2a704ad2794d8"
+        },
+        {
+          "action": "pick",
+          "oid": "4ed521b6ae08600eddd94c8d86d87afb2ecbb9a6"
+        }
+      ],
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": {
+        "entry": 2,
+        "irebase": true,
+        "kind": "rebase",
+        "label": "interactive rebase lab onto main~1",
+        "target": "main~1"
+      },
+      "redo": null,
+      "redoBlocked": "Finish or abort the rebase first",
+      "undo": null,
+      "undoBlocked": "Finish or abort the rebase first"
+    },
+    "outcome": {
+      "files": 1,
+      "kind": "rebase",
+      "status": "stopped"
+    },
+    "staging": {
+      "off": "Stage and unstage can't be undone while files are conflicted.",
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "c82b5cd6ad139b637b987ae29c9d8491b0dbedb4"
+            },
+            "oldPath": null,
+            "path": "notes.txt",
+            "status": "U",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 4,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 4,
+            "conflict": "bothModified",
+            "deletions": 0,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/rebase_lab"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "c82b5cd6ad139b637b987ae29c9d8491b0dbedb4"
+            },
+            "oldPath": null,
+            "path": "notes.txt",
+            "status": "U",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/rebase_lab"
+    }
+  }
+}

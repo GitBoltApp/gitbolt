@@ -1,0 +1,10 @@
+[
+ { "method": "openRepo", "params": { "path": "$wt" } },
+ { "method": "integratePreview", "params": { "repo": "$repo", "worktree": "$wt", "kind": "rebase", "target": "main" } },
+ { "method": "integrate", "params": { "repo": "$repo", "worktree": "$wt", "kind": "rebase", "target": "main", "updateRefs": true, "expect": { "head": null, "refs": {} }, "confirm": { "autostash": false } } },
+ { "method": "sidebar", "params": { "repo": "$repo" } },
+ { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+ { "method": "sidebar", "params": { "repo": "$repo" } },
+ { "method": "fastForward", "params": { "repo": "$repo", "worktree": "$wt", "branch": "feature/a", "to": { "$rev": "feature/b" }, "expect": { "head": null, "refs": {} } } },
+ { "method": "sidebar", "params": { "repo": "$repo" } }
+]

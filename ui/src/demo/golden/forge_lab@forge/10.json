@@ -1,0 +1,72 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeMrDetail",
+    "params": {
+      "number": 2,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "fetchedAt": "<untimed>",
+    "notModified": "<untimed>",
+    "pollIntervalSecs": "<untimed>",
+    "value": {
+      "assignees": [],
+      "baseSha": "3d45e9ca9ea89f31a28a5453794d46037a2cedc2",
+      "deleteSourceBranch": null,
+      "description": "",
+      "mergeStatus": {
+        "kind": "blocked",
+        "reason": "Mark it ready first: it's a draft"
+      },
+      "mr": {
+        "author": {
+          "avatarUrl": null,
+          "email": "grace@example.com",
+          "id": 102,
+          "name": "Grace Hopper",
+          "username": "grace",
+          "webUrl": "https://gitlab.example.com/grace"
+        },
+        "autoMerge": null,
+        "conflicts": false,
+        "headSha": "7e983363c43f02bb7bde994401007c9d131c2b19",
+        "labelColors": {},
+        "labels": [],
+        "number": 2,
+        "pipeline": {
+          "status": "running",
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/pipelines/50002"
+        },
+        "review": {
+          "approvals": 0,
+          "approvalsRequired": null,
+          "decision": "none",
+          "reviews": []
+        },
+        "sourceBranch": "feature/radar",
+        "sourceProject": "orbital/forge-lab",
+        "stacked": false,
+        "state": "draft",
+        "targetBranch": "main",
+        "targetProject": "orbital/forge-lab",
+        "title": "Add a radar panel",
+        "updatedAt": 1791630000,
+        "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/2"
+      },
+      "reviewers": [],
+      "squash": false,
+      "subscribed": false,
+      "update": {
+        "behind": null,
+        "forgeBehind": false,
+        "inProgress": false,
+        "kinds": [
+          "rebase",
+          "rebaseSkipCi"
+        ]
+      }
+    }
+  }
+}

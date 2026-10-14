@@ -1,0 +1,157 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 7,
+          "kind": "undo",
+          "label": "undo discard all changes",
+          "op": 8
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 7,
+        "kind": "undo",
+        "label": "undo discard all changes",
+        "op": 8
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "undo",
+      "label": "undo discard all changes",
+      "op": 8,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": {
+          "entry": 3,
+          "kind": "discard",
+          "label": "discard all changes"
+        },
+        "redoBlocked": null,
+        "undo": {
+          "entry": 1,
+          "kind": "stash",
+          "label": "stash \"Demo stash\""
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/basic"
+    },
+    {
+      "command": null,
+      "kind": "undo",
+      "message": null,
+      "op": 8,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 3,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": {
+        "entry": 3,
+        "kind": "discard",
+        "label": "discard all changes"
+      },
+      "redoBlocked": null,
+      "undo": {
+        "entry": 1,
+        "kind": "stash",
+        "label": "stash \"Demo stash\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "label": "discard all changes",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/basic"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+            },
+            "oldPath": null,
+            "path": "file_1.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

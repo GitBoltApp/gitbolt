@@ -1,0 +1,89 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "Resolve 1 conflicted file first",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "commit",
+          "label": "commit \"Merge branch 'other'\"",
+          "op": 1
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "commit",
+        "label": "commit \"Merge branch 'other'\"",
+        "op": 1
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "commit",
+      "label": "commit \"Merge branch 'other'\"",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/wip_conflict": "<version>"
+      },
+      "worktrees": [
+        "/demo/wip_conflict"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "commit",
+      "message": "Resolve 1 conflicted file first",
+      "op": 1,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "commit",
+    "params": {
+      "amend": false,
+      "description": "",
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "stageAll": false,
+      "summary": "Merge branch 'other'",
+      "worktree": "$wt"
+    }
+  }
+}

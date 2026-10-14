@@ -123,7 +123,8 @@ export async function pathKind(repo: ReadRepo, root: string, rel: string): Promi
   return st === null ? null : st.isDirectory() ? 'dir' : 'file';
 }
 
-export async function untrackedFiles(repo: ReadRepo, root: string, tracked: Set<string>): Promise<string[]> {
+/** `gitlinks` are the tracked paths whose folder is a submodule's checkout (a tracked file replaced by a folder is walked). */
+export async function untrackedFiles(repo: ReadRepo, root: string, tracked: Set<string>, gitlinks: Set<string> = tracked): Promise<string[]> {
   const out: string[] = [];
   const io = igNoCache(repo);
   // The demo has no global core.excludesFile; .gitignore files and info/exclude are all there is.
@@ -136,7 +137,7 @@ export async function untrackedFiles(repo: ReadRepo, root: string, tracked: Set<
       const st = await lstatOrNull(repo, `${abs}/${name}`);
       if (!st) continue;
       if (st.isDirectory()) {
-        if (tracked.has(path)) continue; // a submodule's checkout
+        if (gitlinks.has(path)) continue; // a submodule's checkout
         if (await ignored(path + '/')) continue; // git doesn't descend into an ignored folder
         if (await lstatOrNull(repo, `${abs}/${name}/.git`)) continue; // a nested repository
         await walk(path);

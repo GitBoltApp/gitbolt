@@ -1,0 +1,12 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeDeleteDraft",
+    "params": {
+      "id": "2002",
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": null
+}

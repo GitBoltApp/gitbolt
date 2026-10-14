@@ -1,0 +1,29 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeAccounts"
+  },
+  "response": [
+    {
+      "account": {
+        "addedAt": "<untimed>",
+        "host": "gitlab.example.com",
+        "kind": "gitlab",
+        "storage": "<untimed>",
+        "user": {
+          "avatarUrl": null,
+          "email": "you@example.com",
+          "id": 100,
+          "name": "You",
+          "username": "you",
+          "webUrl": "https://gitlab.example.com/you"
+        },
+        "version": "18.9.1-ee",
+        "versionCheckedAt": "<untimed>"
+      },
+      "status": {
+        "kind": "ok"
+      }
+    }
+  ]
+}

@@ -53,9 +53,9 @@ function checkedOut(oid: string): Content {
 }
 
 type Side = { oid: string; mode: number } | null | undefined;
-const same = (a: Side, b: Side) => !!a && !!b && a.oid === b.oid && a.mode === b.mode;
+export const same = (a: Side, b: Side) => !!a && !!b && a.oid === b.oid && a.mode === b.mode;
 
-function statusOf(old: { mode: number } | null, now: { mode: number } | null): string {
+export function statusOf(old: { mode: number } | null, now: { mode: number } | null): string {
   if (!old) return 'A';
   if (!now) return 'D';
   return modeType(old.mode) !== modeType(now.mode) ? 'T' : 'M';
@@ -64,7 +64,7 @@ function statusOf(old: { mode: number } | null, now: { mode: number } | null): s
 const byPath = (a: Row, b: Row) => compareBytewise(a.path, b.path);
 
 /** A tracked path's worktree file; null when it's gone (or reached through a link leaving the worktree). */
-async function trackedFile(repo: ReadRepo, root: string, path: string): Promise<WorktreeFile | null> {
+export async function trackedFile(repo: ReadRepo, root: string, path: string): Promise<WorktreeFile | null> {
   try {
     return await worktreeFile(repo, root, path);
   } catch (e) {
@@ -159,7 +159,7 @@ export async function treeChanges(repo: ReadRepo, from: string | null, to: strin
   return finish(repo, await withRenames(rows), '', repo.dir);
 }
 
-interface Wip {
+export interface Wip {
   /** The worktree's validated path. */
   path: string;
   head: Map<string, FileEntry>;
@@ -170,7 +170,7 @@ interface Wip {
 }
 
 /** A worktree's own HEAD tree and index (a linked worktree has both of its own). */
-async function readWip(repo: ReadRepo, root: string): Promise<Wip> {
+export async function readWip(repo: ReadRepo, root: string): Promise<Wip> {
   const wt = await worktreeOf(repo, root);
   const head = wt.head ? await listFiles(repo, wt.head) : new Map<string, FileEntry>();
   const stage0 = new Map<string, IndexEntry>();

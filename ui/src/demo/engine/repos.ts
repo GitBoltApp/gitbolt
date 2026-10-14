@@ -71,6 +71,13 @@ export class DemoRepos {
       const w = holding.sort((a, b) => b.path.length - a.path.length)[0];
       if (w) return { repo, worktree: w.path };
     }
+    // A worktree the visitor added outside `/demo/<name>` (beside the main one): among the loaded
+    // repositories' worktrees.
+    for (const repo of this.ready.values()) {
+      const holding = (await repo.worktrees()).filter((w) => !w.bare && (p === w.path || p.startsWith(`${w.path}/`)));
+      const w = holding.sort((a, b) => b.path.length - a.path.length)[0];
+      if (w) return { repo, worktree: w.path };
+    }
     throw gbError('NotFound', `Not a git repository: ${path}`);
   }
 

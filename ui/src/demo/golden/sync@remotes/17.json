@@ -1,0 +1,68 @@
+{
+  "error": {
+    "commandId": 62,
+    "kind": "Other",
+    "message": "transport 'https' not allowed",
+    "stderr": "fatal: transport 'https' not allowed\n"
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 13,
+          "kind": "fetch",
+          "label": "fetch sync",
+          "op": 13
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 13,
+        "kind": "fetch",
+        "label": "fetch sync",
+        "op": 13
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "fetch",
+      "label": "sync",
+      "op": 13,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "command": "git fetch --prune --no-prune-tags --progress --end-of-options alice",
+      "kind": "fetch",
+      "message": "transport 'https' not allowed",
+      "op": 13,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    }
+  ],
+  "request": {
+    "method": "fetch",
+    "params": {
+      "background": false,
+      "remote": "alice",
+      "repo": "$repo"
+    }
+  }
+}

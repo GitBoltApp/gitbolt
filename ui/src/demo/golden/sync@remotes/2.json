@@ -1,0 +1,132 @@
+{
+  "events": [],
+  "request": {
+    "method": "sidebar",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "locals": [
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/dev",
+        "gone": false,
+        "isHead": false,
+        "name": "dev",
+        "pushBehind": 0,
+        "pushTarget": "origin/dev",
+        "rewritten": null,
+        "summary": "Dev work",
+        "target": "08e38bc5c5ddd0ec13ca7d2ce4843baa3e768b10",
+        "tipTime": 1767226380,
+        "upstream": "refs/remotes/origin/dev",
+        "worktree": null
+      },
+      {
+        "ahead": 1,
+        "author": "Ada Lovelace",
+        "behind": 1,
+        "checkedOut": null,
+        "fullName": "refs/heads/diverged",
+        "gone": false,
+        "isHead": false,
+        "name": "diverged",
+        "pushBehind": 1,
+        "pushTarget": "origin/diverged",
+        "rewritten": null,
+        "summary": "Local side",
+        "target": "1005a9465cce1a36f369c5e309dfa3f3648dcdcf",
+        "tipTime": 1767226980,
+        "upstream": "refs/remotes/origin/diverged",
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Lars Tidemann",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/feature/new",
+        "gone": false,
+        "isHead": false,
+        "name": "feature/new",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "New feature",
+        "target": "c3fcec209a614b7cf67fbde79e678e09caacf9c4",
+        "tipTime": 1767227220,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Grace Hopper",
+        "behind": 1,
+        "checkedOut": "/demo/sync",
+        "fullName": "refs/heads/main",
+        "gone": false,
+        "isHead": true,
+        "name": "main",
+        "pushBehind": 1,
+        "pushTarget": "origin/main",
+        "rewritten": null,
+        "summary": "Add readme",
+        "target": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "tipTime": 1767225900,
+        "upstream": "refs/remotes/origin/main",
+        "worktree": null
+      }
+    ],
+    "remotes": [
+      {
+        "branches": [
+          {
+            "author": "Ada Lovelace",
+            "fullName": "refs/remotes/origin/dev",
+            "name": "dev",
+            "summary": "Dev work",
+            "target": "08e38bc5c5ddd0ec13ca7d2ce4843baa3e768b10",
+            "tipTime": 1767226380
+          },
+          {
+            "author": "Ada Lovelace",
+            "fullName": "refs/remotes/origin/diverged",
+            "name": "diverged",
+            "summary": "Remote side",
+            "target": "d35e672f7ad13726bedd1774ab484fa1a56cd2db",
+            "tipTime": 1767228180
+          },
+          {
+            "author": "Ada Lovelace",
+            "fullName": "refs/remotes/origin/main",
+            "name": "main",
+            "summary": "Remote change",
+            "target": "0bd7fbaf965c295b95c85985d4fc9f0400a09aad",
+            "tipTime": 1767227820
+          }
+        ],
+        "defaultBranch": "refs/remotes/origin/main",
+        "host": null,
+        "hostKind": "generic",
+        "name": "origin"
+      }
+    ],
+    "stashes": [],
+    "tags": [],
+    "worktrees": [
+      {
+        "branch": "main",
+        "head": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "isCurrent": true,
+        "isMain": true,
+        "locked": false,
+        "name": "sync",
+        "path": "/demo/sync"
+      }
+    ]
+  }
+}

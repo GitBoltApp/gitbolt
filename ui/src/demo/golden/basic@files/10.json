@@ -1,0 +1,171 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "undo",
+          "label": "undo discard notes/new.txt",
+          "op": 9
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "undo",
+        "label": "undo discard notes/new.txt",
+        "op": 9
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "undo",
+      "label": "undo discard notes/new.txt",
+      "op": 9,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": {
+          "entry": 6,
+          "kind": "discard",
+          "label": "discard notes/new.txt"
+        },
+        "redoBlocked": null,
+        "undo": {
+          "entry": 5,
+          "kind": "restore",
+          "label": "restore file_1.txt from 1f37672"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/basic"
+    },
+    {
+      "command": null,
+      "kind": "undo",
+      "message": null,
+      "op": 9,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 6,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": {
+        "entry": 6,
+        "kind": "discard",
+        "label": "discard notes/new.txt"
+      },
+      "redoBlocked": null,
+      "undo": {
+        "entry": 5,
+        "kind": "restore",
+        "label": "restore file_1.txt from 1f37672"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "label": "discard notes/new.txt",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 1,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "4d4bc1c77f63bd5429cb0ab4d74cb8729570d293"
+            },
+            "oldPath": null,
+            "path": "file_2.txt",
+            "status": "D",
+            "submodule": false
+          },
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/basic"
+            },
+            "old": {
+              "kind": "absent"
+            },
+            "oldPath": null,
+            "path": "notes/new.txt",
+            "status": "A",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

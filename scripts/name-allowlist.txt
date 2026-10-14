@@ -13,6 +13,8 @@ ARCHITECTURE.md
 docs/dev-setup.md
 docs/website.md
 crates/gitvolt-core/src/legacy.rs
+ui/src/demo/handlers/remotes.ts
+ui/src/demo/engine/remote/fetch.test.ts
 crates/gitvolt-core/src/migrate.rs
 crates/gitvolt-core/src/instance.rs
 crates/gitvolt-core/src/logging.rs

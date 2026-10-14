@@ -1,0 +1,202 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "merge",
+          "label": "merge clean into main",
+          "op": 2
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "merge",
+        "label": "merge clean into main",
+        "op": 2
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "merge",
+      "label": "merge clean into main",
+      "op": 2,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "message": "autostash before merge clean",
+      "op": 2,
+      "step": "saving",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before merge clean",
+      "op": 2,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before merge clean",
+      "op": 2,
+      "step": "restoring",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before merge clean",
+      "op": 2,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before merge clean",
+      "op": 2,
+      "step": "restoring",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before merge clean",
+      "op": 2,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "stash",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 2,
+          "kind": "merge",
+          "label": "merge clean into main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "merge",
+      "message": null,
+      "op": 2,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "integrate",
+    "params": {
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "kind": "merge",
+      "repo": "$repo",
+      "target": "clean",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 2,
+        "kind": "merge",
+        "label": "merge clean into main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "commits": 2,
+      "fastForward": false,
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "cb3695deb3ae5130f4631d723d6a3fb77b1e3c03"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

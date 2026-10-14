@@ -1,0 +1,140 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 5,
+          "kind": "checkout",
+          "label": "checkout diverged",
+          "op": 5
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 5,
+        "kind": "checkout",
+        "label": "checkout diverged",
+        "op": 5
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "checkout",
+      "label": "checkout diverged",
+      "op": 5,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 4,
+          "kind": "checkout",
+          "label": "checkout diverged"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/sync"
+    },
+    {
+      "command": null,
+      "kind": "checkout",
+      "message": null,
+      "op": 5,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "checkout",
+    "params": {
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "target": {
+        "kind": "branch",
+        "name": "diverged"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 4,
+        "kind": "checkout",
+        "label": "checkout diverged"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "branch": "diverged",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

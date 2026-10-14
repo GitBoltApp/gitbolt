@@ -1,0 +1,97 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "stage",
+      "label": "stage dev-local.txt",
+      "op": 7,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stage",
+      "message": null,
+      "op": 7,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stage",
+    "params": {
+      "paths": [
+        "dev-local.txt"
+      ],
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 6,
+        "kind": "save",
+        "label": "create dev-local.txt"
+      },
+      "undoBlocked": null
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": "stage dev-local.txt"
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "object",
+              "oid": "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391"
+            },
+            "old": {
+              "kind": "absent"
+            },
+            "oldPath": null,
+            "path": "dev-local.txt",
+            "status": "A",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

@@ -1,0 +1,19 @@
+[
+ {"method": "openRepo", "params": {"path": "$wt"}},
+ {"method": "cherryPick", "params": {"repo": "$repo", "worktree": "$wt", "oids": [{"$rev": "feature/x"}], "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "repoInfo", "params": {"repo": "$repo"}},
+ {"method": "pickControl", "params": {"repo": "$repo", "worktree": "$wt", "action": "abort"}},
+ {"method": "cherryPick", "params": {"repo": "$repo", "worktree": "$wt", "oids": [{"$rev": "feature/x"}], "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "resolveFile", "params": {"repo": "$repo", "worktree": "$wt", "path": "a.txt", "resolution": {"kind": "incoming"}}},
+ {"method": "resolveFile", "params": {"repo": "$repo", "worktree": "$wt", "path": "logo.bin", "resolution": {"kind": "incoming"}}},
+ {"method": "resolveFile", "params": {"repo": "$repo", "worktree": "$wt", "path": "gone.txt", "resolution": {"kind": "incoming"}}},
+ {"method": "pickControl", "params": {"repo": "$repo", "worktree": "$wt", "action": "continue"}},
+ {"method": "revert", "params": {"repo": "$repo", "worktree": "$wt", "oids": [{"$rev": "main~1"}], "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "pickControl", "params": {"repo": "$repo", "worktree": "$wt", "action": "skip"}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}},
+ {"method": "cherryPick", "params": {"repo": "$repo", "worktree": "$wt", "oids": [{"$rev": "clean"}], "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "revert", "params": {"repo": "$repo", "worktree": "$wt", "oids": [{"$rev": "main"}], "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "cherryPick", "params": {"repo": "$repo", "worktree": "$wt", "oids": [{"$rev": "clean"}], "noCommit": true, "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "wipHunks", "params": {"repo": "$repo", "worktree": "$wt", "path": "clean.txt", "staged": true}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}}
+]

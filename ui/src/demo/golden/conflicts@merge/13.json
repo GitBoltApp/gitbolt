@@ -1,0 +1,144 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 3,
+          "kind": "commit",
+          "label": "commit \"Merge branch 'feature/x'\"",
+          "op": 7
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 3,
+        "kind": "commit",
+        "label": "commit \"Merge branch 'feature/x'\"",
+        "op": 7
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "commit",
+      "label": "commit \"Merge branch 'feature/x'\"",
+      "op": 7,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 1,
+          "kind": "merge",
+          "label": "merge feature/x into main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "commit",
+      "message": null,
+      "op": 7,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "commit",
+    "params": {
+      "amend": false,
+      "description": "",
+      "expect": {
+        "head": "53856dcacdb9e2fc6169f11d1b0f3e22da2e712d",
+        "refs": {}
+      },
+      "repo": "$repo",
+      "stageAll": false,
+      "summary": "Merge branch 'feature/x'",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "merge",
+        "label": "merge feature/x into main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "oid": "1de0745788117aee7eff60eeebde6d47657c6296"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

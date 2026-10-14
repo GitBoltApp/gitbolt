@@ -1,0 +1,114 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 12,
+          "kind": "branch",
+          "label": "add remote alice",
+          "op": 12
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 12,
+        "kind": "branch",
+        "label": "add remote alice",
+        "op": 12
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "branch",
+      "label": "add remote alice",
+      "op": 12,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "config"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "branch",
+      "message": null,
+      "op": 12,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "addRemote",
+    "params": {
+      "name": "alice",
+      "repo": "$repo",
+      "url": "https://git.example.invalid/alice/app.git",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 9,
+        "kind": "push",
+        "label": "push all tags to origin"
+      },
+      "undoBlocked": "Push can't be undone"
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

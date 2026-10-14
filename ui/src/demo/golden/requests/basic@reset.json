@@ -1,0 +1,13 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "reset", "params": { "repo": "$repo", "worktree": "$wt", "to": { "$rev": "HEAD~1" }, "mode": "soft", "expect": { "head": { "$rev": "HEAD" }, "refs": {} } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "reset", "params": { "repo": "$repo", "worktree": "$wt", "to": { "$rev": "HEAD~1" }, "mode": "mixed", "expect": { "head": null, "refs": {} } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "reset", "params": { "repo": "$repo", "worktree": "$wt", "to": { "$rev": "HEAD~1" }, "mode": "hard", "expect": { "head": null, "refs": {} } } },
+  { "method": "reset", "params": { "repo": "$repo", "worktree": "$wt", "to": { "$rev": "HEAD~1" }, "mode": "hard", "expect": { "head": null, "refs": {} }, "discard": true } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "redo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "redo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } }
+]

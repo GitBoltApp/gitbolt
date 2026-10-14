@@ -1,0 +1,19 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "integratePreview", "params": { "repo": "$repo", "worktree": "$wt", "kind": "merge", "target": "feature/x" } },
+  { "method": "integrate", "params": { "repo": "$repo", "worktree": "$wt", "kind": "merge", "target": "feature/x", "expect": { "head": { "$rev": "HEAD" }, "refs": {} }, "confirm": { "autostash": false } } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "settlePaused", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "conflictFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "a.txt" } },
+  { "method": "conflictFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "logo.bin" } },
+  { "method": "conflictFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "gone.txt" } },
+  { "method": "resolveFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "a.txt", "resolution": { "kind": "asIs" } } },
+  { "method": "resolveFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "a.txt", "resolution": { "kind": "text", "text": "line 0\nline 1\nline 2\nmerged three\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\nmerged fifteen\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nline 25\nline 26\nline 27\nline 28\nline 29\n" }, "base": { "$hash": "repo/a.txt" } } },
+  { "method": "resolveFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "logo.bin", "resolution": { "kind": "current" } } },
+  { "method": "resolveFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "gone.txt", "resolution": { "kind": "incoming" } } },
+  { "method": "stagingState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "commit", "params": { "repo": "$repo", "worktree": "$wt", "summary": "Merge branch 'feature/x'", "description": "", "amend": false, "stageAll": false, "expect": { "head": { "$rev": "HEAD" }, "refs": {} } } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

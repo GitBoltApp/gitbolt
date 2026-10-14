@@ -1,0 +1,17 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "Stale",
+    "message": "The undo history changed; refreshed",
+    "stderr": null
+  },
+  "events": [],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 1,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  }
+}

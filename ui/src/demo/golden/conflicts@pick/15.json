@@ -1,0 +1,33 @@
+{
+  "events": [],
+  "request": {
+    "method": "wipHunks",
+    "params": {
+      "path": "clean.txt",
+      "repo": "$repo",
+      "staged": true,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": {
+      "head": null,
+      "index": "83126302079c10762b29692dc322e430472a5360",
+      "worktree": "83126302079c10762b29692dc322e430472a5360"
+    },
+    "binary": false,
+    "hunks": [
+      {
+        "add": [
+          1
+        ],
+        "del": [],
+        "newLines": 1,
+        "newStart": 1,
+        "oldLines": 0,
+        "oldStart": 0
+      }
+    ],
+    "refused": null
+  }
+}

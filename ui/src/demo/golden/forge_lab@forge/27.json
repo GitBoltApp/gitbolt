@@ -1,0 +1,48 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeSetDraft",
+    "params": {
+      "draft": false,
+      "number": 2,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "author": {
+      "avatarUrl": null,
+      "email": "grace@example.com",
+      "id": 102,
+      "name": "Grace Hopper",
+      "username": "grace",
+      "webUrl": "https://gitlab.example.com/grace"
+    },
+    "autoMerge": null,
+    "conflicts": false,
+    "headSha": "7e983363c43f02bb7bde994401007c9d131c2b19",
+    "labelColors": {},
+    "labels": [
+      "hud"
+    ],
+    "number": 2,
+    "pipeline": {
+      "status": "running",
+      "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/pipelines/50002"
+    },
+    "review": {
+      "approvals": 0,
+      "approvalsRequired": null,
+      "decision": "none",
+      "reviews": []
+    },
+    "sourceBranch": "feature/radar",
+    "sourceProject": "orbital/forge-lab",
+    "stacked": false,
+    "state": "open",
+    "targetBranch": "main",
+    "targetProject": "orbital/forge-lab",
+    "title": "A radar panel",
+    "updatedAt": 1791117000,
+    "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/2"
+  }
+}

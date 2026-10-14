@@ -1,0 +1,117 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "discard",
+      "label": "discard notes/new.txt",
+      "op": 8,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 6,
+          "kind": "discard",
+          "label": "discard notes/new.txt"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/basic"
+    },
+    {
+      "command": null,
+      "kind": "discard",
+      "message": null,
+      "op": 8,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "discard",
+    "params": {
+      "repo": "$repo",
+      "scope": {
+        "kind": "paths",
+        "paths": [
+          "notes/new.txt"
+        ]
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 6,
+        "kind": "discard",
+        "label": "discard notes/new.txt"
+      },
+      "undoBlocked": null
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 1,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "4d4bc1c77f63bd5429cb0ab4d74cb8729570d293"
+            },
+            "oldPath": null,
+            "path": "file_2.txt",
+            "status": "D",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

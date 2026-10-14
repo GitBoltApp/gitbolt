@@ -1,0 +1,77 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeMrDetail",
+    "params": {
+      "number": 4,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "fetchedAt": "<untimed>",
+    "notModified": "<untimed>",
+    "pollIntervalSecs": "<untimed>",
+    "value": {
+      "assignees": [],
+      "baseSha": "b806340a30b1c39432b907a7fb6f811151a58d59",
+      "deleteSourceBranch": false,
+      "description": "",
+      "mergeStatus": {
+        "kind": "blocked",
+        "reason": "It's merged already"
+      },
+      "mr": {
+        "author": {
+          "avatarUrl": null,
+          "email": "ada@example.com",
+          "id": 101,
+          "name": "Ada Lovelace",
+          "username": "ada",
+          "webUrl": "https://gitlab.example.com/ada"
+        },
+        "autoMerge": null,
+        "conflicts": false,
+        "headSha": "2818fcd3b6933f00a5c38fdff530c9ce683b80c0",
+        "labelColors": {
+          "stack": "#5cb85c"
+        },
+        "labels": [
+          "stack"
+        ],
+        "number": 4,
+        "pipeline": null,
+        "review": {
+          "approvals": 1,
+          "approvalsRequired": 1,
+          "decision": "approved",
+          "reviews": [
+            {
+              "state": "approved",
+              "submittedAt": null,
+              "user": {
+                "avatarUrl": null,
+                "email": "grace@example.com",
+                "id": 102,
+                "name": "Grace Hopper",
+                "username": "grace",
+                "webUrl": "https://gitlab.example.com/grace"
+              }
+            }
+          ]
+        },
+        "sourceBranch": "feature/stack-a",
+        "sourceProject": "orbital/forge-lab",
+        "stacked": false,
+        "state": "merged",
+        "targetBranch": "main",
+        "targetProject": "orbital/forge-lab",
+        "title": "Add the cargo hold",
+        "updatedAt": 1791117000,
+        "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/4"
+      },
+      "reviewers": [],
+      "squash": false,
+      "subscribed": false
+    }
+  }
+}

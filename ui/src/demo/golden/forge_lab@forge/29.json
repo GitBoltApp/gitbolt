@@ -1,0 +1,22 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeSyncStack",
+    "params": {
+      "base": "main",
+      "branches": [
+        "feature/stack-a",
+        "feature/stack-b"
+      ],
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "edited": [
+      4,
+      5
+    ],
+    "failed": [],
+    "unchanged": []
+  }
+}

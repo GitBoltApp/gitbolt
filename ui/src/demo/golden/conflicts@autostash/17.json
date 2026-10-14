@@ -1,0 +1,97 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 12,
+      "kind": "checkout",
+      "label": "checkout feature/x",
+      "touched": [
+        "a.txt",
+        "gone.txt",
+        "logo.bin",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 11,
+      "kind": "checkout",
+      "label": "checkout main",
+      "touched": [
+        "a.txt",
+        "gone.txt",
+        "logo.bin",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 9,
+      "kind": "checkout",
+      "label": "checkout feature/x",
+      "touched": [
+        "a.txt",
+        "gone.txt",
+        "logo.bin",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed a.txt",
+      "entry": 8,
+      "kind": "save",
+      "label": "save a.txt",
+      "touched": [
+        "a.txt"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 6,
+      "kind": "checkout",
+      "label": "checkout main",
+      "touched": [
+        "a.txt",
+        "gone.txt",
+        "logo.bin",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 4,
+      "kind": "checkout",
+      "label": "checkout feature/x",
+      "touched": [
+        "a.txt",
+        "gone.txt",
+        "logo.bin",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed a.txt",
+      "entry": 1,
+      "kind": "save",
+      "label": "save a.txt",
+      "touched": [
+        "a.txt"
+      ]
+    }
+  ]
+}

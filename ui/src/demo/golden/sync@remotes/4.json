@@ -1,0 +1,134 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 3,
+          "kind": "pull",
+          "label": "pull diverged",
+          "op": 3
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 3,
+        "kind": "pull",
+        "label": "pull diverged",
+        "op": 3
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "pull",
+      "label": "pull diverged",
+      "op": 3,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "pull",
+      "message": null,
+      "op": 3,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "pull",
+    "params": {
+      "branch": "diverged",
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "mode": "ffOnly",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "pull",
+        "label": "pull main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "branch": "diverged",
+      "op": 3,
+      "result": {
+        "ahead": 1,
+        "behind": 1,
+        "conflicts": 0,
+        "status": "diverged"
+      },
+      "server": {
+        "lines": 0,
+        "warning": null
+      },
+      "upstream": "origin/diverged"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

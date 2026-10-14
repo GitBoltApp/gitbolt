@@ -1,0 +1,25 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "Check out diverged first",
+    "stderr": null
+  },
+  "events": [],
+  "request": {
+    "method": "pull",
+    "params": {
+      "branch": "diverged",
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "mode": "rebase",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  }
+}

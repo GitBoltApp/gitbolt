@@ -1,0 +1,16 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeForks",
+    "params": {
+      "page": 1,
+      "perPage": 20,
+      "remote": "origin",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "forks": [],
+    "next": null
+  }
+}

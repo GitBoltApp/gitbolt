@@ -1,11 +1,13 @@
 // Test-only: repositories for the read layer's unit tests, built with isomorphic-git on a MemFs and
 // opened with 1a's DemoRepo.open, as the demo opens a bundle's files.
+import { fixedClock, PARITY_MS } from '../clock';
 import * as git from 'isomorphic-git';
 import type { DemoContext } from '../../context';
 import { noGraph } from '../../testing';
 import type { GraphFactory } from '../layout';
 import { MemFs, parentOf } from '../memfs';
 import { DemoRepo } from '../repo';
+import { DemoWrites } from '../write/state';
 import { serializeIndex, type IndexEntry } from './indexFile';
 import { listFiles, readBlobBytes } from './trees';
 import { fail, viewOf, type ReadRepo } from './seam';
@@ -28,7 +30,7 @@ export interface TestRepo {
   /** `git add` of one path (a deleted one is removed from the index). */
   stage(path: string): Promise<void>;
   /** Stages everything (new, edited and deleted files), then commits; each commit is 60 s after the last. */
-  commit(message: string, who?: Who, opts?: { parents?: string[] }): Promise<string>;
+  commit(message: string, who?: Who, opts?: { parents?: string[]; /** Stage just these files (the default stats the whole tree, which is quadratic over many commits). */ only?: string[] }): Promise<string>;
   branch(name: string, at?: string): Promise<void>;
   checkout(ref: string): Promise<void>;
   rev(ref: string): Promise<string>;
@@ -66,9 +68,12 @@ export async function makeTestRepo(name = 'test', graph: GraphFactory = noGraph)
       else await git.remove({ fs, dir, filepath: path, cache });
     },
     async commit(message, who = ADA, opts = {}) {
-      for (const [filepath, , work] of await git.statusMatrix({ fs, dir, cache })) {
-        if (work === 0) await git.remove({ fs, dir, filepath, cache });
-        else await git.add({ fs, dir, filepath, cache });
+      if (opts.only) for (const filepath of opts.only) await git.add({ fs, dir, filepath, cache });
+      else {
+        for (const [filepath, , work] of await git.statusMatrix({ fs, dir, cache })) {
+          if (work === 0) await git.remove({ fs, dir, filepath, cache });
+          else await git.add({ fs, dir, filepath, cache });
+        }
       }
       clock += 60;
       const sig = { ...who, timestamp: clock, timezoneOffset: 0 };
@@ -99,6 +104,8 @@ export function fakeCtx(...repos: ReadRepo[]): DemoContext {
     state: {},
     emit: () => {},
     notInDemo: (what: string) => fail('Other', `Not in the demo: ${what}`),
+    clock: fixedClock(PARITY_MS),
+    writes: new DemoWrites(),
   } as unknown as DemoContext;
 }
 

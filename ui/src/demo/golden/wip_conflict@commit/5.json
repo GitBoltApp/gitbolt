@@ -1,0 +1,108 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "stage",
+      "label": "redo resolve c.txt",
+      "op": 4,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/wip_conflict": "<version>"
+      },
+      "worktrees": [
+        "/demo/wip_conflict"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stage",
+      "message": null,
+      "op": 4,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stagingRedo",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Finish or abort the merge first",
+      "undo": null,
+      "undoBlocked": "Finish or abort the merge first"
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": "resolve c.txt"
+    },
+    "wip": {
+      "staged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "object",
+              "oid": "f2fbd256cbe41015e69ce14866f4de925066edf8"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "b19a1e93bec1317dc6097229e12afaffbfa74dc2"
+            },
+            "oldPath": null,
+            "path": "c.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/wip_conflict"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "2299c37978265a95cbe835a4b0f0bbf15aad5549"
+            },
+            "oldPath": null,
+            "path": "side.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/wip_conflict"
+    }
+  }
+}

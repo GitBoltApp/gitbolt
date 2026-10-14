@@ -1,0 +1,58 @@
+{
+  "events": [],
+  "request": {
+    "method": "conflictFile",
+    "params": {
+      "path": "c.txt",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": "f8d4ed9c49c6e2696d00b44360ae3607c27e350b",
+    "current": {
+      "regions": [
+        {
+          "id": 0,
+          "lines": 1,
+          "start": 1
+        }
+      ],
+      "text": "ours\n"
+    },
+    "encoding": "UTF-8",
+    "eol": "lf",
+    "incoming": {
+      "regions": [
+        {
+          "id": 0,
+          "lines": 1,
+          "start": 1
+        }
+      ],
+      "text": "theirs\n"
+    },
+    "kind": "bothModified",
+    "labels": {
+      "current": "main",
+      "incoming": "other"
+    },
+    "path": "c.txt",
+    "segments": [
+      {
+        "base": [
+          "base\n"
+        ],
+        "current": [
+          "ours\n"
+        ],
+        "id": 0,
+        "incoming": [
+          "theirs\n"
+        ],
+        "kind": "conflict"
+      }
+    ],
+    "text": true
+  }
+}

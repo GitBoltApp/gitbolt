@@ -1,0 +1,140 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 6,
+          "kind": "rebase",
+          "label": "skip a commit of the rebase",
+          "op": 7
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 6,
+        "kind": "rebase",
+        "label": "skip a commit of the rebase",
+        "op": 7
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "rebase",
+      "label": "skip a commit of the rebase",
+      "op": 7,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/rebase_lab": "<version>"
+      },
+      "worktrees": [
+        "/demo/rebase_lab"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 3,
+          "kind": "rebase",
+          "label": "rebase lab onto main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/rebase_lab"
+    },
+    {
+      "command": null,
+      "kind": "rebase",
+      "message": null,
+      "op": 7,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "rebaseControl",
+    "params": {
+      "action": "skip",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 3,
+        "kind": "rebase",
+        "label": "rebase lab onto main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "commits": 2,
+      "fastForward": false,
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/rebase_lab"
+    }
+  }
+}

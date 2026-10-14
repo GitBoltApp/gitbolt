@@ -1,0 +1,10 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "integrate", "params": { "repo": "$repo", "worktree": "$wt", "kind": "merge", "target": "feature/x", "expect": { "head": null, "refs": {} }, "confirm": { "autostash": false } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": 1 } },
+  { "method": "mergeAbort", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "integrate", "params": { "repo": "$repo", "worktree": "$wt", "kind": "merge", "target": "clean", "expect": { "head": null, "refs": {} }, "confirm": { "autostash": false } } },
+  { "method": "integrate", "params": { "repo": "$repo", "worktree": "$wt", "kind": "merge", "target": "clean", "ffOnly": true, "expect": { "head": null, "refs": {} }, "confirm": { "autostash": false } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } }
+]

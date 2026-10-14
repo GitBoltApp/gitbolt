@@ -1,0 +1,35 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "banners": [
+      {
+        "binary": false,
+        "canDrop": true,
+        "entry": 10,
+        "files": 1,
+        "kind": "autostashConflicts",
+        "label": "checkout feature/x",
+        "snapshot": false,
+        "stash": "8e4deab25f1fd8817cccd78b1bdcc966a33de58e",
+        "stashMessage": "autostash before checkout feature/x",
+        "target": "feature/x"
+      }
+    ],
+    "paused": null,
+    "redo": null,
+    "redoBlocked": "Nothing to redo",
+    "undo": {
+      "entry": 9,
+      "kind": "checkout",
+      "label": "checkout feature/x"
+    },
+    "undoBlocked": null
+  }
+}

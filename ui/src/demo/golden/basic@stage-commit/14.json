@@ -1,0 +1,89 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "Nothing to commit",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 5,
+          "kind": "commit",
+          "label": "commit \"Nothing here\"",
+          "op": 8
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 5,
+        "kind": "commit",
+        "label": "commit \"Nothing here\"",
+        "op": 8
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "commit",
+      "label": "commit \"Nothing here\"",
+      "op": 8,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "commit",
+      "message": "Nothing to commit",
+      "op": 8,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "commit",
+    "params": {
+      "amend": false,
+      "description": "",
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "stageAll": false,
+      "summary": "Nothing here",
+      "worktree": "$wt"
+    }
+  }
+}

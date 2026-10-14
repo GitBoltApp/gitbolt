@@ -1,13 +1,15 @@
 // One demo repository in the in-memory file system: its files from a bundle, read with
 // isomorphic-git (objects, config, status) and with the core's own rules (refs, worktrees,
 // stashes), into the graph pipeline's input. Each read names its counterpart in the core.
-import { getConfig, getConfigAll, listRemotes, readObject, statusMatrix } from 'isomorphic-git';
+import { getConfig, getConfigAll, listRemotes, readObject } from 'isomorphic-git';
 import type { GraphPayload } from '../../api/gen/GraphPayload';
+import type { InProgress } from '../../api/gen/InProgress';
 import type { PinSetting } from '../../api/gen/PinSetting';
 import type { TagAnnotation } from '../../api/gen/TagAnnotation';
 import type { CommitIn } from '../gen/CommitIn';
 import type { GraphRequest } from '../gen/GraphRequest';
 import type { HeadIn } from '../gen/HeadIn';
+import type { ForkFacts } from '../gen/ForkFacts';
 import type { RefIn } from '../gen/RefIn';
 import type { RefsIn } from '../gen/RefsIn';
 import type { StashIn } from '../gen/StashIn';
@@ -17,10 +19,14 @@ import type { Bundle } from './bundle';
 import { gbError } from './errors';
 import { refreshIndexStat } from './gitindex';
 import type { GraphLayout } from './layout';
-import { type DemoFs, type MemFs, normalisePath, parentOf, redirected } from './memfs';
+import { type MemFs, normalisePath, parentOf } from './memfs';
 import { annotationOf, parseCommitObject, parseTagObject, type TagObject } from './objects';
 import { demoPath, demoRoot } from './paths';
+import { readCommit } from './read/commitText';
+import { viewOf } from './read/seam';
 import { parseGitmodules } from './read/worktree';
+import { midOperation, readInProgress, showsHeadMessage } from './write/inProgress';
+import { statusEntries, summarize } from './write/status';
 import { parseReflog } from './reflog';
 import { compareBytes, readRefFiles, type RefFile } from './refs';
 import { hostKind, mismatchedUpstream, parseRemoteUrl, remoteFor, remoteId } from './remotes';
@@ -36,30 +42,13 @@ const GIT_SKELETON = ['refs/heads', 'refs/tags', 'objects/info', 'objects/pack']
  * bare piece (`origin.git`), and the submodules' under either's `modules/`. */
 const GIT_DIR_AT = /^[^/]+(?:\/\.git|\.git)(?:\/modules\/.+)?$/;
 
-type StatusRow = [string, number, number, number];
+/** The repositories by git dir, per fs: what a view of a git dir by path (an origin's alternates,
+ * a fetch's) shares its caches with. */
+const byGitdir = new WeakMap<MemFs, Map<string, DemoRepo>>();
 
-/** A worktree's WIP counts from isomorphic-git's status matrix ([path, HEAD, WORKDIR, STAGE]:
- * 0 absent, 1 as HEAD, 2 as the working tree, 3 neither), by status::summarize's rules. No rename
- * or conflict detection yet. */
-export function wipCountsOf(rows: readonly StatusRow[]): WipCounts {
-  const c: WipCounts = { modified: 0, added: 0, deleted: 0, renamed: 0, conflicted: 0 };
-  for (const [, head, workdir, stage] of rows) {
-    if (head === 0 && stage === 0) {
-      if (workdir !== 0) c.added++; // untracked
-      continue;
-    }
-    if (head === 1 && stage === 0) {
-      c.deleted++; // a staged deletion
-      if (workdir !== 0) c.added++; // and the file back, untracked
-      continue;
-    }
-    const index = head === 0 ? 'A' : stage === 1 ? '.' : 'M';
-    const worktree = workdir === 0 ? 'D' : stage === 2 || (stage === 1 && workdir === 1) ? '.' : 'M';
-    if (worktree === 'D') c.deleted++;
-    else if (index === 'A') c.added++;
-    else if (index !== '.' || worktree !== '.') c.modified++;
-  }
-  return c;
+/** The repository whose git dir is `gitdir` on `fs`, once opened. */
+export function repoAt(fs: MemFs, gitdir: string): DemoRepo | undefined {
+  return byGitdir.get(fs)?.get(normalisePath(gitdir));
 }
 
 export const isClean = (c: WipCounts): boolean => c.modified + c.added + c.deleted + c.renamed + c.conflicted === 0;
@@ -78,7 +67,6 @@ export class DemoRepo {
   /** isomorphic-git's cache (pack indexes, parsed objects): pass it to every isomorphic-git call. */
   readonly cache = {};
   private readonly layout: GraphLayout;
-  private readonly statusCaches = new Map<string, object>();
   private readonly linkedGitdirs = new Map<string, string>();
   private readonly reachable = new Map<string, Set<string>>();
 
@@ -142,6 +130,9 @@ export class DemoRepo {
    * isomorphic-git), its commits read. */
   static async open(fs: MemFs, name: string, layout: GraphLayout): Promise<DemoRepo> {
     const repo = new DemoRepo(fs, name, layout);
+    let repos = byGitdir.get(fs);
+    if (!repos) byGitdir.set(fs, (repos = new Map()));
+    repos.set(repo.gitdir, repo);
     const files = repo.refFiles();
     const refs = repo.refMap(files);
     const tips = new Set<string>();
@@ -324,20 +315,11 @@ export class DemoRepo {
     return [{ path: mainPath, canonical: mainPath, head: main.head, branch: main.branch, isMain: true, bare, prunable: false, locked: false }, ...linked];
   }
 
-  /** `w`'s WIP counts. A linked worktree's status reads its own HEAD and index through a
-   * redirected view of the fs: isomorphic-git has no `commondir`. A read never writes the index:
-   * isomorphic-git's own refresh rewrites an entry as stage 0, which would drop a conflict's
-   * stages (`load` refreshed the stat data). */
+  /** `w`'s WIP counts, from the write layer's status (own HEAD and index; conflicts and staged
+   * renames counted). A read never writes the index. */
   async wipCounts(w: WorktreeIn): Promise<WipCounts> {
-    const own = w.isMain ? this.gitdir : this.linkedGitdirs.get(w.path);
-    if (own === undefined) throw gbError('InvalidInput', `${w.path} is not a worktree of this repository`);
-    const fs: DemoFs = w.isMain ? this.fs : redirected(this.fs, new Map([[`${this.gitdir}/HEAD`, `${own}/HEAD`], [`${this.gitdir}/index`, `${own}/index`]]));
-    let cache = this.statusCaches.get(w.path);
-    if (!cache) {
-      cache = {};
-      this.statusCaches.set(w.path, cache);
-    }
-    return wipCountsOf((await statusMatrix({ fs, dir: w.path, gitdir: this.gitdir, cache, refresh: false })) as StatusRow[]);
+    if (!w.isMain && !this.linkedGitdirs.has(w.path)) throw gbError('InvalidInput', `${w.path} is not a worktree of this repository`);
+    return summarize(await statusEntries(viewOf(this), w.path));
   }
 
   /** A local branch's upstream as `branch.<name>.remote`/`merge` name it (refs::upstream_parts). */
@@ -407,7 +389,8 @@ export class DemoRepo {
   }
 
   /** The `graph` request (api.rs's Graph arm). */
-  async graph(o: { limit: number | null; pin?: PinSetting; active?: string }): Promise<GraphPayload> {
+  /** `forks`: the forge's cached facts on the remotes' projects (`ForgeHub::cached_forks`); none without a forge. */
+  async graph(o: { limit: number | null; pin?: PinSetting; active?: string; forks?: ForkFacts }): Promise<GraphPayload> {
     return this.layout.build(await this.graphRequest(o));
   }
 
@@ -418,28 +401,35 @@ export class DemoRepo {
   }
 
   /** This repository's input to the graph pipeline. */
-  private async graphRequest(o: { limit: number | null; pin?: PinSetting; active?: string }): Promise<GraphRequest> {
+  private async graphRequest(o: { limit: number | null; pin?: PinSetting; active?: string; forks?: ForkFacts }): Promise<GraphRequest> {
     const files = this.refFiles();
     const refs = this.refMap(files);
     const worktrees = await this.worktrees(refs);
     const active = o.active === undefined ? null : o.active.startsWith('/') ? normalisePath(o.active) : o.active;
     if (active !== null && !worktrees.some((w) => !w.bare && !w.prunable && w.canonical === active)) throw gbError('InvalidInput', `${o.active} is not a worktree of this repository`);
     const wip: [number, WipCounts][] = [];
+    const inProgress: Record<string, InProgress> = {};
     for (const [i, w] of worktrees.entries()) {
       if (w.bare || w.prunable || !this.fs.existsSync(w.path)) continue;
-      const counts = await this.wipCounts(w);
-      if (!isClean(counts)) wip.push([i, counts]);
+      const counts = await this.wipCounts(w); // validates the worktree
+      const own = w.isMain ? this.gitdir : (this.linkedGitdirs.get(w.path) ?? this.gitdir);
+      // An edit stop shows HEAD's message.
+      const headMessage = showsHeadMessage(this.fs, own) && w.head ? (await readCommit(viewOf(this), w.head)).rawMessage : null;
+      const state = readInProgress(this.fs, own, headMessage);
+      if (state) inProgress[w.path] = state;
+      // A clean worktree has no WIP row unless it's mid-operation: its commit panel holds Continue and Abort.
+      if (!isClean(counts) || midOperation(this.fs, own)) wip.push([i, counts]);
     }
     return {
       refs: await this.graphRefs(files, refs),
       worktrees,
       wip,
-      inProgress: {},
+      inProgress,
       workdir: this.path,
       active,
       pinnedRef: o.pin?.kind === 'ref' ? o.pin.name : null,
       noPin: o.pin?.kind === 'off',
-      forks: { parents: {}, roots: [], covered: [] },
+      forks: o.forks ?? { parents: {}, roots: [], covered: [] },
       limit: o.limit ?? DEFAULT_COMMIT_LIMIT,
     };
   }

@@ -1,0 +1,22 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt:wt-hotfix"
+    }
+  },
+  "response": {
+    "banners": [],
+    "paused": null,
+    "redo": null,
+    "redoBlocked": "Nothing to redo",
+    "undo": {
+      "entry": 1,
+      "kind": "commit",
+      "label": "commit \"Hotfix in its worktree\""
+    },
+    "undoBlocked": null
+  }
+}

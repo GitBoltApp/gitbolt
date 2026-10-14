@@ -2,12 +2,18 @@ import { compareBytewise, utf8Bytes } from './bytes';
 import { MODE_EXEC, MODE_FILE, MODE_LINK } from './trees';
 import { fail, lstatOrNull, readBytesOrNull, type ReadRepo, type ReadStat } from './seam';
 
-/** The stat data an index entry recorded for its worktree file (times as whole seconds and nanoseconds). */
+/** The stat data an index entry recorded for its worktree file (times as whole seconds and nanoseconds).
+ *  A written entry carries all of it: isomorphic-git's own stat check also compares ctime, uid and gid. */
 export interface IndexStat {
   mtimeS: number;
   mtimeNs: number;
   ino: number;
   size: number;
+  ctimeS?: number;
+  ctimeNs?: number;
+  dev?: number;
+  uid?: number;
+  gid?: number;
 }
 
 export interface IndexEntry {
@@ -18,6 +24,8 @@ export interface IndexEntry {
   stage: number;
   /** Set when read from an index file. */
   stat?: IndexStat;
+  /** `git add -N`: in the index (with the empty blob), but left out of the trees `write-tree` makes. */
+  intentToAdd?: boolean;
 }
 
 const hex = (b: Uint8Array) => Array.from(b, (x) => x.toString(16).padStart(2, '0')).join('');
@@ -34,40 +42,63 @@ export function parseIndex(bytes: Uint8Array): IndexEntry[] {
   let at = 12;
   for (let i = 0; i < count; i++) {
     const start = at;
-    const stat = { mtimeS: view.getUint32(at + 8), mtimeNs: view.getUint32(at + 12), ino: view.getUint32(at + 20), size: view.getUint32(at + 36) };
+    const stat: IndexStat = {
+      ctimeS: view.getUint32(at), ctimeNs: view.getUint32(at + 4), mtimeS: view.getUint32(at + 8), mtimeNs: view.getUint32(at + 12),
+      dev: view.getUint32(at + 16), ino: view.getUint32(at + 20), uid: view.getUint32(at + 28), gid: view.getUint32(at + 32), size: view.getUint32(at + 36),
+    };
     const mode = view.getUint32(at + 24);
     const oid = hex(bytes.subarray(at + 40, at + 60));
     const flags = view.getUint16(at + 60);
     at += 62;
-    // Intent-to-add and skip-worktree (the extended flags) are parsed and dropped: the demo never sets them.
-    if (version === 3 && flags & 0x4000) at += 2;
+    // Version 3's extended flags: intent-to-add is kept (skip-worktree is never set in the demo).
+    let intentToAdd = false;
+    if (version === 3 && flags & 0x4000) {
+      intentToAdd = (view.getUint16(at) & 0x2000) !== 0;
+      at += 2;
+    }
     const end = bytes.indexOf(0, at);
     if (end < 0) fail('Other', 'truncated git index');
     const path = decoder.decode(bytes.subarray(at, end));
     at = start + ((end - start + 8) & ~7);
-    out.push({ path, mode, oid, stage: (flags >> 12) & 3, stat });
+    out.push({ path, mode, oid, stage: (flags >> 12) & 3, stat, ...(intentToAdd ? { intentToAdd: true } : {}) });
   }
   return out;
 }
 
-/** A version-2 index of `entries` (sorted by path, then stage), stat fields zero. */
+/** An index of `entries` (sorted by path, then stage), each with its stat data (zero without):
+ *  version 2, or 3 when an entry is intent-to-add. */
 export async function serializeIndex(entries: IndexEntry[]): Promise<Uint8Array> {
   const sorted = [...entries].sort((a, b) => compareBytewise(a.path, b.path) || a.stage - b.stage);
+  const version = sorted.some((e) => e.intentToAdd) ? 3 : 2;
   const parts: Uint8Array[] = [];
   const header = new Uint8Array(12);
   header.set(utf8Bytes('DIRC'));
-  new DataView(header.buffer).setUint32(4, 2);
+  new DataView(header.buffer).setUint32(4, version);
   new DataView(header.buffer).setUint32(8, sorted.length);
   parts.push(header);
   for (const e of sorted) {
     const path = utf8Bytes(e.path);
-    const len = (62 + path.length + 8) & ~7;
-    const entry = new Uint8Array(len);
+    const extended = e.intentToAdd === true;
+    const nameAt = extended ? 64 : 62;
+    const entry = new Uint8Array((nameAt + path.length + 8) & ~7);
     const v = new DataView(entry.buffer);
+    const s = e.stat;
+    if (s) {
+      v.setUint32(0, s.ctimeS ?? 0);
+      v.setUint32(4, s.ctimeNs ?? 0);
+      v.setUint32(8, s.mtimeS);
+      v.setUint32(12, s.mtimeNs);
+      v.setUint32(16, s.dev ?? 0);
+      v.setUint32(20, s.ino);
+      v.setUint32(28, s.uid ?? 0);
+      v.setUint32(32, s.gid ?? 0);
+      v.setUint32(36, s.size);
+    }
     v.setUint32(24, e.mode);
     for (let i = 0; i < 20; i++) entry[40 + i] = parseInt(e.oid.slice(i * 2, i * 2 + 2), 16);
-    v.setUint16(60, (e.stage << 12) | Math.min(path.length, 0xfff));
-    entry.set(path, 62);
+    v.setUint16(60, (extended ? 0x4000 : 0) | (e.stage << 12) | Math.min(path.length, 0xfff));
+    if (extended) v.setUint16(62, 0x2000);
+    entry.set(path, nameAt);
     parts.push(entry);
   }
   const body = new Uint8Array(parts.reduce((n, p) => n + p.length, 0));
@@ -88,11 +119,11 @@ export async function readIndex(repo: ReadRepo, worktreeGitdir: string): Promise
   return bytes ? parseIndex(bytes) : [];
 }
 
-const U32 = 2 ** 32;
+export const U32 = 2 ** 32;
 
 /** A time in milliseconds as the index stores it: whole seconds and the rest as nanoseconds, each mod
  *  2^32 (isomorphic-git's normalizeStats, and gitindex.ts's refresh). */
-function stamp(ms: number): [number, number] {
+export function stamp(ms: number): [number, number] {
   const s = Math.floor(ms / 1000);
   return [s % U32, Math.floor((ms - s * 1000) * 1e6) % U32];
 }

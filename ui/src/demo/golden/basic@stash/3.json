@@ -1,0 +1,132 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 2,
+          "kind": "stash",
+          "label": "apply stash \"Demo stash\"",
+          "op": 2
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 2,
+        "kind": "stash",
+        "label": "apply stash \"Demo stash\"",
+        "op": 2
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "stash",
+      "label": "apply stash \"Demo stash\"",
+      "op": 2,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stash",
+      "message": null,
+      "op": 2,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stashApply",
+    "params": {
+      "oid": "d6c35256ba688bf944aaefda306c84313ee3541f",
+      "pop": false,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "stash",
+        "label": "stash \"Demo stash\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "status": "applied"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 1,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/basic"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "a0054e492840f572e48a3cb791d2e083afaf08f6"
+            },
+            "oldPath": null,
+            "path": "file_1.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/basic"
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeSearchUsers",
+    "params": {
+      "query": "gr",
+      "remote": "origin",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "avatarUrl": null,
+      "email": "grace@example.com",
+      "id": 102,
+      "name": "Grace Hopper",
+      "username": "grace",
+      "webUrl": "https://gitlab.example.com/grace"
+    }
+  ]
+}

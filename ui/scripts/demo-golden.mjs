@@ -16,19 +16,27 @@ const targetDir = process.env.CARGO_TARGET_DIR ? (isAbsolute(process.env.CARGO_T
 const harness = join(targetDir, 'debug', 'gitvolt-harness');
 const golden = join(ui, 'src', 'demo', 'golden');
 const requestsDir = join(golden, 'requests');
-// basic first: the manifest's active tab.
-const fixtures = readdirSync(requestsDir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort((a, b) => Number(b === 'basic') - Number(a === 'basic') || (a < b ? -1 : 1));
+// basic first: the manifest's active tab. A `<fixture>@<scenario>.json` is a write scenario: a
+// fresh copy of <fixture>, its answers and events in <fixture>@<scenario>/.
+const stems = readdirSync(requestsDir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5));
+const fixtureOf = (stem) => stem.split('@')[0];
+const fixtures = [...new Set(stems.map(fixtureOf))].sort((a, b) => Number(b === 'basic') - Number(a === 'basic') || (a < b ? -1 : 1));
 
 const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'gitvolt-golden-')));
 try {
-  for (const name of fixtures) {
-    const root = join(tmp, name);
-    const requests = join(requestsDir, `${name}.json`);
+  const packed = new Set();
+  for (const stem of stems.sort()) {
+    const name = fixtureOf(stem);
+    const root = join(tmp, stem);
+    const requests = join(requestsDir, `${stem}.json`);
     execFileSync(harness, ['fixture', name, root], { stdio: ['ignore', 'ignore', 'inherit'] });
     const bundle = packFixture(root, name, { inPlace: true });
-    writeFileSync(join(golden, `${name}.gbdemo`), bundle);
-    execFileSync(harness, ['golden', requests, name, root, join(golden, name)], { stdio: 'inherit' });
-    console.log(`${name}: ${bundle.length} bytes, ${JSON.parse(readFileSync(requests, 'utf8')).length} answers`);
+    if (!packed.has(name)) {
+      writeFileSync(join(golden, `${name}.gbdemo`), bundle);
+      packed.add(name);
+    }
+    execFileSync(harness, ['golden', requests, name, root, join(golden, stem), ...(stem.includes('@') ? ['--events'] : [])], { stdio: 'inherit' });
+    console.log(`${stem}: ${bundle.length} bytes, ${JSON.parse(readFileSync(requests, 'utf8')).length} answers`);
   }
   execFileSync(harness, ['golden-defaults', join(golden, 'defaults.json')], { stdio: 'inherit' });
   const manifest = {

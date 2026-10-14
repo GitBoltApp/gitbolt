@@ -1,0 +1,167 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "stage",
+      "label": "stage a hunk in notes.txt",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/wip_staging": "<version>"
+      },
+      "worktrees": [
+        "/demo/wip_staging"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stage",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stagePatch",
+    "params": {
+      "base": {
+        "head": "fc42bf5b23d23f8d2b26255f41a07f3f8c6eec6e",
+        "index": "f7f85885ad66b414e127cc856fe7c24ca87d39ac",
+        "worktree": "a3653b2a23733c71be5b29cf1f654101914fc811"
+      },
+      "path": "notes.txt",
+      "repo": "$repo",
+      "selection": {
+        "hunks": [
+          0
+        ],
+        "kind": "hunks"
+      },
+      "staged": false,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": null,
+      "undoBlocked": "Nothing to undo"
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": "stage a hunk in notes.txt"
+    },
+    "wip": {
+      "staged": {
+        "added": 2,
+        "deleted": 2,
+        "files": [
+          {
+            "additions": 2,
+            "deletions": 2,
+            "new": {
+              "kind": "object",
+              "oid": "a3653b2a23733c71be5b29cf1f654101914fc811"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "fc42bf5b23d23f8d2b26255f41a07f3f8c6eec6e"
+            },
+            "oldPath": null,
+            "path": "notes.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 7,
+        "deleted": 4,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 1,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "b023018cabc396e7692c70bbf5784a93d3f738ab"
+            },
+            "oldPath": null,
+            "path": "gone.txt",
+            "status": "D",
+            "submodule": false
+          },
+          {
+            "additions": 3,
+            "deletions": 0,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/wip_staging"
+            },
+            "old": {
+              "kind": "absent"
+            },
+            "oldPath": null,
+            "path": "new.txt",
+            "status": "A",
+            "submodule": false
+          },
+          {
+            "additions": 1,
+            "deletions": 0,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/wip_staging"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "5626abf0f72e58d7a153368ba57db4c673c0e171"
+            },
+            "oldPath": null,
+            "path": "space name.txt",
+            "status": "M",
+            "submodule": false
+          },
+          {
+            "additions": 3,
+            "deletions": 3,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/wip_staging"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "7d41442ae0e6e9fd46beb44c3aab95b5ad42a930"
+            },
+            "oldPath": null,
+            "path": "src/app.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/wip_staging"
+    }
+  }
+}

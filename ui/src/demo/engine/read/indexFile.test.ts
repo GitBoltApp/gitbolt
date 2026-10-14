@@ -16,7 +16,17 @@ describe('index file', () => {
     expect(entries.map((e) => [e.path, e.mode, e.stage])).toEqual([['dir/run.sh', MODE_EXEC, 0], ['z.txt', MODE_FILE, 0]]);
     expect(entries[1].oid).toMatch(/^[0-9a-f]{40}$/);
     const st = t.memfs.lstatSync(`${t.dir}/z.txt`);
-    expect(entries[1].stat).toEqual({ mtimeS: Math.floor(st.mtimeMs / 1000), mtimeNs: (st.mtimeMs % 1000) * 1e6, ino: st.ino, size: 2 });
+    expect(entries[1].stat).toMatchObject({ mtimeS: Math.floor(st.mtimeMs / 1000), mtimeNs: (st.mtimeMs % 1000) * 1e6, ino: st.ino, size: 2, ctimeS: Math.floor(st.ctimeMs / 1000), uid: st.uid, gid: st.gid, dev: st.dev });
+  });
+
+  it('round-trips full stat data and intent-to-add (a version 3 index only then)', async () => {
+    const stat = { mtimeS: 1000, mtimeNs: 5, ino: 7, size: 12, ctimeS: 999, ctimeNs: 6, dev: 1, uid: 2, gid: 3 };
+    const v2 = await serializeIndex([{ path: 'a.txt', mode: MODE_FILE, oid: A, stage: 0, stat }]);
+    expect(new DataView(v2.buffer).getUint32(4)).toBe(2);
+    expect(parseIndex(v2)).toEqual([{ path: 'a.txt', mode: MODE_FILE, oid: A, stage: 0, stat }]);
+    const v3 = await serializeIndex([{ path: 'b.txt', mode: MODE_FILE, oid: B, stage: 0, intentToAdd: true }, { path: 'a.txt', mode: MODE_FILE, oid: A, stage: 0 }]);
+    expect(new DataView(v3.buffer).getUint32(4)).toBe(3);
+    expect(parseIndex(v3).map((e) => [e.path, e.intentToAdd ?? false])).toEqual([['a.txt', false], ['b.txt', true]]);
   });
 
   it("passes git's stat check only for an entry whose file is unchanged and older than the index", () => {

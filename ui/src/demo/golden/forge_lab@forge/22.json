@@ -1,0 +1,21 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeSubmitReview",
+    "params": {
+      "number": 1,
+      "repo": "$repo",
+      "review": {
+        "body": "Ship it.",
+        "event": "approve"
+      }
+    }
+  },
+  "response": {
+    "bodyPosted": true,
+    "eventError": null,
+    "eventSent": true,
+    "fallback": false,
+    "published": 1
+  }
+}

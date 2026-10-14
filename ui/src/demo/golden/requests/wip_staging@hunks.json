@@ -1,0 +1,19 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "wipHunks", "params": { "repo": "$repo", "worktree": "$wt", "path": "notes.txt", "staged": false } },
+  { "method": "stagePatch", "params": { "repo": "$repo", "worktree": "$wt", "path": "notes.txt", "staged": false, "selection": { "kind": "hunks", "hunks": [0] }, "base": { "head": { "$rev": "HEAD:notes.txt" }, "index": { "$rev": ":notes.txt" }, "worktree": { "$hash": "repo/notes.txt" } } } },
+  { "method": "stagePatch", "params": { "repo": "$repo", "worktree": "$wt", "path": "src/app.txt", "staged": false, "selection": { "kind": "lines", "old": [{ "start": 20, "end": 20 }], "new": [{ "start": 20, "end": 20 }] }, "base": { "head": { "$rev": "HEAD:src/app.txt" }, "index": { "$rev": ":src/app.txt" }, "worktree": { "$hash": "repo/src/app.txt" } } } },
+  { "method": "wipHunks", "params": { "repo": "$repo", "worktree": "$wt", "path": "src/app.txt", "staged": true } },
+  { "method": "stagePatch", "params": { "repo": "$repo", "worktree": "$wt", "path": "notes.txt", "staged": true, "selection": { "kind": "hunks", "hunks": [0] }, "base": { "head": { "$rev": "HEAD:notes.txt" }, "index": { "$rev": ":notes.txt" }, "worktree": { "$hash": "repo/notes.txt" } } } },
+  { "method": "stage", "params": { "repo": "$repo", "worktree": "$wt", "paths": ["space name.txt", "gone.txt", "new.txt"] } },
+  { "method": "unstage", "params": { "repo": "$repo", "worktree": "$wt", "paths": ["space name.txt"] } },
+  { "method": "stagingUndo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stagingUndo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stagingRedo", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "discard", "params": { "repo": "$repo", "worktree": "$wt", "scope": { "kind": "patch", "path": "src/app.txt", "selection": { "kind": "hunks", "hunks": [0] }, "base": { "head": { "$rev": "HEAD:src/app.txt" }, "index": { "$rev": ":src/app.txt" }, "worktree": { "$hash": "repo/src/app.txt" } } } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "unstageAll", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "stageAll", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "discard", "params": { "repo": "$repo", "worktree": "$wt", "scope": { "kind": "unstaged" } } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } }
+]

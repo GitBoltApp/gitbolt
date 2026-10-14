@@ -1,0 +1,26 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeProjectByPath",
+    "params": {
+      "path": "orbital/forge-lab",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "archived": false,
+    "cloneHttps": "https://gitlab.example.com/orbital/forge-lab.git",
+    "cloneSsh": "git@gitlab.example.com:orbital/forge-lab.git",
+    "defaultBranch": "main",
+    "forkOf": null,
+    "host": "gitlab.example.com",
+    "id": 4242,
+    "kind": "gitlab",
+    "name": "forge-lab",
+    "owner": "orbital",
+    "ownerAvatarUrl": null,
+    "path": "orbital/forge-lab",
+    "updatedAt": 1791648000,
+    "webUrl": "https://gitlab.example.com/orbital/forge-lab"
+  }
+}

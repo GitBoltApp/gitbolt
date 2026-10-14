@@ -1,0 +1,186 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "stage",
+      "label": "undo unstage space name.txt",
+      "op": 6,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/wip_staging": "<version>"
+      },
+      "worktrees": [
+        "/demo/wip_staging"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "stage",
+      "message": null,
+      "op": 6,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "stagingUndo",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": null,
+      "undoBlocked": "Nothing to undo"
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": "unstage space name.txt",
+      "undo": "stage 3 files"
+    },
+    "wip": {
+      "staged": {
+        "added": 6,
+        "deleted": 3,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 1,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "b023018cabc396e7692c70bbf5784a93d3f738ab"
+            },
+            "oldPath": null,
+            "path": "gone.txt",
+            "status": "D",
+            "submodule": false
+          },
+          {
+            "additions": 3,
+            "deletions": 0,
+            "new": {
+              "kind": "object",
+              "oid": "cef4f6ce1129121f5a50e2e8862f68e2099e92bb"
+            },
+            "old": {
+              "kind": "absent"
+            },
+            "oldPath": null,
+            "path": "new.txt",
+            "status": "A",
+            "submodule": false
+          },
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "object",
+              "oid": "6a461130c4110cbf917ef8ecfbe1424504d46c19"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "fc42bf5b23d23f8d2b26255f41a07f3f8c6eec6e"
+            },
+            "oldPath": null,
+            "path": "notes.txt",
+            "status": "M",
+            "submodule": false
+          },
+          {
+            "additions": 1,
+            "deletions": 0,
+            "new": {
+              "kind": "object",
+              "oid": "814f4a422927b82f5f8a43f8fab6d3839e3983f2"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "5626abf0f72e58d7a153368ba57db4c673c0e171"
+            },
+            "oldPath": null,
+            "path": "space name.txt",
+            "status": "M",
+            "submodule": false
+          },
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "object",
+              "oid": "20ac34af99c384cc558c730de31134e48f96035a"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "7d41442ae0e6e9fd46beb44c3aab95b5ad42a930"
+            },
+            "oldPath": null,
+            "path": "src/app.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 3,
+        "deleted": 3,
+        "files": [
+          {
+            "additions": 1,
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/wip_staging"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "6a461130c4110cbf917ef8ecfbe1424504d46c19"
+            },
+            "oldPath": null,
+            "path": "notes.txt",
+            "status": "M",
+            "submodule": false
+          },
+          {
+            "additions": 2,
+            "deletions": 2,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/wip_staging"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "20ac34af99c384cc558c730de31134e48f96035a"
+            },
+            "oldPath": null,
+            "path": "src/app.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/wip_staging"
+    }
+  }
+}

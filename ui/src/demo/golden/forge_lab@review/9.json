@@ -1,0 +1,12 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeRequestChanges",
+    "params": {
+      "body": "Please spell out the names.",
+      "number": 6,
+      "repo": "$repo"
+    }
+  },
+  "response": null
+}

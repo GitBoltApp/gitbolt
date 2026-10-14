@@ -1,0 +1,23 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 1,
+      "kind": "commit",
+      "label": "commit \"Demo commit\"",
+      "touched": [
+        "file_1.txt",
+        "main"
+      ]
+    }
+  ]
+}

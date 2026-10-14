@@ -5,6 +5,8 @@ import type { SidebarPayload } from '../../api/gen/SidebarPayload';
 import type { TagItem } from '../../api/gen/TagItem';
 import { annotationOf, subject } from './objects';
 import { basename } from './paths';
+import { viewOf } from './read/seam';
+import { rewrittenOf } from './seq/rewrites';
 import type { RefFile } from './refs';
 import { hostKind, mismatchedUpstream, parseRemoteUrl, remoteFor, trackingRef } from './remotes';
 import type { DemoRepo } from './repo';
@@ -112,7 +114,9 @@ export async function buildSidebar(repo: DemoRepo): Promise<SidebarPayload> {
     const d = defaults.get(g.name);
     if (d !== undefined) g.defaultBranch = d;
   }
+  const view = viewOf(repo);
   for (const b of s.locals) {
+    b.rewritten = await rewrittenOf(view, b.name);
     const t = await pushTarget(repo, b.name);
     if (!t) continue;
     const label = `${t.remote}/${t.branch}`;

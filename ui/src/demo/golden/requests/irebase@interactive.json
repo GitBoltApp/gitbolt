@@ -1,0 +1,19 @@
+[
+ { "method": "openRepo", "params": { "path": "$wt" } },
+ { "method": "rebasePlan", "params": { "repo": "$repo", "worktree": "$wt", "branch": "feature/c", "base": "main" } },
+ { "method": "predictRebase", "params": { "repo": "$repo", "worktree": "$wt", "base": "main", "rows": [
+   { "oid": { "$rev": "feature/c" }, "action": "pick" }, { "oid": { "$rev": "feature/b" }, "action": "pick" }, { "oid": { "$rev": "feature/b~1^2" }, "action": "pick" },
+   { "oid": { "$rev": "feature/b~2" }, "action": "pick" }, { "oid": { "$rev": "feature/a" }, "action": "pick" }, { "oid": { "$rev": "feature/a~1" }, "action": "pick" },
+   { "oid": { "$rev": "feature/c~1" }, "action": "pick" }, { "oid": { "$rev": "feature/a~2" }, "action": "pick" } ] } },
+ { "method": "interactiveRebase", "params": { "repo": "$repo", "worktree": "$wt", "branch": "feature/c", "base": "main",
+   "expect": { "refs/heads/feature/c": { "$rev": "feature/c" }, "refs/heads/feature/a": { "$rev": "feature/a" }, "refs/heads/feature/b": { "$rev": "feature/b" }, "refs/heads/main": { "$rev": "main" } },
+   "rows": [ { "oid": { "$rev": "feature/c" }, "action": "pick" }, { "oid": { "$rev": "feature/c~1" }, "action": "pick" }, { "oid": { "$rev": "feature/b" }, "action": "pick" },
+             { "oid": { "$rev": "feature/b~1^2" }, "action": "pick" }, { "oid": { "$rev": "feature/b~2" }, "action": "pick" }, { "oid": { "$rev": "feature/a" }, "action": "squash" },
+             { "oid": { "$rev": "feature/a~1" }, "action": "pick" }, { "oid": { "$rev": "feature/a~2" }, "action": "pick" } ],
+   "chips": [ { "branch": "feature/a", "at": { "kind": "row", "oid": { "$rev": "feature/a" } } }, { "branch": "feature/b", "at": { "kind": "row", "oid": { "$rev": "feature/b" } } } ],
+   "confirm": { "autostash": false } } },
+ { "method": "sidebar", "params": { "repo": "$repo" } },
+ { "method": "graph", "params": { "repo": "$repo", "limit": null } },
+ { "method": "rewordCommit", "params": { "repo": "$repo", "worktree": "$wt", "oid": { "$rev": "feature/a~1" }, "message": "A2 Edit notes, reworded\n", "expect": { "head": null, "refs": {} }, "confirm": { "autostash": false } } },
+ { "method": "sidebar", "params": { "repo": "$repo" } }
+]

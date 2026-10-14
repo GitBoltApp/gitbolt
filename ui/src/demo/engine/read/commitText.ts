@@ -87,7 +87,8 @@ export function coAuthors(message: string): CoAuthor[] {
   return out;
 }
 
-const BLANK = /^[ \t\n\v\f\r]*$/;
+// git's whitespace in a message (checked on the binary): a form feed or vertical tab isn't.
+const BLANK = /^[ \t\n\r]*$/;
 
 /** git's `%s`, not 1a's `subject()` (the sidebar's): also skips leading blank lines and trims each line's trailing whitespace. */
 export function gitSubject(rawMessage: string): string {
@@ -96,16 +97,21 @@ export function gitSubject(rawMessage: string): string {
   while (i < lines.length && BLANK.test(lines[i])) i++;
   const parts: string[] = [];
   for (; i < lines.length; i++) {
-    const line = lines[i].replace(/[ \t\n\v\f\r]+$/, '');
+    const line = lines[i].replace(/[ \t\n\r]+$/, '');
     if (line === '') break;
     parts.push(line);
   }
   return parts.join(' ');
 }
 
+/** The message's first non-blank line as it is (trailing whitespace and a CR kept), or ''. git
+ *  names a commit by it in blame, in conflict-marker labels and in a revert's subject. */
+export function firstLine(rawMessage: string): string {
+  return rawMessage.split('\n').find((l) => !BLANK.test(l)) ?? '';
+}
+
 /** `git blame --porcelain`'s `summary`: the first non-blank line as it is, or `(<sha>)`. */
 export function blameSummary(rawMessage: string, id: string): string {
-  const lines = rawMessage.split('\n');
-  const line = lines.find((l) => !BLANK.test(l)) ?? '';
+  const line = firstLine(rawMessage);
   return line === '' ? `(${id})` : line;
 }

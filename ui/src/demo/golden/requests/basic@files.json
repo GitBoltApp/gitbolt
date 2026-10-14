@@ -1,0 +1,16 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "writeWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "file_1.txt", "text": "main change\nsaved in the demo\n", "base": { "$hash": "repo/file_1.txt" } } },
+  { "method": "writeWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "file_1.txt", "text": "main change\nsaved twice\n", "base": { "$hash": "repo/file_1.txt" } } },
+  { "method": "writeWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "file_1.txt", "text": "stale\n", "base": "0000000000000000000000000000000000000000" } },
+  { "method": "createWorktreeFile", "params": { "repo": "$repo", "worktree": "$wt", "path": "notes/new.txt" } },
+  { "method": "restoreFile", "params": { "repo": "$repo", "worktree": "$wt", "sha": { "$rev": "v1.0^{commit}" }, "path": "file_2.txt" } },
+  { "method": "restoreFile", "params": { "repo": "$repo", "worktree": "$wt", "sha": { "$rev": "v1.0^{commit}" }, "path": "file_1.txt" } },
+  { "method": "restoreFile", "params": { "repo": "$repo", "worktree": "$wt", "sha": { "$rev": "v1.0^{commit}" }, "path": "file_1.txt", "confirm": true } },
+  { "method": "discard", "params": { "repo": "$repo", "worktree": "$wt", "scope": { "kind": "paths", "paths": ["notes/new.txt"] } } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "redo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "redo" } } },
+  { "method": "journalState", "params": { "repo": "$repo", "worktree": "$wt" } }
+]

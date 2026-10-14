@@ -68,7 +68,7 @@ function tieNoEol(lines: HunkLine[], picks: boolean[], dir: Dir): void {
 }
 
 /** A hunk's picks after the no-newline tie; `null` when the user picked nothing in it. */
-function hunkPicks(h: DiffHunk, i: number, sel: StageSelection, dir: Dir): boolean[] | null {
+export function hunkPicks(h: DiffHunk, i: number, sel: StageSelection, dir: Dir): boolean[] | null {
   const picks = h.lines.map((l) => picked(sel, i, l));
   if (!picks.some(Boolean)) return null;
   tieNoEol(h.lines, picks, dir);

@@ -1,0 +1,85 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 8,
+      "kind": "checkout",
+      "label": "checkout feature/login",
+      "touched": [
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action moved feature/login",
+      "entry": 7,
+      "kind": "branch",
+      "label": "fast-forward feature/login to main",
+      "touched": [
+        "feature/login"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 6,
+      "kind": "branch",
+      "label": "delete tag v1.0",
+      "touched": [
+        "v1.0"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 5,
+      "kind": "branch",
+      "label": "create tag v2.0",
+      "touched": [
+        "v2.0"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 3,
+      "kind": "branch",
+      "label": "rename branch demo/topic to demo/renamed",
+      "touched": [
+        "demo/renamed",
+        "demo/topic"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 2,
+      "kind": "branch",
+      "label": "create branch demo/track",
+      "touched": [
+        "demo/track",
+        "branch.demo/track.remote",
+        "branch.demo/track.merge"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action moved demo/topic",
+      "entry": 1,
+      "kind": "branch",
+      "label": "create branch demo/topic",
+      "touched": [
+        "demo/topic"
+      ]
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 10,
+          "kind": "push",
+          "label": "push feature/new to origin/feature/new",
+          "op": 10
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 10,
+        "kind": "push",
+        "label": "push feature/new to origin/feature/new",
+        "op": 10
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "push",
+      "label": "push feature/new to origin/feature/new",
+      "op": 10,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "config"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 8,
+          "kind": "push",
+          "label": "push feature/new to origin/feature/new"
+        },
+        "undoBlocked": "Push can't be undone"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/sync"
+    },
+    {
+      "command": null,
+      "kind": "push",
+      "message": null,
+      "op": 10,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "push",
+    "params": {
+      "branch": "feature/new",
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "setUpstream": true,
+      "target": {
+        "branch": "feature/new",
+        "remote": "origin"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 8,
+        "kind": "push",
+        "label": "push feature/new to origin/feature/new"
+      },
+      "undoBlocked": "Push can't be undone"
+    },
+    "outcome": {
+      "branch": "feature/new",
+      "dst": "feature/new",
+      "forced": null,
+      "op": 10,
+      "remote": "origin",
+      "server": {
+        "lines": 1,
+        "warning": null
+      },
+      "upToDate": false
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

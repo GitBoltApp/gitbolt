@@ -60,7 +60,15 @@ the lane layout and the labels, from plain data (`GraphInput`) to `GraphPayload`
 I/O. Core reads the repository with gix and calls it (`snapshot.rs`); **`gitvolt-graph-wasm`**
 compiles it to WebAssembly (`just demo-wasm`) for the website demo, whose in-browser backend
 (`ui/src/demo/`: `DemoTransport` over isomorphic-git) answers the UI's requests from repository
-bundles. The demo's parity suite compares its answers to the core's (`just demo-golden`).
+bundles. Its writes run on the same in-memory repositories: a sequencer for rebases, cherry-picks
+and reverts built on a three-way tree merge, and fetch and push between in-memory git dirs (a remote
+that isn't one is "Not in the demo"). A fake GitLab in the page holds the harness fake forge's data
+and answers as the GitLab provider maps them. It also acts on the bundle's in-memory origin: a merge
+or GitLab's rebase writes commits there, and a push to an MR's branch moves the MR and runs its
+pipeline. A scripted teammate pushes one commit to Orbital's origin, so a fetch has something to
+bring in. Nothing the demo does reaches the network. The demo's parity suite compares its answers
+to the core's (`just demo-golden`); the forge's effects on the origin are off there, since the
+harness's fake forge has none.
 
 **`site/`** is the website: one static page (Vite, plain TypeScript and CSS) that embeds the demo
 build in an iframe in its hero. Its features and GitKraken table are generated from README.md, and

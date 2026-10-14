@@ -1,0 +1,51 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "Nothing to discard",
+    "stderr": null
+  },
+  "events": [
+    {
+      "interactive": true,
+      "kind": "discard",
+      "label": "discard unstaged changes",
+      "op": 13,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/wip_staging": "<version>"
+      },
+      "worktrees": [
+        "/demo/wip_staging"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "discard",
+      "message": "Nothing to discard",
+      "op": 13,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "discard",
+    "params": {
+      "repo": "$repo",
+      "scope": {
+        "kind": "unstaged"
+      },
+      "worktree": "$wt"
+    }
+  }
+}

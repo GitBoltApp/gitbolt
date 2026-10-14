@@ -21,12 +21,12 @@ import { diffTrees, MODE_GITLINK, MODE_LINK, modeType, readBlobBytes, type FileE
 
 const EMPTY_BLOB = 'e69de29bb2d1d6434b8b29ae775ad8c2e48c5391';
 
-interface SideEdit extends Edit {
+export interface SideEdit extends Edit {
   ours: boolean;
 }
 
 /** The lines one side makes of base lines [from, to), given its edits there (in order). */
-function sideText(base: string[], lines: string[], edits: SideEdit[], from: number, to: number): string[] {
+export function sideText(base: string[], lines: string[], edits: SideEdit[], from: number, to: number): string[] {
   const out: string[] = [];
   let at = from;
   for (const e of edits) {
@@ -70,14 +70,14 @@ export function mergeIsClean(base: string[], ours: string[], theirs: string[]): 
 const sameEntry = (a: FileEntry, b: FileEntry) => a.oid === b.oid && a.mode === b.mode;
 
 /** One side's changes since the base, renames paired. */
-interface Side {
+export interface Side {
   /** Each base file the side changed: its base entry, and where its content now is (null: deleted). */
   moved: Map<string, { base: FileEntry; now: { path: string; entry: FileEntry } | null }>;
   /** Each path the side added or renamed something to: the entry, and the base path it came from. */
   put: Map<string, { entry: FileEntry; from: string | null }>;
 }
 
-async function sideOf(repo: ReadRepo, baseTree: string, tree: string): Promise<Side> {
+export async function sideOf(repo: ReadRepo, baseTree: string, tree: string): Promise<Side> {
   const changes = await diffTrees(repo, baseTree, tree);
   // Empty files never pair as renames in the core (gix's `track_empty` is off).
   const pairable = (c: TreeChange) => (c.old && c.new) || (c.old ?? c.new)!.oid !== EMPTY_BLOB;

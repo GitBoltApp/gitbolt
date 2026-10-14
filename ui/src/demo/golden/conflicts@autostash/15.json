@@ -1,0 +1,226 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 9,
+          "kind": "checkout",
+          "label": "checkout feature/x",
+          "op": 12
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 9,
+        "kind": "checkout",
+        "label": "checkout feature/x",
+        "op": 12
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "checkout",
+      "label": "checkout feature/x",
+      "op": 12,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "message": "autostash before checkout feature/x",
+      "op": 12,
+      "step": "saving",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout feature/x",
+      "op": 12,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout feature/x",
+      "op": 12,
+      "step": "restoring",
+      "type": "opStashStep"
+    },
+    {
+      "message": "autostash before checkout feature/x",
+      "op": 12,
+      "step": null,
+      "type": "opStashStep"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "head",
+        "stash"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [
+          {
+            "binary": false,
+            "canDrop": true,
+            "entry": 13,
+            "files": 1,
+            "kind": "autostashConflicts",
+            "label": "checkout feature/x",
+            "snapshot": false,
+            "stash": "8e4deab25f1fd8817cccd78b1bdcc966a33de58e",
+            "stashMessage": "autostash before checkout feature/x",
+            "target": "feature/x"
+          }
+        ],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 12,
+          "kind": "checkout",
+          "label": "checkout feature/x"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "checkout",
+      "message": null,
+      "op": 12,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "checkout",
+    "params": {
+      "confirmAutostash": true,
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "target": {
+        "kind": "branch",
+        "name": "feature/x"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [
+        {
+          "binary": false,
+          "canDrop": true,
+          "entry": 13,
+          "files": 1,
+          "kind": "autostashConflicts",
+          "label": "checkout feature/x",
+          "snapshot": false,
+          "stash": "8e4deab25f1fd8817cccd78b1bdcc966a33de58e",
+          "stashMessage": "autostash before checkout feature/x",
+          "target": "feature/x"
+        }
+      ],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 12,
+        "kind": "checkout",
+        "label": "checkout feature/x"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "branch": "feature/x",
+      "status": "done"
+    },
+    "staging": {
+      "off": "Stage and unstage can't be undone while files are conflicted.",
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "366c8acbd35e3143ec15969e9b7f099c0f6cc4cb"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "U",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 5,
+        "deleted": 1,
+        "files": [
+          {
+            "additions": 5,
+            "conflict": "bothModified",
+            "deletions": 1,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "366c8acbd35e3143ec15969e9b7f099c0f6cc4cb"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "U",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

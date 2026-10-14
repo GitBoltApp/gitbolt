@@ -49,7 +49,7 @@ async fn records_the_cores_answers_with_the_demos_paths() {
         json!({ "method": "graph", "params": { "repo": "$repo", "limit": null } }),
         json!({ "method": "commitMessage", "params": { "repo": "$repo", "id": { "$rev": "main" } } }),
     ];
-    let out = record(&root, "basic", &requests).await.unwrap();
+    let out = record(&root, "basic", &requests, false).await.unwrap();
     let text = serde_json::to_string(&out).unwrap();
     let canon = std::fs::canonicalize(&root).unwrap();
     assert!(!text.contains(canon.to_str().unwrap()), "no fixture path is left: {text}");

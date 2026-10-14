@@ -1,0 +1,143 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 3,
+          "kind": "branch",
+          "label": "fast-forward feature/a to 856a96b248550abb66f29f80d0e708b37f481463",
+          "op": 3
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 3,
+        "kind": "branch",
+        "label": "fast-forward feature/a to 856a96b248550abb66f29f80d0e708b37f481463",
+        "op": 3
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "branch",
+      "label": "fast-forward feature/a to 856a96b248550abb66f29f80d0e708b37f481463",
+      "op": 3,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/stack": "<version>"
+      },
+      "worktrees": [
+        "/demo/stack"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 2,
+          "kind": "branch",
+          "label": "fast-forward feature/a to 856a96b248550abb66f29f80d0e708b37f481463"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/stack"
+    },
+    {
+      "command": null,
+      "kind": "branch",
+      "message": null,
+      "op": 3,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "fastForward",
+    "params": {
+      "branch": "feature/a",
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "repo": "$repo",
+      "to": "856a96b248550abb66f29f80d0e708b37f481463",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 2,
+        "kind": "branch",
+        "label": "fast-forward feature/a to 856a96b248550abb66f29f80d0e708b37f481463"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "commits": 1,
+      "fastForward": true,
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/stack"
+    }
+  }
+}

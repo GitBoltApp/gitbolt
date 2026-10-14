@@ -1,0 +1,138 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 2,
+          "kind": "undo",
+          "label": "undo rebase feature/c onto main",
+          "op": 2
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 2,
+        "kind": "undo",
+        "label": "undo rebase feature/c onto main",
+        "op": 2
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "undo",
+      "label": "undo rebase feature/c onto main",
+      "op": 2,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/stack": "<version>"
+      },
+      "worktrees": [
+        "/demo/stack"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": {
+          "entry": 1,
+          "kind": "rebase",
+          "label": "rebase feature/c onto main"
+        },
+        "redoBlocked": null,
+        "undo": null,
+        "undoBlocked": "Nothing to undo"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/stack"
+    },
+    {
+      "command": null,
+      "kind": "undo",
+      "message": null,
+      "op": 2,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 1,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": {
+        "entry": 1,
+        "kind": "rebase",
+        "label": "rebase feature/c onto main"
+      },
+      "redoBlocked": null,
+      "undo": null,
+      "undoBlocked": "Nothing to undo"
+    },
+    "outcome": {
+      "label": "rebase feature/c onto main",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/stack"
+    }
+  }
+}

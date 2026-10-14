@@ -1,0 +1,11 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "suggestWorktreePath", "params": { "repo": "$repo", "branch": "demo/wt" } },
+  { "method": "worktreeAdd", "params": { "repo": "$repo", "worktree": "$wt", "path": "$wt:wt-demo", "branch": { "kind": "new", "name": "demo/wt", "at": { "$rev": "main" } } } },
+  { "method": "openRepo", "params": { "path": "$wt:wt-demo" } },
+  { "method": "worktreeAdd", "params": { "repo": "$repo", "worktree": "$wt", "path": "$wt:wt-again", "branch": { "kind": "existing", "name": "hotfix" } } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } },
+  { "method": "worktreeRemove", "params": { "repo": "$repo", "worktree": "$wt", "path": "$wt:wt-hotfix", "force": false } },
+  { "method": "worktreeRemove", "params": { "repo": "$repo", "worktree": "$wt", "path": "$wt:wt-demo", "force": false } },
+  { "method": "worktreeRemove", "params": { "repo": "$repo", "worktree": "$wt", "path": "$wt", "force": true } }
+]

@@ -1,0 +1,94 @@
+{
+  "error": {
+    "commandId": null,
+    "detail": {
+      "branch": "hotfix",
+      "kind": "checkedOutElsewhere",
+      "worktree": "../wt-hotfix"
+    },
+    "kind": "InvalidInput",
+    "message": "hotfix is checked out in ../wt-hotfix.",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 6,
+          "kind": "branch",
+          "label": "delete branch hotfix",
+          "op": 6
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 6,
+        "kind": "branch",
+        "label": "delete branch hotfix",
+        "op": 6
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "branch",
+      "label": "delete branch hotfix",
+      "op": 6,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "branch",
+      "message": "hotfix is checked out in ../wt-hotfix.",
+      "op": 6,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "deleteBranch",
+    "params": {
+      "branch": "hotfix",
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "force": false,
+      "local": true,
+      "remote": null,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  }
+}

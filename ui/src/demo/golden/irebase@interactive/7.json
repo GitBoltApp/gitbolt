@@ -1,0 +1,99 @@
+{
+  "events": [],
+  "request": {
+    "method": "sidebar",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "locals": [
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/feature/a",
+        "gone": false,
+        "isHead": false,
+        "name": "feature/a",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "A2 Edit notes",
+        "target": "9cf389511a3b550fdda8459a95e84f4644fab5ee",
+        "tipTime": 1800000000,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/feature/b",
+        "gone": false,
+        "isHead": false,
+        "name": "feature/b",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "B2 Refine lexer",
+        "target": "0aadb87a0d962ebd998745c981f809787a881472",
+        "tipTime": 1800000000,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": "/demo/irebase",
+        "fullName": "refs/heads/feature/c",
+        "gone": false,
+        "isHead": true,
+        "name": "feature/c",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "C2 Polish",
+        "target": "c4a5e132c5cb135c5f22ac7a7338c1d1e2f52d80",
+        "tipTime": 1800000000,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/main",
+        "gone": false,
+        "isHead": false,
+        "name": "main",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Main moves",
+        "target": "6f666cdabe22f8210b6a75f4598da46adb698b55",
+        "tipTime": 1767227520,
+        "upstream": null,
+        "worktree": null
+      }
+    ],
+    "remotes": [],
+    "stashes": [],
+    "tags": [],
+    "worktrees": [
+      {
+        "branch": "feature/c",
+        "head": "c4a5e132c5cb135c5f22ac7a7338c1d1e2f52d80",
+        "isCurrent": true,
+        "isMain": true,
+        "locked": false,
+        "name": "irebase",
+        "path": "/demo/irebase"
+      }
+    ]
+  }
+}

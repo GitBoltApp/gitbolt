@@ -1,0 +1,204 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "rebase",
+          "label": "interactive rebase feature/c onto main",
+          "op": 1
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "rebase",
+        "label": "interactive rebase feature/c onto main",
+        "op": 1
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "rebase",
+      "label": "interactive rebase feature/c onto main",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/irebase": "<version>"
+      },
+      "worktrees": [
+        "/demo/irebase"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 1,
+          "kind": "rebase",
+          "label": "interactive rebase feature/c onto main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/irebase"
+    },
+    {
+      "command": null,
+      "kind": "rebase",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "interactiveRebase",
+    "params": {
+      "base": "main",
+      "branch": "feature/c",
+      "chips": [
+        {
+          "at": {
+            "kind": "row",
+            "oid": "58c2fffc85766ab29874c9c637d6bfddd964a6b7"
+          },
+          "branch": "feature/a"
+        },
+        {
+          "at": {
+            "kind": "row",
+            "oid": "8776a490a5ce27d5109ec5df21844a4f7a1455b6"
+          },
+          "branch": "feature/b"
+        }
+      ],
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "refs/heads/feature/a": "58c2fffc85766ab29874c9c637d6bfddd964a6b7",
+        "refs/heads/feature/b": "8776a490a5ce27d5109ec5df21844a4f7a1455b6",
+        "refs/heads/feature/c": "c9a0ea3dc4b52c7667df08baa61a0b040ca6341e",
+        "refs/heads/main": "6f666cdabe22f8210b6a75f4598da46adb698b55"
+      },
+      "repo": "$repo",
+      "rows": [
+        {
+          "action": "pick",
+          "oid": "c9a0ea3dc4b52c7667df08baa61a0b040ca6341e"
+        },
+        {
+          "action": "pick",
+          "oid": "3e0daf509b0db6dc06ea8a37795847359c4d1c02"
+        },
+        {
+          "action": "pick",
+          "oid": "8776a490a5ce27d5109ec5df21844a4f7a1455b6"
+        },
+        {
+          "action": "pick",
+          "oid": "a6a0859a5c012fcaa82145c1d9dff49b2ddcd8f6"
+        },
+        {
+          "action": "pick",
+          "oid": "160269a3a895638e6ce97e870a2a6a4a5527d90b"
+        },
+        {
+          "action": "squash",
+          "oid": "58c2fffc85766ab29874c9c637d6bfddd964a6b7"
+        },
+        {
+          "action": "pick",
+          "oid": "f7e906c00ec341061584f84d94d3e256e8f375b6"
+        },
+        {
+          "action": "pick",
+          "oid": "ecd37ee6aa692927b369c103dc3defb0aad27edb"
+        }
+      ],
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "rebase",
+        "label": "interactive rebase feature/c onto main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "commits": 7,
+      "fastForward": false,
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/irebase"
+    }
+  }
+}

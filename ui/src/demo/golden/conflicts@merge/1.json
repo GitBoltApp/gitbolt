@@ -1,0 +1,25 @@
+{
+  "events": [],
+  "request": {
+    "method": "integratePreview",
+    "params": {
+      "kind": "merge",
+      "repo": "$repo",
+      "target": "feature/x",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "ahead": 1,
+    "behind": 1,
+    "conflicts": [
+      "a.txt",
+      "gone.txt",
+      "logo.bin"
+    ],
+    "lossyMerge": null,
+    "merged": false,
+    "stacked": [],
+    "updateRefsDefault": true
+  }
+}

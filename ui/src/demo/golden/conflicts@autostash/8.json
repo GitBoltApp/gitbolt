@@ -1,0 +1,117 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "save",
+      "label": "save a.txt",
+      "op": 6,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 8,
+          "kind": "save",
+          "label": "save a.txt"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "save",
+      "message": null,
+      "op": 6,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "writeWorktreeFile",
+    "params": {
+      "base": "6e6c0bb118b46cb080b5b19069f02755835573fa",
+      "path": "a.txt",
+      "repo": "$repo",
+      "text": "line 0\nline 1\nline 2\nlocal three\nline 4\nline 5\nline 6\nline 7\nline 8\nline 9\nline 10\nline 11\nline 12\nline 13\nline 14\ncurrent fifteen\nline 16\nline 17\nline 18\nline 19\nline 20\nline 21\nline 22\nline 23\nline 24\nlocal twenty-five\nline 26\nline 27\nline 28\nline 29\n",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 8,
+        "kind": "save",
+        "label": "save a.txt"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "hash": "92f9cacc5254e0218a448e902a929fbcd5d872b8"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 2,
+        "deleted": 2,
+        "files": [
+          {
+            "additions": 2,
+            "deletions": 2,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "cb3695deb3ae5130f4631d723d6a3fb77b1e3c03"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "M",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

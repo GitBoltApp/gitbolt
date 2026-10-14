@@ -1,0 +1,16 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "NotFound",
+    "message": "Not found on gitlab.example.com",
+    "stderr": null
+  },
+  "events": [],
+  "request": {
+    "method": "forgeProjectByPath",
+    "params": {
+      "path": "orbital/nowhere",
+      "repo": "$repo"
+    }
+  }
+}

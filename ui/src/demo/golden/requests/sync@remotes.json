@@ -1,0 +1,22 @@
+[
+ {"method": "openRepo", "params": {"path": "$wt"}},
+ {"method": "fetch", "params": {"repo": "$repo", "background": false}},
+ {"method": "sidebar", "params": {"repo": "$repo"}},
+ {"method": "pull", "params": {"repo": "$repo", "worktree": "$wt", "branch": "main", "mode": "ffOnly", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "pull", "params": {"repo": "$repo", "worktree": "$wt", "branch": "diverged", "mode": "ffOnly", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "pull", "params": {"repo": "$repo", "worktree": "$wt", "branch": "diverged", "mode": "rebase", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "push", "params": {"repo": "$repo", "worktree": "$wt", "branch": "diverged", "expect": {"head": null, "refs": {}}}},
+ {"method": "checkout", "params": {"repo": "$repo", "worktree": "$wt", "target": {"kind": "branch", "name": "diverged"}, "expect": {"head": null, "refs": {}}}},
+ {"method": "pull", "params": {"repo": "$repo", "worktree": "$wt", "branch": "diverged", "mode": "rebase", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}},
+ {"method": "undo", "params": {"repo": "$repo", "worktree": "$wt", "entry": {"$entry": "undo"}}},
+ {"method": "pull", "params": {"repo": "$repo", "worktree": "$wt", "branch": "diverged", "mode": "ffOrMerge", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}},
+ {"method": "checkout", "params": {"repo": "$repo", "worktree": "$wt", "target": {"kind": "branch", "name": "main"}, "expect": {"head": null, "refs": {}}}},
+ {"method": "push", "params": {"repo": "$repo", "worktree": "$wt", "branch": "feature/new", "target": {"remote": "origin", "branch": "feature/new"}, "setUpstream": true, "expect": {"head": null, "refs": {}}}},
+ {"method": "pushTags", "params": {"repo": "$repo", "worktree": "$wt", "remote": "origin"}},
+ {"method": "addRemote", "params": {"repo": "$repo", "worktree": "$wt", "name": "alice", "url": "https://git.example.invalid/alice/app.git"}},
+ {"method": "fetch", "params": {"repo": "$repo", "background": false, "remote": "alice"}},
+ {"method": "removeRemote", "params": {"repo": "$repo", "worktree": "$wt", "name": "alice"}},
+ {"method": "sidebar", "params": {"repo": "$repo"}}
+]

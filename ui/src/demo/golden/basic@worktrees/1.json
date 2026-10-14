@@ -1,0 +1,11 @@
+{
+  "events": [],
+  "request": {
+    "method": "suggestWorktreePath",
+    "params": {
+      "branch": "demo/wt",
+      "repo": "$repo"
+    }
+  },
+  "response": "/demo/basic-demo-wt"
+}

@@ -11,9 +11,14 @@ recipe resets the folder, but only if it is empty or carries the `.gitvolt-playg
 - **orbital**: a 2D space-trading game in Rust, over a thousand commits by six people over two years.
   Every file type GitVolt previews is in its history: sprites, the HUD font, sounds, the design
   PDF, the press kit, tables and a save file. One branch (`balance/fuel-rework`) that conflicts with
-  `main`, an interactive-rebase candidate, branches ahead, behind and diverged from origin, two stashes and staged and unstaged
-  changes on `main`. A teammate's push is not fetched yet: `git -C .remotes/orbital-origin.git
-  update-ref refs/heads/main refs/demo/teammate` plays it, then fetch.
+  `main`, an interactive-rebase candidate stacked on a second branch, branches ahead, behind and diverged from origin, two stashes and staged and unstaged
+  changes on `main`, and a linked worktree on `release/1.2` with changes of its own. A teammate's push is not fetched yet: `git -C .remotes/orbital-origin.git
+  update-ref refs/heads/main refs/demo/teammate` plays it, then fetch. Its `origin` is named by
+  its forge address (`https://gitlab.example.com/orbital/orbital.git`), as the demo's fake GitLab
+  serves it. The playground maps that address to `.remotes/orbital-origin.git`
+  (`url.<path>.insteadOf` in the repo's config); in a `showcase` build, plain git reaches the
+  bundled origin with
+  `git -c url.$PWD/../origin.git.insteadOf=https://gitlab.example.com/orbital/orbital.git fetch`.
 - **basic**: the game's website. A small history with a merged branch, a tag, a stash and a dirty
   linked worktree.
 - **sync**: the modding kit, a remote that moved. Fetch, pull and push. `main` is behind,
@@ -21,7 +26,11 @@ recipe resets the folder, but only if it is empty or carries the `.gitvolt-playg
 - **conflicts**: merge `feature/price-rework` into `main` for text, binary and delete/modify
   conflicts, then resolve them.
 - **stack**: `feature/cargo-model` > `cargo-ui` > `cargo-tests`, stacked on a `main` that has
-  moved on. Rebase a branch and watch the stack follow; multi-select commits and use Squash.
+  moved on. Rebase a branch and watch the stack follow; multi-select commits and use Squash. Its
+  branches are pushed to an `origin` named by its forge address
+  (`https://gitlab.example.com/orbital/cargo.git`), a project with no merge requests yet; plain git
+  reaches the bundled origin as Orbital's does (`.remotes/stack-origin.git`, or
+  `git -c url.$PWD/../origin.git.insteadOf=https://gitlab.example.com/orbital/cargo.git fetch`).
 - **wip_staging**: uncommitted changes to a ship. Stage and unstage files and hunks, then commit.
 - **rebase-lab**: `feature/docking` with six commits. Start an interactive rebase onto `main` and
   drag commits; the conflict warning appears and clears as the order changes.
@@ -53,8 +62,11 @@ worktree paths to match.
 - `origin.git`: a bare remote. Its objects are borrowed from `repo` through
   `objects/info/alternates` (a relative path to `../../repo/.git/objects`). The playground repacks
   it into its own pack before moving it, since the relative path would break.
-- `forge.json`: the merge requests the history implies (`orbital/orbital!<iid>`, with their merge
-  commits) and the six people, for the demo's fake forge. Its schema is a placeholder for now.
+- `wt-release`: a linked worktree of `repo` on `release/1.2`, with an unstaged fix and its
+  changelog line (the playground moves it to `.worktrees/orbital-release`).
+- `forge.json`: the demo's fake GitLab (`forge.json` v1, the harness fake forge's seed without
+  tokens): every merge request the history implies (`orbital/orbital!<iid>`, with heads, bases and
+  merge commits), pipelines, approvals and a few threads on the open ones, and the six people.
 - `refs/demo/teammate` in `origin.git`: a commit the teammate has pushed but that is not fetched.
 
 ## How Orbital is made
@@ -73,7 +85,8 @@ build gives the same commit ids on the same platform.
 - **History** (`orbital/history.rs`): writes one `git fast-import` stream. Generating the whole
   history takes about a second; one `git commit` per commit would take about a minute.
 - **Finish** (`orbital/finish.rs`): adds what needs real git: the bare origin, the teammate's
-  commit, upstreams, stashes, the staged working tree and `forge.json`.
+  commit, upstreams, stashes, the staged working tree, the release worktree and `forge.json`
+  (`orbital/forge.rs`).
 
 The art is drawn by the harness's own code (`orbital/art.rs`, `scenes.rs`, `glyphs.rs`,
 `design_doc.rs`, `data.rs`), not taken from anywhere. `gitvolt-harness media preview <dir>` writes

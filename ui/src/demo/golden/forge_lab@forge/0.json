@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "openRepo",
+    "params": {
+      "path": "$wt"
+    }
+  },
+  "response": {
+    "id": 1,
+    "name": "forge_lab",
+    "path": "/demo/forge_lab",
+    "worktree": "/demo/forge_lab"
+  }
+}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { blameSummary, coAuthors, commitMessage, gitSubject, parseCommit, parseOid, readCommit } from './commitText';
+import { blameSummary, coAuthors, commitMessage, firstLine, gitSubject, parseCommit, parseOid, readCommit } from './commitText';
 import { makeTestRepo } from './testkit';
 
 const P1 = '1111111111111111111111111111111111111111';
@@ -46,6 +46,17 @@ describe('commit text', () => {
     expect(gitSubject('\n\nOne\ntwo  \n\nRest\n')).toBe('One two');
     expect(blameSummary('\n  \nFirst line  \nsecond', P1)).toBe('First line  ');
     expect(blameSummary('', P1)).toBe(`(${P1})`);
+  });
+
+  it("takes a form feed or vertical tab as text, not whitespace (git 2.53's %s, blame and labels)", () => {
+    expect(gitSubject('\f\nNext line')).toBe('\f Next line');
+    expect(gitSubject('Sub\f  \nNext')).toBe('Sub\f Next');
+    expect(gitSubject('Sub\n\f\nNext')).toBe('Sub \f Next');
+    expect(gitSubject('Sub\n \t\r\nNext')).toBe('Sub');
+    expect(gitSubject('\r\nSub')).toBe('Sub');
+    expect(blameSummary('\v\nNext', P1)).toBe('\v');
+    expect(firstLine(' \t\r\nNext')).toBe('Next');
+    expect(firstLine('\f\nNext')).toBe('\f');
   });
 
   it('reads co-author trailers case-insensitively, once per email', () => {

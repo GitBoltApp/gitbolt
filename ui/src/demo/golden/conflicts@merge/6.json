@@ -1,0 +1,26 @@
+{
+  "events": [],
+  "request": {
+    "method": "conflictFile",
+    "params": {
+      "path": "logo.bin",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": "85d725d62a144edfc4ab4a6d67427406722844d0",
+    "current": null,
+    "encoding": "UTF-8",
+    "eol": "lf",
+    "incoming": null,
+    "kind": "bothModified",
+    "labels": {
+      "current": "main",
+      "incoming": "feature/x"
+    },
+    "path": "logo.bin",
+    "segments": [],
+    "text": false
+  }
+}

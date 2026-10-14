@@ -1,0 +1,263 @@
+{
+  "events": [],
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": null,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/feature/c",
+      "detached": false,
+      "target": "9f0c3b13c94bc9151264c0216d6f670259e5eadf",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/irebase",
+        "isHead": true,
+        "local": "refs/heads/feature/c",
+        "name": "feature/c",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/feature/b",
+        "name": "feature/b",
+        "remotes": [],
+        "row": 2,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/feature/a",
+        "name": "feature/a",
+        "remotes": [],
+        "row": 5,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 7,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 2,
+    "openWorktree": "/demo/irebase",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227280,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "9f0c3b13c94bc9151264c0216d6f670259e5eadf",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "c85c215510870c5b56cd9fad49f2c7aa214371b4"
+        ],
+        "segments": [
+          5243905
+        ],
+        "summary": "C2 Polish",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227160,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "c85c215510870c5b56cd9fad49f2c7aa214371b4",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "cd80f24a170311c772485c565adaa61ce991bb65"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "C1 Edit notes again",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227040,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "cd80f24a170311c772485c565adaa61ce991bb65",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "87bb97393ca7b435b3475ed71559382fb0f8788e"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "B2 Refine lexer",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226620,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "87bb97393ca7b435b3475ed71559382fb0f8788e",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "5e8b955eae8477264d8b40f201fc568a55448d54"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "S1 Side work",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226380,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "5e8b955eae8477264d8b40f201fc568a55448d54",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "27d7814e53307cd5eadf7764ad1fdf41f3dfb60b"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "B1 Add lexer",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226020,
+        "bodyFirstLine": "A3 Add tests",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "27d7814e53307cd5eadf7764ad1fdf41f3dfb60b",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "a520ba3173740c28503bca9e78c5cefa6aaf0e7b"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "A2 Edit notes",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225900,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "a520ba3173740c28503bca9e78c5cefa6aaf0e7b",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "6f666cdabe22f8210b6a75f4598da46adb698b55"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "A1 Add parser",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227520,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767227520,
+        "id": "6f666cdabe22f8210b6a75f4598da46adb698b55",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "0e88abee80f3df87ab347184770d76dc8e79adb8"
+        ],
+        "segments": [
+          4194305,
+          1048576
+        ],
+        "summary": "Main moves",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "0e88abee80f3df87ab347184770d76dc8e79adb8",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0
+        ],
+        "summary": "Base",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/feature/c",
+        "head": "9f0c3b13c94bc9151264c0216d6f670259e5eadf",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/irebase"
+      }
+    ]
+  }
+}

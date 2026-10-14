@@ -1,0 +1,129 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 14,
+      "kind": "checkout",
+      "label": "checkout origin/dev",
+      "touched": [
+        "file_2.txt",
+        "dev-copy",
+        "HEAD",
+        "branch.dev-copy.remote",
+        "branch.dev-copy.merge"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 13,
+      "kind": "checkout",
+      "label": "checkout 1f37672",
+      "touched": [
+        "file_4.txt",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 12,
+      "kind": "checkout",
+      "label": "checkout feature/new",
+      "touched": [
+        "file_3.txt",
+        "file_4.txt",
+        "local.txt",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 11,
+      "kind": "checkout",
+      "label": "checkout origin/diverged",
+      "touched": [
+        "file_2.txt",
+        "file_3.txt",
+        "local.txt",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 10,
+      "kind": "checkout",
+      "label": "checkout origin/dev",
+      "touched": [
+        "file_2.txt",
+        "dev",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 8,
+      "kind": "checkout",
+      "label": "checkout main",
+      "touched": [
+        "dev-local.txt",
+        "HEAD"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed dev-local.txt",
+      "entry": 7,
+      "kind": "commit",
+      "label": "commit \"Dev, locally\"",
+      "touched": [
+        "dev-local.txt",
+        "dev"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed dev-local.txt",
+      "entry": 6,
+      "kind": "save",
+      "label": "create dev-local.txt",
+      "touched": [
+        "dev-local.txt"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 5,
+      "kind": "reset",
+      "label": "reset dev to 1f37672 (hard)",
+      "touched": [
+        "working tree",
+        "dev"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 4,
+      "kind": "checkout",
+      "label": "checkout origin/dev",
+      "touched": [
+        "working tree",
+        "dev"
+      ]
+    }
+  ]
+}

@@ -182,14 +182,4 @@ export type { Locator, Page } from '@playwright/test';
  * WebKit still runs those tests' flows, and their `[budget]` logs, but its timings aren't a budget. */
 export const budgetApplies = () => base.info().project.name === 'chromium-budget';
 
-/** An armed control's overlay (spec §ui confirms): visual only (aria-hidden), so found by its text. */
-export const armedOverlay = (page: import('@playwright/test').Page, text: string | RegExp) => page.locator('.arm-overlay', { hasText: text });
-
-/** The second click on an armed control: a fresh click once the pointer's settle guard
- * (`CLICK_SETTLE_MS`, 200 ms from arming to the press) has passed, as a user's deliberate second
- * click is. Waited from when the target shows, which is after it armed. */
-export async function confirmArmed(target: import('@playwright/test').Locator): Promise<void> {
-  await target.waitFor();
-  await target.page().waitForTimeout(250);
-  await target.click();
-}
+export { armedOverlay, confirmArmed } from './armed';

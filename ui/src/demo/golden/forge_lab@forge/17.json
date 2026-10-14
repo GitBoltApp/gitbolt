@@ -1,0 +1,34 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeReact",
+    "params": {
+      "name": "tada",
+      "note": {
+        "discussion": "d2",
+        "note": "102"
+      },
+      "number": 1,
+      "on": true,
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "count": 1,
+      "mine": false,
+      "name": "thumbsup",
+      "users": [
+        "Grace Hopper"
+      ]
+    },
+    {
+      "count": 1,
+      "mine": true,
+      "name": "tada",
+      "users": [
+        "You"
+      ]
+    }
+  ]
+}

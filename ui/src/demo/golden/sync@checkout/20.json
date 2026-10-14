@@ -1,0 +1,236 @@
+{
+  "events": [],
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": null,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/diverged",
+      "detached": false,
+      "target": "1005a9465cce1a36f369c5e309dfa3f3648dcdcf",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/feature/new",
+        "name": "feature/new",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": "/demo/sync",
+        "isHead": true,
+        "local": "refs/heads/diverged",
+        "name": "diverged",
+        "remotes": [],
+        "row": 1,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": null,
+        "name": "diverged",
+        "remotes": [
+          {
+            "fullName": "refs/remotes/origin/diverged",
+            "host": null,
+            "hostKind": "generic",
+            "remote": "origin"
+          }
+        ],
+        "row": 2,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/dev",
+        "name": "dev",
+        "remotes": [
+          {
+            "fullName": "refs/remotes/origin/dev",
+            "host": null,
+            "hostKind": "generic",
+            "remote": "origin"
+          }
+        ],
+        "row": 3,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [
+          {
+            "fullName": "refs/remotes/origin/main",
+            "host": null,
+            "hostKind": "generic",
+            "remote": "origin"
+          }
+        ],
+        "row": 4,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 4,
+    "openWorktree": "/demo/sync",
+    "pinnedRefs": [
+      "refs/heads/main",
+      "refs/remotes/origin/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "lars@example.com",
+        "authorName": "Lars Tidemann",
+        "authorTime": 1767227220,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1767227220,
+        "id": "c3fcec209a614b7cf67fbde79e678e09caacf9c4",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437"
+        ],
+        "segments": [
+          5243905
+        ],
+        "summary": "New feature",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226980,
+        "bodyFirstLine": "",
+        "color": 2,
+        "committerTime": 1767226980,
+        "id": "1005a9465cce1a36f369c5e309dfa3f3648dcdcf",
+        "kind": "commit",
+        "lane": 2,
+        "mrRefs": [],
+        "parents": [
+          "081e48c9e99872dacc6832c7a21993de04313c90"
+        ],
+        "segments": [
+          6292481,
+          9439234
+        ],
+        "summary": "Local side",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226740,
+        "bodyFirstLine": "",
+        "color": 2,
+        "committerTime": 1767226740,
+        "id": "081e48c9e99872dacc6832c7a21993de04313c90",
+        "kind": "commit",
+        "lane": 2,
+        "mrRefs": [],
+        "parents": [
+          "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437"
+        ],
+        "segments": [
+          6292481,
+          8390658,
+          9439234
+        ],
+        "summary": "Shared start",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226380,
+        "bodyFirstLine": "",
+        "color": 3,
+        "committerTime": 1767226380,
+        "id": "08e38bc5c5ddd0ec13ca7d2ce4843baa3e768b10",
+        "kind": "commit",
+        "lane": 3,
+        "mrRefs": [],
+        "parents": [
+          "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437"
+        ],
+        "segments": [
+          6292481,
+          10487810,
+          13634563
+        ],
+        "summary": "Dev work",
+        "wip": null
+      },
+      {
+        "authorEmail": "grace@example.com",
+        "authorName": "Grace Hopper",
+        "authorTime": 1767225900,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225900,
+        "id": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "370cb169b524d4c233bc244f82fcf9a3ba1caecb"
+        ],
+        "segments": [
+          4194305,
+          8388610,
+          12582915,
+          1048576
+        ],
+        "summary": "Add readme",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "370cb169b524d4c233bc244f82fcf9a3ba1caecb",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0
+        ],
+        "summary": "Initial commit",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/diverged",
+        "head": "1005a9465cce1a36f369c5e309dfa3f3648dcdcf",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/sync"
+      }
+    ]
+  }
+}

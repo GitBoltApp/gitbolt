@@ -1,0 +1,55 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalHistory",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": [
+    {
+      "atMs": 1800000000000,
+      "blocked": null,
+      "entry": 5,
+      "kind": "stash",
+      "label": "drop stash \"Experiment\"",
+      "touched": [
+        "file_0.txt",
+        "stash"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 4,
+      "kind": "stash",
+      "label": "pop stash \"Demo stash\"",
+      "touched": [
+        "file_1.txt",
+        "stash"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "A later action changed file_1.txt",
+      "entry": 3,
+      "kind": "discard",
+      "label": "discard all changes",
+      "touched": [
+        "file_1.txt"
+      ]
+    },
+    {
+      "atMs": 1800000000000,
+      "blocked": "Only Undo of the actions after it can reach this one",
+      "entry": 1,
+      "kind": "stash",
+      "label": "stash \"Demo stash\"",
+      "touched": [
+        "file_1.txt",
+        "stash"
+      ]
+    }
+  ]
+}

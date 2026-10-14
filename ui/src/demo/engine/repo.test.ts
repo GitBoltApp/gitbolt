@@ -4,7 +4,7 @@ import { describe, expect, test, vi } from 'vitest';
 import { GOLDEN, goldenData, goldenManifest, noGraph } from '../testing';
 import { readBundle } from './bundle';
 import { MemFs } from './memfs';
-import { DemoRepo, wipCountsOf } from './repo';
+import { DemoRepo, isClean } from './repo';
 import { DemoRepos } from './repos';
 
 async function basic() {
@@ -109,7 +109,7 @@ describe('DemoRepo on the basic fixture', () => {
       { ...clean, modified: 1 },
       { ...clean, modified: 1 },
     ]);
-    const read = spy.mock.calls.map((c) => c[0]).filter((p) => typeof p === 'string' && !p.includes('/.git/'));
+    const read = spy.mock.calls.map((c) => c[0]).filter((p) => typeof p === 'string' && !p.includes('/.git/') && !p.endsWith('/.git')); // the .git pointer file is worktree resolution, not a hashed file
     expect(read).toEqual(['/demo/basic/file_1.txt', '/demo/.extra/basic/wt-hotfix/file_0.txt']);
   });
 
@@ -155,21 +155,8 @@ test('opens a repository built in memory with isomorphic-git (the test kit), exe
   expect((await git.readTree({ fs, dir: '/demo/kit', oid, cache: repo.cache })).tree[0].mode).toBe('100755');
 });
 
-test('wipCountsOf: the status matrix by status::summarize', () => {
-  const rows: [string, number, number, number][] = [
-    ['unchanged', 1, 1, 1],
-    ['modified', 1, 2, 1],
-    ['staged', 1, 2, 2],
-    ['both', 1, 2, 3],
-    ['untracked', 0, 2, 0],
-    ['added', 0, 2, 2],
-    ['added then changed', 0, 2, 3],
-    ['added then deleted', 0, 0, 3],
-    ['deleted', 1, 0, 1],
-    ['staged deletion', 1, 0, 0],
-    ['staged deletion, file back', 1, 2, 0],
-  ];
-  expect(wipCountsOf(rows)).toEqual({ modified: 3, added: 4, deleted: 4, renamed: 0, conflicted: 0 });
+test('isClean: any counted change makes a WIP row', () => {
+  expect([isClean(clean), isClean({ ...clean, conflicted: 1 }), isClean({ ...clean, renamed: 1 })]).toEqual([true, false, false]);
 });
 
 describe('DemoRepos', () => {
@@ -184,6 +171,25 @@ describe('DemoRepos', () => {
     expect([linked.repo.id, linked.worktree]).toEqual([1, '/demo/.extra/basic/wt-hotfix']);
     expect((await r.open('/demo/long_history')).repo.id).toBe(2);
     expect(r.get(2).name).toBe('long_history');
+  });
+
+  test('opens a worktree added beside the main one, and a pre-existing one under /demo/.extra', async () => {
+    const fs = new MemFs();
+    const r = new DemoRepos(goldenManifest(), goldenData(), fs, noGraph);
+    const { repo } = await r.open('/demo/basic');
+    const link = (path: string, id: string) => {
+      fs.mkdirpSync(path);
+      fs.mkdirpSync(`${repo.gitdir}/worktrees/${id}`);
+      fs.writeFileSync(`${path}/.git`, `gitdir: ${repo.gitdir}/worktrees/${id}\n`);
+      fs.writeFileSync(`${repo.gitdir}/worktrees/${id}/gitdir`, `${path}/.git\n`);
+      fs.writeFileSync(`${repo.gitdir}/worktrees/${id}/HEAD`, 'ref: refs/heads/main\n');
+    };
+    link('/demo/basic-x', 'basic-x');
+    link('/demo/.extra/basic/wt-release', 'wt-release');
+    const found = await r.open('/demo/basic-x/sub');
+    expect([found.repo.id, found.worktree]).toEqual([1, '/demo/basic-x']);
+    const extra = await r.open('/demo/.extra/basic/wt-release/src');
+    expect([extra.repo.id, extra.worktree]).toEqual([1, '/demo/.extra/basic/wt-release']);
   });
 
   test('loaded: a repository once its bundle is open', async () => {

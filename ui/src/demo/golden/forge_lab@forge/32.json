@@ -1,0 +1,45 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeRetarget",
+    "params": {
+      "number": 5,
+      "repo": "$repo",
+      "target": "feature/stack-a"
+    }
+  },
+  "response": {
+    "author": {
+      "avatarUrl": null,
+      "email": "ada@example.com",
+      "id": 101,
+      "name": "Ada Lovelace",
+      "username": "ada",
+      "webUrl": "https://gitlab.example.com/ada"
+    },
+    "autoMerge": null,
+    "conflicts": false,
+    "headSha": "0d0d20b516f175f3452b0893205396403ddee034",
+    "labelColors": {},
+    "labels": [
+      "stack"
+    ],
+    "number": 5,
+    "pipeline": null,
+    "review": {
+      "approvals": 0,
+      "approvalsRequired": null,
+      "decision": "none",
+      "reviews": []
+    },
+    "sourceBranch": "feature/stack-b",
+    "sourceProject": "orbital/forge-lab",
+    "stacked": true,
+    "state": "open",
+    "targetBranch": "feature/stack-a",
+    "targetProject": "orbital/forge-lab",
+    "title": "Give the hold a capacity",
+    "updatedAt": 1791117000,
+    "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/5"
+  }
+}

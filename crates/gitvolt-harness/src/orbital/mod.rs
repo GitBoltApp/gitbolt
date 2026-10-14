@@ -9,6 +9,7 @@ pub mod corpus;
 pub mod data;
 pub mod design_doc;
 pub mod finish;
+pub mod forge;
 pub mod glyphs;
 pub mod history;
 pub mod model;
@@ -45,5 +46,5 @@ pub fn build(r: &gitvolt_core::testing::TestRepo) {
     history::fast_import(&r.path().join(".git"), &hist.finish(), Some(&marks_file)).expect("fast-import Orbital's history");
     let marks = history::read_marks(&marks_file);
     std::fs::remove_file(&marks_file).expect("remove the marks file");
-    finish::finish(r, &outcome, &marks, &content, &mut rng).expect("finish Orbital");
+    finish::finish(r, &outcome, &marks, &content).expect("finish Orbital");
 }

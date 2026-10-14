@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "openRepo",
+    "params": {
+      "path": "$wt"
+    }
+  },
+  "response": {
+    "id": 1,
+    "name": "sync",
+    "path": "/demo/sync",
+    "worktree": "/demo/sync"
+  }
+}

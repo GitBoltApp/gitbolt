@@ -66,7 +66,8 @@ const save = (pct: number) => {
 const inTauri = () => typeof window !== 'undefined' && '__TAURI_INTERNALS__' in window;
 
 /** Sets the webview's zoom. Outside Tauri (the browser e2e harness) there's no webview to zoom:
- * a no-op, and `html[data-zoom]` (set for both) is what the tests read. */
+ * a no-op, and `html[data-zoom]` (set for both) is what the tests read. The website demo passes
+ * its own applier instead (demo/pageZoom.ts). */
 export function applyWebviewZoom(pct: number): void {
   if (!inTauri()) return;
   void import('@tauri-apps/api/webview')

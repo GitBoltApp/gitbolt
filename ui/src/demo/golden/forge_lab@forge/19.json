@@ -1,0 +1,16 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeResolve",
+    "params": {
+      "discussion": "d2",
+      "number": 1,
+      "repo": "$repo",
+      "resolved": true
+    }
+  },
+  "response": {
+    "resolved": true,
+    "resolvedBy": "You"
+  }
+}

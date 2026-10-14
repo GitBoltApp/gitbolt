@@ -1,0 +1,153 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "rebase",
+          "label": "rebase feature/c onto main",
+          "op": 1
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "rebase",
+        "label": "rebase feature/c onto main",
+        "op": 1
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "rebase",
+      "label": "rebase feature/c onto main",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/stack": "<version>"
+      },
+      "worktrees": [
+        "/demo/stack"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 1,
+          "kind": "rebase",
+          "label": "rebase feature/c onto main"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/stack"
+    },
+    {
+      "command": null,
+      "kind": "rebase",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "integrate",
+    "params": {
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "kind": "rebase",
+      "repo": "$repo",
+      "target": "main",
+      "updateRefs": true,
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "rebase",
+        "label": "rebase feature/c onto main"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "commits": 3,
+      "fastForward": false,
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/stack"
+    }
+  }
+}

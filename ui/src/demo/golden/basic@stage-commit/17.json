@@ -1,0 +1,22 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "banners": [],
+    "paused": null,
+    "redo": null,
+    "redoBlocked": "Nothing to redo",
+    "undo": {
+      "entry": 2,
+      "kind": "commit",
+      "label": "amend \"Demo commit, reworded\""
+    },
+    "undoBlocked": null
+  }
+}

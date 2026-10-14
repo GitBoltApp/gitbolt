@@ -1,0 +1,99 @@
+{
+  "events": [],
+  "request": {
+    "method": "sidebar",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "locals": [
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/feature/a",
+        "gone": false,
+        "isHead": false,
+        "name": "feature/a",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Work on feature/a",
+        "target": "18f7d83cf9e311bc0dc8b2dfd20133fe11c5c480",
+        "tipTime": 1767225960,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/feature/b",
+        "gone": false,
+        "isHead": false,
+        "name": "feature/b",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Work on feature/b",
+        "target": "856a96b248550abb66f29f80d0e708b37f481463",
+        "tipTime": 1767226200,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": "/demo/stack",
+        "fullName": "refs/heads/feature/c",
+        "gone": false,
+        "isHead": true,
+        "name": "feature/c",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Work on feature/c",
+        "target": "98dcc90a0ce2ce68ed1f7de481f3e65bd2cbb478",
+        "tipTime": 1767226440,
+        "upstream": null,
+        "worktree": null
+      },
+      {
+        "ahead": 0,
+        "author": "Ada Lovelace",
+        "behind": 0,
+        "checkedOut": null,
+        "fullName": "refs/heads/main",
+        "gone": false,
+        "isHead": false,
+        "name": "main",
+        "pushBehind": null,
+        "pushTarget": null,
+        "rewritten": null,
+        "summary": "Main moves",
+        "target": "2e3add41437733380bf86902f39c62e1d746d1a9",
+        "tipTime": 1767226680,
+        "upstream": null,
+        "worktree": null
+      }
+    ],
+    "remotes": [],
+    "stashes": [],
+    "tags": [],
+    "worktrees": [
+      {
+        "branch": "feature/c",
+        "head": "98dcc90a0ce2ce68ed1f7de481f3e65bd2cbb478",
+        "isCurrent": true,
+        "isMain": true,
+        "locked": false,
+        "name": "stack",
+        "path": "/demo/stack"
+      }
+    ]
+  }
+}

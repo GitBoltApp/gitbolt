@@ -1,0 +1,144 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 6,
+          "kind": "commit",
+          "label": "commit \"Dev, locally\"",
+          "op": 8
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 6,
+        "kind": "commit",
+        "label": "commit \"Dev, locally\"",
+        "op": 8
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "commit",
+      "label": "commit \"Dev, locally\"",
+      "op": 8,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 7,
+          "kind": "commit",
+          "label": "commit \"Dev, locally\""
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/sync"
+    },
+    {
+      "command": null,
+      "kind": "commit",
+      "message": null,
+      "op": 8,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "commit",
+    "params": {
+      "amend": false,
+      "description": "",
+      "expect": {
+        "head": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+        "refs": {}
+      },
+      "repo": "$repo",
+      "stageAll": false,
+      "summary": "Dev, locally",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 7,
+        "kind": "commit",
+        "label": "commit \"Dev, locally\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "oid": "66bba44fe1adfec19270ae948c720554ba718889"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

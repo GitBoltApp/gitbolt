@@ -1,0 +1,18 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "GitLab updates a source branch by rebasing it",
+    "stderr": null
+  },
+  "events": [],
+  "request": {
+    "method": "forgeUpdateBranch",
+    "params": {
+      "expectedSha": "b806340a30b1c39432b907a7fb6f811151a58d59",
+      "how": "merge",
+      "number": 1,
+      "repo": "$repo"
+    }
+  }
+}

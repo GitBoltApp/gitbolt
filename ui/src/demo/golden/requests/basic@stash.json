@@ -1,0 +1,16 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "stashPush", "params": { "repo": "$repo", "worktree": "$wt", "message": "Demo stash\n\nWith a body." } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } },
+  { "method": "stashApply", "params": { "repo": "$repo", "worktree": "$wt", "oid": { "$rev": "stash@{0}" }, "pop": false } },
+  { "method": "discard", "params": { "repo": "$repo", "worktree": "$wt", "scope": { "kind": "all" } } },
+  { "method": "stashApply", "params": { "repo": "$repo", "worktree": "$wt", "oid": { "$rev": "stash@{0}" }, "pop": true } },
+  { "method": "stashDrop", "params": { "repo": "$repo", "worktree": "$wt", "oid": { "$rev": "stash@{0}" } } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "stashPush", "params": { "repo": "$repo", "worktree": "$wt", "message": "" } },
+  { "method": "stashPush", "params": { "repo": "$repo", "worktree": "$wt", "message": "nothing left" } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

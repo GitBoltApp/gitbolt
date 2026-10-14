@@ -1,0 +1,54 @@
+{
+  "error": {
+    "commandId": null,
+    "detail": {
+      "kind": "restoreOverChanges",
+      "path": "file_1.txt"
+    },
+    "kind": "DirtyWorktree",
+    "message": "Replace your changes to file_1.txt?",
+    "stderr": null
+  },
+  "events": [
+    {
+      "interactive": true,
+      "kind": "restore",
+      "label": "restore file_1.txt from 1f37672",
+      "op": 6,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "restore",
+      "message": "Replace your changes to file_1.txt?",
+      "op": 6,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "restoreFile",
+    "params": {
+      "path": "file_1.txt",
+      "repo": "$repo",
+      "sha": "1f37672f5fcbd421cfa487b8cdad9ef7d2e2e437",
+      "worktree": "$wt"
+    }
+  }
+}

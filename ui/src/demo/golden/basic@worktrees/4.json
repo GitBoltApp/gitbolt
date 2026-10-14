@@ -1,0 +1,91 @@
+{
+  "error": {
+    "commandId": null,
+    "detail": {
+      "branch": "hotfix",
+      "kind": "checkedOutElsewhere",
+      "worktree": "../wt-hotfix"
+    },
+    "kind": "InvalidInput",
+    "message": "hotfix is checked out in ../wt-hotfix.",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 2,
+          "kind": "worktree",
+          "label": "add worktree ../wt-again",
+          "op": 2
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 2,
+        "kind": "worktree",
+        "label": "add worktree ../wt-again",
+        "op": 2
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "worktree",
+      "label": "add worktree ../wt-again",
+      "op": 2,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "worktree",
+      "message": "hotfix is checked out in ../wt-hotfix.",
+      "op": 2,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "worktreeAdd",
+    "params": {
+      "branch": {
+        "kind": "existing",
+        "name": "hotfix"
+      },
+      "path": "$wt:wt-again",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  }
+}

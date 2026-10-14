@@ -1,0 +1,433 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeCachedMrs",
+    "params": {
+      "filter": "all",
+      "refs": [
+        "refs/remotes/origin/feature/hud-scale"
+      ],
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "badges": {
+      "fetchedAt": "<untimed>",
+      "history": [],
+      "kind": "gitlab",
+      "mrs": [
+        {
+          "mr": {
+            "author": {
+              "avatarUrl": null,
+              "email": "lars@example.com",
+              "id": 103,
+              "name": "Lars Tidemann",
+              "username": "lars",
+              "webUrl": "https://gitlab.example.com/lars"
+            },
+            "autoMerge": null,
+            "conflicts": false,
+            "headSha": "40887ba4ebb3f915cce3e13ff483f824a3f7646d",
+            "labelColors": {},
+            "labels": [],
+            "number": 6,
+            "pipeline": null,
+            "review": {
+              "approvals": 0,
+              "approvalsRequired": null,
+              "decision": "none",
+              "reviews": []
+            },
+            "sourceBranch": "feature/ünï-names",
+            "sourceProject": "orbital/forge-lab",
+            "stacked": false,
+            "state": "open",
+            "targetBranch": "main",
+            "targetProject": "orbital/forge-lab",
+            "title": "Allow accented station names",
+            "updatedAt": 1791644400,
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/6"
+          },
+          "remoteRef": "refs/remotes/origin/feature/ünï-names"
+        },
+        {
+          "mr": {
+            "author": {
+              "avatarUrl": null,
+              "email": "ada@example.com",
+              "id": 101,
+              "name": "Ada Lovelace",
+              "username": "ada",
+              "webUrl": "https://gitlab.example.com/ada"
+            },
+            "autoMerge": null,
+            "conflicts": false,
+            "headSha": "0d0d20b516f175f3452b0893205396403ddee034",
+            "labelColors": {
+              "stack": "#5cb85c"
+            },
+            "labels": [
+              "stack"
+            ],
+            "number": 5,
+            "pipeline": null,
+            "review": {
+              "approvals": 0,
+              "approvalsRequired": null,
+              "decision": "none",
+              "reviews": []
+            },
+            "sourceBranch": "feature/stack-b",
+            "sourceProject": "orbital/forge-lab",
+            "stacked": false,
+            "state": "open",
+            "targetBranch": "feature/stack-a",
+            "targetProject": "orbital/forge-lab",
+            "title": "Give the hold a capacity",
+            "updatedAt": 1791640800,
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/5"
+          },
+          "remoteRef": "refs/remotes/origin/feature/stack-b"
+        },
+        {
+          "mr": {
+            "author": {
+              "avatarUrl": null,
+              "email": "ada@example.com",
+              "id": 101,
+              "name": "Ada Lovelace",
+              "username": "ada",
+              "webUrl": "https://gitlab.example.com/ada"
+            },
+            "autoMerge": null,
+            "conflicts": false,
+            "headSha": "2818fcd3b6933f00a5c38fdff530c9ce683b80c0",
+            "labelColors": {
+              "stack": "#5cb85c"
+            },
+            "labels": [
+              "stack"
+            ],
+            "number": 4,
+            "pipeline": null,
+            "review": {
+              "approvals": 0,
+              "approvalsRequired": null,
+              "decision": "none",
+              "reviews": []
+            },
+            "sourceBranch": "feature/stack-a",
+            "sourceProject": "orbital/forge-lab",
+            "stacked": false,
+            "state": "open",
+            "targetBranch": "main",
+            "targetProject": "orbital/forge-lab",
+            "title": "Add the cargo hold",
+            "updatedAt": 1791637200,
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/4"
+          },
+          "remoteRef": "refs/remotes/origin/feature/stack-a"
+        },
+        {
+          "mr": {
+            "author": {
+              "avatarUrl": null,
+              "email": "grace@example.com",
+              "id": 102,
+              "name": "Grace Hopper",
+              "username": "grace",
+              "webUrl": "https://gitlab.example.com/grace"
+            },
+            "autoMerge": null,
+            "conflicts": false,
+            "headSha": "7e983363c43f02bb7bde994401007c9d131c2b19",
+            "labelColors": {},
+            "labels": [],
+            "number": 2,
+            "pipeline": null,
+            "review": {
+              "approvals": 0,
+              "approvalsRequired": null,
+              "decision": "none",
+              "reviews": []
+            },
+            "sourceBranch": "feature/radar",
+            "sourceProject": "orbital/forge-lab",
+            "stacked": false,
+            "state": "draft",
+            "targetBranch": "main",
+            "targetProject": "orbital/forge-lab",
+            "title": "Add a radar panel",
+            "updatedAt": 1791630000,
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/2"
+          },
+          "remoteRef": "refs/remotes/origin/feature/radar"
+        },
+        {
+          "mr": {
+            "author": {
+              "avatarUrl": null,
+              "email": "ada@example.com",
+              "id": 101,
+              "name": "Ada Lovelace",
+              "username": "ada",
+              "webUrl": "https://gitlab.example.com/ada"
+            },
+            "autoMerge": null,
+            "conflicts": false,
+            "headSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+            "labelColors": {
+              "hud": "#428bca"
+            },
+            "labels": [
+              "hud"
+            ],
+            "number": 1,
+            "pipeline": null,
+            "review": {
+              "approvals": 0,
+              "approvalsRequired": null,
+              "decision": "none",
+              "reviews": []
+            },
+            "sourceBranch": "feature/hud-scale",
+            "sourceProject": "orbital/forge-lab",
+            "stacked": false,
+            "state": "open",
+            "targetBranch": "main",
+            "targetProject": "orbital/forge-lab",
+            "title": "Scale the HUD with the window",
+            "updatedAt": 1791626400,
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/1"
+          },
+          "remoteRef": "refs/remotes/origin/feature/hud-scale"
+        }
+      ],
+      "pollIntervalSecs": "<untimed>",
+      "remote": "origin"
+    },
+    "kind": "gitlab",
+    "list": {
+      "fetchedAt": "<untimed>",
+      "filter": "all",
+      "kind": "gitlab",
+      "mrs": [
+        {
+          "author": {
+            "avatarUrl": null,
+            "email": "lars@example.com",
+            "id": 103,
+            "name": "Lars Tidemann",
+            "username": "lars",
+            "webUrl": "https://gitlab.example.com/lars"
+          },
+          "autoMerge": null,
+          "conflicts": false,
+          "headSha": "40887ba4ebb3f915cce3e13ff483f824a3f7646d",
+          "labelColors": {},
+          "labels": [],
+          "number": 6,
+          "pipeline": null,
+          "review": {
+            "approvals": 0,
+            "approvalsRequired": null,
+            "decision": "none",
+            "reviews": []
+          },
+          "sourceBranch": "feature/ünï-names",
+          "sourceProject": "orbital/forge-lab",
+          "stacked": false,
+          "state": "open",
+          "targetBranch": "main",
+          "targetProject": "orbital/forge-lab",
+          "title": "Allow accented station names",
+          "updatedAt": 1791644400,
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/6"
+        },
+        {
+          "author": {
+            "avatarUrl": null,
+            "email": "ada@example.com",
+            "id": 101,
+            "name": "Ada Lovelace",
+            "username": "ada",
+            "webUrl": "https://gitlab.example.com/ada"
+          },
+          "autoMerge": null,
+          "conflicts": false,
+          "headSha": "0d0d20b516f175f3452b0893205396403ddee034",
+          "labelColors": {
+            "stack": "#5cb85c"
+          },
+          "labels": [
+            "stack"
+          ],
+          "number": 5,
+          "pipeline": null,
+          "review": {
+            "approvals": 0,
+            "approvalsRequired": null,
+            "decision": "none",
+            "reviews": []
+          },
+          "sourceBranch": "feature/stack-b",
+          "sourceProject": "orbital/forge-lab",
+          "stacked": false,
+          "state": "open",
+          "targetBranch": "feature/stack-a",
+          "targetProject": "orbital/forge-lab",
+          "title": "Give the hold a capacity",
+          "updatedAt": 1791640800,
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/5"
+        },
+        {
+          "author": {
+            "avatarUrl": null,
+            "email": "ada@example.com",
+            "id": 101,
+            "name": "Ada Lovelace",
+            "username": "ada",
+            "webUrl": "https://gitlab.example.com/ada"
+          },
+          "autoMerge": null,
+          "conflicts": false,
+          "headSha": "2818fcd3b6933f00a5c38fdff530c9ce683b80c0",
+          "labelColors": {
+            "stack": "#5cb85c"
+          },
+          "labels": [
+            "stack"
+          ],
+          "number": 4,
+          "pipeline": null,
+          "review": {
+            "approvals": 0,
+            "approvalsRequired": null,
+            "decision": "none",
+            "reviews": []
+          },
+          "sourceBranch": "feature/stack-a",
+          "sourceProject": "orbital/forge-lab",
+          "stacked": false,
+          "state": "open",
+          "targetBranch": "main",
+          "targetProject": "orbital/forge-lab",
+          "title": "Add the cargo hold",
+          "updatedAt": 1791637200,
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/4"
+        },
+        {
+          "author": {
+            "avatarUrl": null,
+            "email": "grace@example.com",
+            "id": 102,
+            "name": "Grace Hopper",
+            "username": "grace",
+            "webUrl": "https://gitlab.example.com/grace"
+          },
+          "autoMerge": null,
+          "conflicts": false,
+          "headSha": "7e983363c43f02bb7bde994401007c9d131c2b19",
+          "labelColors": {},
+          "labels": [],
+          "number": 2,
+          "pipeline": {
+            "status": "running",
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/pipelines/50002"
+          },
+          "review": {
+            "approvals": 0,
+            "approvalsRequired": null,
+            "decision": "none",
+            "reviews": []
+          },
+          "sourceBranch": "feature/radar",
+          "sourceProject": "orbital/forge-lab",
+          "stacked": false,
+          "state": "draft",
+          "targetBranch": "main",
+          "targetProject": "orbital/forge-lab",
+          "title": "Add a radar panel",
+          "updatedAt": 1791630000,
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/2"
+        },
+        {
+          "author": {
+            "avatarUrl": null,
+            "email": "ada@example.com",
+            "id": 101,
+            "name": "Ada Lovelace",
+            "username": "ada",
+            "webUrl": "https://gitlab.example.com/ada"
+          },
+          "autoMerge": null,
+          "conflicts": false,
+          "headSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+          "labelColors": {
+            "hud": "#428bca"
+          },
+          "labels": [
+            "hud"
+          ],
+          "number": 1,
+          "pipeline": {
+            "status": "success",
+            "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/pipelines/50001"
+          },
+          "review": {
+            "approvals": 0,
+            "approvalsRequired": null,
+            "decision": "none",
+            "reviews": []
+          },
+          "sourceBranch": "feature/hud-scale",
+          "sourceProject": "orbital/forge-lab",
+          "stacked": false,
+          "state": "open",
+          "targetBranch": "main",
+          "targetProject": "orbital/forge-lab",
+          "title": "Scale the HUD with the window",
+          "updatedAt": 1791626400,
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/1"
+        }
+      ],
+      "pollIntervalSecs": "<untimed>",
+      "project": {
+        "archived": false,
+        "cloneHttps": "https://gitlab.example.com/orbital/forge-lab.git",
+        "cloneSsh": "git@gitlab.example.com:orbital/forge-lab.git",
+        "defaultBranch": "main",
+        "forkOf": null,
+        "host": "gitlab.example.com",
+        "id": 4242,
+        "kind": "gitlab",
+        "name": "forge-lab",
+        "owner": "orbital",
+        "ownerAvatarUrl": null,
+        "path": "orbital/forge-lab",
+        "updatedAt": 1791648000,
+        "webUrl": "https://gitlab.example.com/orbital/forge-lab"
+      },
+      "remote": "origin"
+    },
+    "project": {
+      "archived": false,
+      "cloneHttps": "https://gitlab.example.com/orbital/forge-lab.git",
+      "cloneSsh": "git@gitlab.example.com:orbital/forge-lab.git",
+      "defaultBranch": "main",
+      "forkOf": null,
+      "host": "gitlab.example.com",
+      "id": 4242,
+      "kind": "gitlab",
+      "name": "forge-lab",
+      "owner": "orbital",
+      "ownerAvatarUrl": null,
+      "path": "orbital/forge-lab",
+      "updatedAt": 1791648000,
+      "webUrl": "https://gitlab.example.com/orbital/forge-lab"
+    },
+    "remote": "origin",
+    "savedAt": "<untimed>"
+  }
+}

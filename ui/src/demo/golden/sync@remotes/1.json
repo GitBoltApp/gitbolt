@@ -1,0 +1,74 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "fetch",
+          "label": "fetch sync",
+          "op": 1
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "fetch",
+        "label": "fetch sync",
+        "op": 1
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "fetch",
+      "label": "sync",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "command": "git fetch --prune --no-prune-tags --progress --all",
+      "kind": "fetch",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    }
+  ],
+  "request": {
+    "method": "fetch",
+    "params": {
+      "background": false,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "changed": true,
+    "op": 1,
+    "server": {
+      "lines": 0,
+      "warning": null
+    },
+    "status": "done"
+  }
+}

@@ -85,6 +85,7 @@ fn orbital_ends_with_its_origin_teammate_stashes_working_tree_and_forge_data() {
         "MM crates/orbital-game/src/hud.rs",
         "M  assets/sprites/ships/scout.png",
         " M assets/data/economy/commodities.csv",
+        " M docs/controls.md",
         "?? notes/playtest-2026-10.md",
     ] {
         assert!(status.lines().any(|l| l == want), "{want:?} in\n{status}");
@@ -94,29 +95,56 @@ fn orbital_ends_with_its_origin_teammate_stashes_working_tree_and_forge_data() {
         "{status}"
     );
 
-    let forge: serde_json::Value =
-        serde_json::from_str(&std::fs::read_to_string(dir.path().join("forge.json")).unwrap())
-            .unwrap();
+    let wt = dir
+        .path()
+        .join(gitvolt_harness::orbital::finish::RELEASE_WORKTREE);
+    assert_eq!(git(&wt, &["branch", "--show-current"]), "release/1.2");
     assert_eq!(
-        (forge["version"].as_u64(), forge["host"].as_str()),
-        (Some(0), Some("gitlab.example.com"))
+        git(&wt, &["status", "--porcelain", "--untracked-files=all"]),
+        " M CHANGELOG.md\n M crates/orbital-core/src/body.rs"
     );
-    let mrs = forge["mergeRequests"].as_array().unwrap();
+    assert_eq!(
+        git(repo, &["worktree", "list", "--porcelain"])
+            .lines()
+            .filter(|l| l.starts_with("worktree "))
+            .count(),
+        2
+    );
+
+    assert_eq!(git(repo, &["remote", "get-url", "origin"]), "https://gitlab.example.com/orbital/orbital.git");
+    let f = gitvolt_harness::forge_seed::read(dir.path()).expect("forge.json");
+    assert_eq!((f.version, f.project.as_str(), f.me.as_str()), (1, "orbital/orbital", "you"));
+    assert!(f.gitlab.tokens.is_empty());
+    let mrs = &f.gitlab.merge_requests;
     assert!(mrs.len() >= 150, "{} MRs", mrs.len());
-    let states: Vec<&str> = mrs.iter().map(|m| m["state"].as_str().unwrap()).collect();
-    assert!(
-        states.contains(&"opened")
-            && states.contains(&"draft")
-            && states.iter().filter(|s| **s == "merged").count() >= 140
-    );
-    let merged = mrs.iter().find(|m| m["state"] == "merged").unwrap();
-    assert_eq!(
-        git(
-            repo,
-            &["cat-file", "-t", merged["mergeCommit"].as_str().unwrap()]
-        ),
-        "commit"
-    );
+    assert!(mrs.iter().filter(|m| m.state == "merged").count() >= 140);
+    assert!(mrs.iter().any(|m| m.title.starts_with("Draft: ")));
+    for m in mrs.iter().filter(|m| m.state == "opened") {
+        assert_eq!(m.head_sha, git(&origin, &["rev-parse", &format!("refs/heads/{}", m.source_branch)]), "!{}", m.iid);
+        assert!(!m.diffs.is_empty(), "!{} has its diff", m.iid);
+    }
+    // The hd-sprites MR shows a project upload, which is listed and written beside forge.json.
+    let hd = mrs.iter().find(|m| m.source_branch.ends_with("/hd-sprites")).unwrap();
+    let (secret, file) = ("5c0a7e1d9b3f4a6c8e2d0b1a3c5e7f90", "scout-2x.png");
+    assert!(f.gitlab.uploads.contains(&format!("orbital/orbital/{secret}/{file}")));
+    assert!(hd.description.contains(&format!("![The scout at 2x](https://gitlab.example.com/orbital/orbital/uploads/{secret}/{file})")));
+    assert!(std::fs::read(dir.path().join("forge-uploads").join(secret).join(file)).unwrap().starts_with(b"\x89PNG"));
+    let merged = mrs.iter().find(|m| m.state == "merged").unwrap();
+    assert_eq!(git(repo, &["cat-file", "-t", &merged.merge_commit_sha]), "commit");
+    let threads: usize = mrs.iter().map(|m| m.discussions.len()).sum();
+    assert!(threads >= 8, "{threads} threads");
+    assert!(mrs.iter().flat_map(|m| &m.discussions).flat_map(|d| &d.notes).any(|n| n.position.is_some() && n.body.contains("```suggestion")));
+    // The station screen's suggestion sits on the line it rewrites.
+    let station = mrs.iter().find(|m| m.source_branch == "feature/station-ui").unwrap();
+    let p = station.discussions.iter().find(|d| d.id == "o4").and_then(|d| d.notes[0].position.as_ref()).expect("o4 is a diff note");
+    assert_eq!(p.new_line, gitvolt_harness::forge_seed::added_line_where(&station.diffs, &p.new_path, |l| l.trim_start().starts_with("let at = Vec2::new(")));
+    gitvolt_harness::fake_forge::gitlab_mrs::check_merge_statuses(mrs).unwrap();
+    let defined: Vec<&str> = f.gitlab.labels.iter().map(|l| l.name.as_str()).collect();
+    for m in mrs {
+        assert!(m.labels.len() <= 2 && m.labels.iter().all(|l| defined.contains(&l.as_str())), "!{}: {:?}", m.iid, m.labels);
+    }
+    assert!(mrs.iter().filter(|m| m.state == "opened").all(|m| !m.labels.is_empty()), "every open MR has a label");
+    assert!(mrs.iter().filter(|m| m.state == "merged" && !m.labels.is_empty()).count() >= 100, "merged MRs have labels");
 }
 
 fn build_with_the_cli(name: &str) -> (tempfile::TempDir, std::path::PathBuf, std::time::Duration) {
@@ -166,7 +194,7 @@ fn orbital_history_has_its_shape_and_budget() {
     assert_eq!(tags.lines().last(), Some("v1.2.1"));
     assert_eq!(tags.lines().count(), 15);
     let heads = git(r, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]);
-    for b in ["main", "release/1.0", "release/1.1", "release/1.2", "experiment/multiplayer", "art/hd-sprites", "feature/autopilot", "feature/station-ui", "feature/trade-routes", "balance/fuel-rework", "feature/hud-polish", "docs/press-kit-2", "feature/wormholes"] {
+    for b in ["main", "release/1.0", "release/1.1", "release/1.2", "experiment/multiplayer", "art/hd-sprites", "feature/autopilot", "feature/station-ui", "feature/trade-routes", "balance/fuel-rework", "feature/hud-polish", "feature/hud-gauges", "docs/press-kit-2", "feature/wormholes"] {
         assert!(heads.lines().any(|h| h == b), "{b} in\n{heads}");
     }
 
@@ -190,6 +218,10 @@ fn orbital_history_has_its_shape_and_budget() {
     let c: Vec<String> = git(r, &["rev-list", "--reverse", "main..feature/hud-polish"]).lines().map(String::from).collect();
     assert_eq!(c.len(), 7);
     assert_eq!(git(r, &["log", "-1", "--format=%s", &c[1]]), "WIP");
+    // Its stack's lower branch, on the reworded commit, so the rebase moves it along.
+    for b in ["feature/hud-gauges", "origin/feature/hud-gauges"] {
+        assert_eq!(git(r, &["rev-parse", b]), c[2], "{b}");
+    }
     assert!(merge_tree(r, &["--merge-base", &format!("{}^", c[1]), "main", &c[1]]).0, "WIP conflicts onto main");
     assert!(merge_tree(r, &["--merge-base", &format!("{}^", c[5]), &c[0], &c[5]]).0, "moving the colour tweak above WIP conflicts");
     assert!(!merge_tree(r, &["--merge-base", &format!("{}^", c[3]), &c[0], &c[3]]).0, "the fixup moves up cleanly");
@@ -306,6 +338,9 @@ fn the_playground_repos_have_their_shapes() {
                 assert_eq!(git(r, &["branch", "--show-current"]), "feature/cargo-tests");
                 assert_eq!(git(r, &["rev-list", "--count", "main..feature/cargo-tests"]), "3");
                 assert_eq!(git(r, &["rev-list", "--count", "feature/cargo-tests..main"]), "1");
+                assert_eq!(git(r, &["remote", "get-url", "origin"]), "https://gitlab.example.com/orbital/cargo.git");
+                assert_eq!(git(&root.join("origin.git"), &["rev-parse", "feature/cargo-tests"]), git(r, &["rev-parse", "feature/cargo-tests"]));
+                assert!(gitvolt_harness::forge_seed::read(&root).is_some_and(|f| f.project == "orbital/cargo" && f.gitlab.merge_requests.is_empty()));
             }
             "wip_staging" => {
                 let status = git(r, &["status", "--porcelain"]);

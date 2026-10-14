@@ -1,0 +1,150 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 9,
+          "kind": "checkout",
+          "label": "checkout origin/dev",
+          "op": 11
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 9,
+        "kind": "checkout",
+        "label": "checkout origin/dev",
+        "op": 11
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "checkout",
+      "label": "checkout origin/dev",
+      "op": 11,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 10,
+          "kind": "checkout",
+          "label": "checkout origin/dev"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/sync"
+    },
+    {
+      "command": null,
+      "kind": "checkout",
+      "message": null,
+      "op": 11,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "checkout",
+    "params": {
+      "expect": {
+        "head": null,
+        "refs": {
+          "refs/heads/dev": "66bba44fe1adfec19270ae948c720554ba718889",
+          "refs/remotes/origin/dev": "08e38bc5c5ddd0ec13ca7d2ce4843baa3e768b10"
+        }
+      },
+      "onDiverged": "reset",
+      "repo": "$repo",
+      "target": {
+        "branch": "dev",
+        "kind": "remote",
+        "remote": "origin"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 10,
+        "kind": "checkout",
+        "label": "checkout origin/dev"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "branch": "dev",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

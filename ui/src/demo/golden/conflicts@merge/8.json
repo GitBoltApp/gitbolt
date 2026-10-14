@@ -1,0 +1,56 @@
+{
+  "error": {
+    "commandId": null,
+    "detail": {
+      "kind": "markersRemain",
+      "path": "a.txt"
+    },
+    "kind": "Conflict",
+    "message": "a.txt still has conflict markers",
+    "stderr": null
+  },
+  "events": [
+    {
+      "interactive": true,
+      "kind": "resolve",
+      "label": "resolve a.txt",
+      "op": 3,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "resolve",
+      "message": "a.txt still has conflict markers",
+      "op": 3,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "resolveFile",
+    "params": {
+      "path": "a.txt",
+      "repo": "$repo",
+      "resolution": {
+        "kind": "asIs"
+      },
+      "worktree": "$wt"
+    }
+  }
+}

@@ -1,0 +1,95 @@
+{
+  "events": [
+    {
+      "interactive": true,
+      "kind": "resolve",
+      "label": "resolve a.txt",
+      "op": 9,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "resolve",
+      "message": null,
+      "op": 9,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "resolveFile",
+    "params": {
+      "path": "a.txt",
+      "repo": "$repo",
+      "resolution": {
+        "kind": "current"
+      },
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [
+        {
+          "binary": false,
+          "canDrop": true,
+          "entry": 10,
+          "files": 1,
+          "kind": "autostashConflicts",
+          "label": "checkout feature/x",
+          "snapshot": false,
+          "stash": "8e4deab25f1fd8817cccd78b1bdcc966a33de58e",
+          "stashMessage": "autostash before checkout feature/x",
+          "target": "feature/x"
+        }
+      ],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 9,
+        "kind": "checkout",
+        "label": "checkout feature/x"
+      },
+      "undoBlocked": null
+    },
+    "outcome": null,
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": "resolve a.txt with current"
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

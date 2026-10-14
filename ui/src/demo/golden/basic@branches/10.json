@@ -1,0 +1,83 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "A tag named v2.0 already exists",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 10,
+          "kind": "branch",
+          "label": "create tag v2.0",
+          "op": 10
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 10,
+        "kind": "branch",
+        "label": "create tag v2.0",
+        "op": 10
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "branch",
+      "label": "create tag v2.0",
+      "op": 10,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "branch",
+      "message": "A tag named v2.0 already exists",
+      "op": 10,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "createTag",
+    "params": {
+      "name": "v2.0",
+      "repo": "$repo",
+      "target": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+      "worktree": "$wt"
+    }
+  }
+}

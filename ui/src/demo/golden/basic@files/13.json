@@ -1,0 +1,26 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "banners": [],
+    "paused": null,
+    "redo": {
+      "entry": 6,
+      "kind": "discard",
+      "label": "discard notes/new.txt"
+    },
+    "redoBlocked": null,
+    "undo": {
+      "entry": 5,
+      "kind": "restore",
+      "label": "restore file_1.txt from 1f37672"
+    },
+    "undoBlocked": null
+  }
+}

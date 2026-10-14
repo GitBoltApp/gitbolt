@@ -1,0 +1,12 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeSetSubscribed",
+    "params": {
+      "number": 1,
+      "on": false,
+      "repo": "$repo"
+    }
+  },
+  "response": false
+}

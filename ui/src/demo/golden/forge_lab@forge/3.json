@@ -1,0 +1,17 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeProjectSettings",
+    "params": {
+      "remote": "origin",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "deleteSourceBranch": true,
+    "mergeMethods": [
+      "merge"
+    ],
+    "squash": "defaultOff"
+  }
+}

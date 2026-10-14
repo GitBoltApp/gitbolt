@@ -1,0 +1,30 @@
+{
+  "events": [],
+  "request": {
+    "method": "integratePreview",
+    "params": {
+      "kind": "rebase",
+      "repo": "$repo",
+      "target": "main",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "ahead": 3,
+    "behind": 1,
+    "conflicts": [],
+    "lossyMerge": null,
+    "merged": false,
+    "stacked": [
+      {
+        "name": "feature/a",
+        "worktree": null
+      },
+      {
+        "name": "feature/b",
+        "worktree": null
+      }
+    ],
+    "updateRefsDefault": true
+  }
+}

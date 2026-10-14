@@ -1,0 +1,14 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgePeopleLimits",
+    "params": {
+      "remote": "origin",
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "maxAssignees": null,
+    "maxReviewers": null
+  }
+}

@@ -1,0 +1,59 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeCommentNow",
+    "params": {
+      "comment": {
+        "anchor": {
+          "end": {
+            "kind": "added",
+            "newLine": 8,
+            "oldLine": 6
+          },
+          "oldPath": "src/hud.rs",
+          "path": "src/hud.rs",
+          "start": null
+        },
+        "body": "Inline, now.",
+        "refs": {
+          "baseSha": "3d45e9ca9ea89f31a28a5453794d46037a2cedc2",
+          "headSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+          "startSha": "3d45e9ca9ea89f31a28a5453794d46037a2cedc2"
+        }
+      },
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "id": "d1003",
+    "notes": [
+      {
+        "author": {
+          "avatarUrl": null,
+          "email": "you@example.com",
+          "id": 100,
+          "name": "You",
+          "username": "you",
+          "webUrl": "https://gitlab.example.com/you"
+        },
+        "body": "Inline, now.",
+        "createdAt": 1791117000,
+        "id": "1003",
+        "position": {
+          "headSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+          "line": 8,
+          "oldLine": null,
+          "oldPath": null,
+          "path": "src/hud.rs",
+          "snippet": null,
+          "startLine": null,
+          "startOldLine": null
+        },
+        "system": false
+      }
+    ],
+    "resolvable": true,
+    "resolved": false
+  }
+}

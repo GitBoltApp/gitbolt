@@ -1,0 +1,172 @@
+{
+  "events": [],
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": null,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/main",
+      "detached": false,
+      "target": "632358a3ab796a694fa737f44f4ddf58017f0fbf",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/conflicts",
+        "isHead": true,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/feature/x",
+        "name": "feature/x",
+        "remotes": [],
+        "row": 2,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/clean",
+        "name": "clean",
+        "remotes": [],
+        "row": 3,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 3,
+    "openWorktree": "/demo/conflicts",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226080,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1800000000,
+        "id": "632358a3ab796a694fa737f44f4ddf58017f0fbf",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "53856dcacdb9e2fc6169f11d1b0f3e22da2e712d"
+        ],
+        "segments": [
+          1048576
+        ],
+        "summary": "Feature edits",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226260,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226260,
+        "id": "53856dcacdb9e2fc6169f11d1b0f3e22da2e712d",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "c079762dbbd0c96bcd89adf02837069211bd84dd"
+        ],
+        "segments": [
+          0,
+          1048576
+        ],
+        "summary": "Main edits",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226080,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1767226080,
+        "id": "ba61fb45af4beeafbe4a30620f83dde2e496b273",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "c079762dbbd0c96bcd89adf02837069211bd84dd"
+        ],
+        "segments": [
+          2097152,
+          5243905
+        ],
+        "summary": "Feature edits",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225900,
+        "bodyFirstLine": "",
+        "color": 2,
+        "committerTime": 1767225900,
+        "id": "8dab509573f27f280772a278c81aba3ebe112693",
+        "kind": "commit",
+        "lane": 2,
+        "mrRefs": [],
+        "parents": [
+          "c079762dbbd0c96bcd89adf02837069211bd84dd"
+        ],
+        "segments": [
+          2097152,
+          6292481,
+          9439234
+        ],
+        "summary": "Clean change",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "c079762dbbd0c96bcd89adf02837069211bd84dd",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0,
+          4194305,
+          8388610
+        ],
+        "summary": "Base",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/main",
+        "head": "632358a3ab796a694fa737f44f4ddf58017f0fbf",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/conflicts"
+      }
+    ]
+  }
+}

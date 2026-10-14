@@ -1,0 +1,27 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeReply",
+    "params": {
+      "body": "Rounding is next.",
+      "discussion": "d1",
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "author": {
+      "avatarUrl": null,
+      "email": "you@example.com",
+      "id": 100,
+      "name": "You",
+      "username": "you",
+      "webUrl": "https://gitlab.example.com/you"
+    },
+    "body": "Rounding is next.",
+    "createdAt": 1791117000,
+    "id": "1001",
+    "position": null,
+    "system": false
+  }
+}

@@ -1,0 +1,21 @@
+[
+  { "method": "openRepo", "params": { "path": "$wt" } },
+  { "method": "createBranch", "params": { "repo": "$repo", "worktree": "$wt", "name": "demo/topic", "start": { "$rev": "main" }, "checkout": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "createBranch", "params": { "repo": "$repo", "worktree": "$wt", "name": "demo/track", "start": { "$rev": "origin/main" }, "startRef": "refs/remotes/origin/main", "checkout": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "createBranch", "params": { "repo": "$repo", "worktree": "$wt", "name": "bad name", "start": { "$rev": "main" }, "checkout": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "renameBranch", "params": { "repo": "$repo", "worktree": "$wt", "from": "demo/topic", "to": "demo/renamed", "expect": { "head": null, "refs": {} } } },
+  { "method": "setUpstream", "params": { "repo": "$repo", "worktree": "$wt", "branch": "demo/renamed", "upstream": { "remote": "origin", "branch": "demo/renamed" } } },
+  { "method": "deleteBranch", "params": { "repo": "$repo", "worktree": "$wt", "branch": "hotfix", "local": true, "remote": null, "force": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "deleteBranch", "params": { "repo": "$repo", "worktree": "$wt", "branch": "demo/renamed", "local": true, "remote": null, "force": false, "expect": { "head": null, "refs": {} } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "createTag", "params": { "repo": "$repo", "worktree": "$wt", "name": "v2.0", "target": { "$rev": "main" }, "message": "Release 2.0\n\nNotes." } },
+  { "method": "createTag", "params": { "repo": "$repo", "worktree": "$wt", "name": "v2.0", "target": { "$rev": "main" } } },
+  { "method": "deleteTag", "params": { "repo": "$repo", "worktree": "$wt", "name": "v1.0", "local": true } },
+  { "method": "fastForward", "params": { "repo": "$repo", "worktree": "$wt", "branch": "feature/login", "to": "main", "expect": { "head": null, "refs": {} } } },
+  { "method": "checkout", "params": { "repo": "$repo", "worktree": "$wt", "target": { "kind": "branch", "name": "feature/login" }, "expect": { "head": null, "refs": {} } } },
+  { "method": "journalHistory", "params": { "repo": "$repo", "worktree": "$wt" } },
+  { "method": "undoEntry", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "label:create branch demo/track" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "undo", "params": { "repo": "$repo", "worktree": "$wt", "entry": { "$entry": "undo" } } },
+  { "method": "graph", "params": { "repo": "$repo", "limit": null } }
+]

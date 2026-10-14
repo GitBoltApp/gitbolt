@@ -1,0 +1,88 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "A branch name can't contain spaces or ~ ^ : ? * [ \\",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 3,
+          "kind": "branch",
+          "label": "create branch bad name",
+          "op": 3
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 3,
+        "kind": "branch",
+        "label": "create branch bad name",
+        "op": 3
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "branch",
+      "label": "create branch bad name",
+      "op": 3,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "branch",
+      "message": "A branch name can't contain spaces or ~ ^ : ? * [ \\",
+      "op": 3,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "createBranch",
+    "params": {
+      "checkout": false,
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "name": "bad name",
+      "repo": "$repo",
+      "start": "9ca365ee5aa057c07a3d39385eb10310b7be9cdc",
+      "worktree": "$wt"
+    }
+  }
+}

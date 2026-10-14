@@ -1,0 +1,26 @@
+{
+  "events": [],
+  "request": {
+    "method": "conflictFile",
+    "params": {
+      "path": "gone.txt",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": "816fe336d507e109c851771e1d84738f50bd3f8b",
+    "current": null,
+    "encoding": "UTF-8",
+    "eol": "lf",
+    "incoming": null,
+    "kind": "deletedByUs",
+    "labels": {
+      "current": "main",
+      "incoming": "feature/x"
+    },
+    "path": "gone.txt",
+    "segments": [],
+    "text": false
+  }
+}

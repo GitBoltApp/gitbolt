@@ -1,0 +1,144 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 2,
+          "kind": "commit",
+          "label": "commit \"Merge branch 'other'\"",
+          "op": 6
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 2,
+        "kind": "commit",
+        "label": "commit \"Merge branch 'other'\"",
+        "op": 6
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "commit",
+      "label": "commit \"Merge branch 'other'\"",
+      "op": 6,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/wip_conflict": "<version>"
+      },
+      "worktrees": [
+        "/demo/wip_conflict"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 1,
+          "kind": "commit",
+          "label": "commit \"Merge branch 'other'\""
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/wip_conflict"
+    },
+    {
+      "command": null,
+      "kind": "commit",
+      "message": null,
+      "op": 6,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "commit",
+    "params": {
+      "amend": false,
+      "description": "",
+      "expect": {
+        "head": "8b5eecd16feda9233228f02e8a19df2396a78c78",
+        "refs": {}
+      },
+      "repo": "$repo",
+      "stageAll": false,
+      "summary": "Merge branch 'other'",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 1,
+        "kind": "commit",
+        "label": "commit \"Merge branch 'other'\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "oid": "bc58d84be7162e1b17e500a8166cb2d2a9b08e05"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/wip_conflict"
+    }
+  }
+}

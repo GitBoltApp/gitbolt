@@ -1,0 +1,121 @@
+{
+  "events": [],
+  "request": {
+    "method": "rebasePlan",
+    "params": {
+      "base": "main",
+      "branch": "feature/c",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "base": "main",
+    "baseChips": [
+      "main"
+    ],
+    "baseOid": "6f666cdabe22f8210b6a75f4598da46adb698b55",
+    "baseSummary": "Main moves",
+    "behind": 1,
+    "branch": "feature/c",
+    "branches": [
+      "feature/a",
+      "feature/b",
+      "feature/c",
+      "main"
+    ],
+    "chips": [
+      {
+        "at": "58c2fffc85766ab29874c9c637d6bfddd964a6b7",
+        "branch": "feature/a",
+        "locked": null
+      },
+      {
+        "at": "8776a490a5ce27d5109ec5df21844a4f7a1455b6",
+        "branch": "feature/b",
+        "locked": null
+      }
+    ],
+    "expect": {
+      "refs/heads/feature/a": "58c2fffc85766ab29874c9c637d6bfddd964a6b7",
+      "refs/heads/feature/b": "8776a490a5ce27d5109ec5df21844a4f7a1455b6",
+      "refs/heads/feature/c": "c9a0ea3dc4b52c7667df08baa61a0b040ca6341e",
+      "refs/heads/main": "6f666cdabe22f8210b6a75f4598da46adb698b55"
+    },
+    "merges": 1,
+    "rows": [
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227280,
+        "message": "C2 Polish\n",
+        "oid": "c9a0ea3dc4b52c7667df08baa61a0b040ca6341e",
+        "summary": "C2 Polish",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227160,
+        "message": "C1 Edit notes again\n",
+        "oid": "3e0daf509b0db6dc06ea8a37795847359c4d1c02",
+        "summary": "C1 Edit notes again",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767227040,
+        "message": "B2 Refine lexer\n",
+        "oid": "8776a490a5ce27d5109ec5df21844a4f7a1455b6",
+        "summary": "B2 Refine lexer",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226620,
+        "message": "S1 Side work\n",
+        "oid": "a6a0859a5c012fcaa82145c1d9dff49b2ddcd8f6",
+        "summary": "S1 Side work",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226380,
+        "message": "B1 Add lexer\n",
+        "oid": "160269a3a895638e6ce97e870a2a6a4a5527d90b",
+        "summary": "B1 Add lexer",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226140,
+        "message": "A3 Add tests\n",
+        "oid": "58c2fffc85766ab29874c9c637d6bfddd964a6b7",
+        "summary": "A3 Add tests",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226020,
+        "message": "A2 Edit notes\n",
+        "oid": "f7e906c00ec341061584f84d94d3e256e8f375b6",
+        "summary": "A2 Edit notes",
+        "upstream": false
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225900,
+        "message": "A1 Add parser\n",
+        "oid": "ecd37ee6aa692927b369c103dc3defb0aad27edb",
+        "summary": "A1 Add parser",
+        "upstream": false
+      }
+    ]
+  }
+}

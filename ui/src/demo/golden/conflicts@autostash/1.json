@@ -1,0 +1,14 @@
+{
+  "events": [],
+  "request": {
+    "method": "queueState",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "queued": [],
+    "running": null,
+    "stopped": null
+  }
+}

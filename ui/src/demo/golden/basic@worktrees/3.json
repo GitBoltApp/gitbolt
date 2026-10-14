@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "openRepo",
+    "params": {
+      "path": "$wt:wt-demo"
+    }
+  },
+  "response": {
+    "id": 1,
+    "name": "basic",
+    "path": "/demo/basic",
+    "worktree": "/demo/.extra/basic/wt-demo"
+  }
+}

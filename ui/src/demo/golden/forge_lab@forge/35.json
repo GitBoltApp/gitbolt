@@ -1,0 +1,28 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeLabels",
+    "params": {
+      "query": "",
+      "remote": "origin",
+      "repo": "$repo"
+    }
+  },
+  "response": [
+    {
+      "color": "#428bca",
+      "description": "The heads-up display",
+      "name": "hud"
+    },
+    {
+      "color": "#d9534f",
+      "description": null,
+      "name": "audio"
+    },
+    {
+      "color": "#5cb85c",
+      "description": null,
+      "name": "stack"
+    }
+  ]
+}

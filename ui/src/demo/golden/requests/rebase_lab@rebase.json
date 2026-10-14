@@ -1,0 +1,17 @@
+[
+ {"method": "openRepo", "params": {"path": "$wt"}},
+ {"method": "integratePreview", "params": {"repo": "$repo", "worktree": "$wt", "kind": "rebase", "target": "main"}},
+ {"method": "rebasePlan", "params": {"repo": "$repo", "worktree": "$wt", "branch": "lab", "base": "main"}},
+ {"method": "predictRebase", "params": {"repo": "$repo", "worktree": "$wt", "base": "main", "rows": [{"oid": {"$rev": "lab"}, "action": "pick"}, {"oid": {"$rev": "lab~1"}, "action": "pick"}, {"oid": {"$rev": "lab~3"}, "action": "pick"}, {"oid": {"$rev": "lab~2"}, "action": "pick"}, {"oid": {"$rev": "lab~4"}, "action": "pick"}, {"oid": {"$rev": "lab~5"}, "action": "pick"}]}},
+ {"method": "integrate", "params": {"repo": "$repo", "worktree": "$wt", "kind": "rebase", "target": "main", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "repoInfo", "params": {"repo": "$repo"}},
+ {"method": "rebaseControl", "params": {"repo": "$repo", "worktree": "$wt", "action": "abort"}},
+ {"method": "interactiveRebase", "params": {"repo": "$repo", "worktree": "$wt", "branch": "lab", "base": "main~1", "expect": {"refs/heads/lab": {"$rev": "lab"}, "refs/heads/main": {"$rev": "main"}}, "rows": [{"oid": {"$rev": "lab"}, "action": "pick"}, {"oid": {"$rev": "lab~1"}, "action": "fixup"}, {"oid": {"$rev": "lab~2"}, "action": "reword", "message": "L4 Refine four, reworded\n"}, {"oid": {"$rev": "lab~3"}, "action": "drop"}, {"oid": {"$rev": "lab~4"}, "action": "squash"}, {"oid": {"$rev": "lab~5"}, "action": "pick"}], "chips": [], "confirm": {"autostash": false}}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}},
+ {"method": "resolveFile", "params": {"repo": "$repo", "worktree": "$wt", "path": "notes.txt", "resolution": {"kind": "incoming"}}},
+ {"method": "rebaseControl", "params": {"repo": "$repo", "worktree": "$wt", "action": "continue"}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}},
+ {"method": "integrate", "params": {"repo": "$repo", "worktree": "$wt", "kind": "rebase", "target": "main", "expect": {"head": null, "refs": {}}, "confirm": {"autostash": false}}},
+ {"method": "rebaseControl", "params": {"repo": "$repo", "worktree": "$wt", "action": "skip"}},
+ {"method": "graph", "params": {"repo": "$repo", "limit": null}}
+]

@@ -1,0 +1,141 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 16,
+          "kind": "undo",
+          "label": "undo checkout feature/new",
+          "op": 18
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 16,
+        "kind": "undo",
+        "label": "undo checkout feature/new",
+        "op": 18
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "undo",
+      "label": "undo checkout feature/new",
+      "op": 18,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "head"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": {
+          "entry": 12,
+          "kind": "checkout",
+          "label": "checkout feature/new"
+        },
+        "redoBlocked": null,
+        "undo": {
+          "entry": 11,
+          "kind": "checkout",
+          "label": "checkout origin/diverged"
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/sync"
+    },
+    {
+      "command": null,
+      "kind": "undo",
+      "message": null,
+      "op": 18,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "undo",
+    "params": {
+      "entry": 12,
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": {
+        "entry": 12,
+        "kind": "checkout",
+        "label": "checkout feature/new"
+      },
+      "redoBlocked": null,
+      "undo": {
+        "entry": 11,
+        "kind": "checkout",
+        "label": "checkout origin/diverged"
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "label": "checkout feature/new",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

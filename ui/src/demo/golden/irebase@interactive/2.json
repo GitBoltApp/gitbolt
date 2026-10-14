@@ -1,0 +1,84 @@
+{
+  "events": [],
+  "request": {
+    "method": "predictRebase",
+    "params": {
+      "base": "main",
+      "repo": "$repo",
+      "rows": [
+        {
+          "action": "pick",
+          "oid": "c9a0ea3dc4b52c7667df08baa61a0b040ca6341e"
+        },
+        {
+          "action": "pick",
+          "oid": "8776a490a5ce27d5109ec5df21844a4f7a1455b6"
+        },
+        {
+          "action": "pick",
+          "oid": "a6a0859a5c012fcaa82145c1d9dff49b2ddcd8f6"
+        },
+        {
+          "action": "pick",
+          "oid": "160269a3a895638e6ce97e870a2a6a4a5527d90b"
+        },
+        {
+          "action": "pick",
+          "oid": "58c2fffc85766ab29874c9c637d6bfddd964a6b7"
+        },
+        {
+          "action": "pick",
+          "oid": "f7e906c00ec341061584f84d94d3e256e8f375b6"
+        },
+        {
+          "action": "pick",
+          "oid": "3e0daf509b0db6dc06ea8a37795847359c4d1c02"
+        },
+        {
+          "action": "pick",
+          "oid": "ecd37ee6aa692927b369c103dc3defb0aad27edb"
+        }
+      ],
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "off": null,
+    "rows": [
+      {
+        "conflicts": [],
+        "oid": "ecd37ee6aa692927b369c103dc3defb0aad27edb"
+      },
+      {
+        "conflicts": [
+          "notes.txt"
+        ],
+        "oid": "3e0daf509b0db6dc06ea8a37795847359c4d1c02"
+      },
+      {
+        "conflicts": [],
+        "oid": "f7e906c00ec341061584f84d94d3e256e8f375b6"
+      },
+      {
+        "conflicts": [],
+        "oid": "58c2fffc85766ab29874c9c637d6bfddd964a6b7"
+      },
+      {
+        "conflicts": [],
+        "oid": "160269a3a895638e6ce97e870a2a6a4a5527d90b"
+      },
+      {
+        "conflicts": [],
+        "oid": "a6a0859a5c012fcaa82145c1d9dff49b2ddcd8f6"
+      },
+      {
+        "conflicts": [],
+        "oid": "8776a490a5ce27d5109ec5df21844a4f7a1455b6"
+      },
+      {
+        "conflicts": [],
+        "oid": "c9a0ea3dc4b52c7667df08baa61a0b040ca6341e"
+      }
+    ]
+  }
+}

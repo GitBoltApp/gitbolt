@@ -1,0 +1,24 @@
+{
+  "events": [],
+  "request": {
+    "method": "journalState",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "banners": [],
+    "paused": {
+      "entry": 1,
+      "irebase": false,
+      "kind": "merge",
+      "label": "merge feature/x into main",
+      "target": "feature/x"
+    },
+    "redo": null,
+    "redoBlocked": "Finish or abort the merge first",
+    "undo": null,
+    "undoBlocked": "Finish or abort the merge first"
+  }
+}

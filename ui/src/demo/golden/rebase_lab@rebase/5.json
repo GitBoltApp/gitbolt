@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "repoInfo",
+    "params": {
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "commonDir": "/demo/rebase_lab/.git",
+    "mainWorktree": null,
+    "remotes": [],
+    "submodules": {}
+  }
+}

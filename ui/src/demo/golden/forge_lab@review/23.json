@@ -1,0 +1,16 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "!4 isn't set to auto-merge any more: refresh",
+    "stderr": null
+  },
+  "events": [],
+  "request": {
+    "method": "forgeCancelAutoMerge",
+    "params": {
+      "number": 4,
+      "repo": "$repo"
+    }
+  }
+}

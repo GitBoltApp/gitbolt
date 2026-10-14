@@ -1,0 +1,219 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeMrDiscussions",
+    "params": {
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "fetchedAt": "<untimed>",
+    "notModified": "<untimed>",
+    "pollIntervalSecs": "<untimed>",
+    "value": [
+      {
+        "id": "d1",
+        "notes": [
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "grace@example.com",
+              "id": 102,
+              "name": "Grace Hopper",
+              "username": "grace",
+              "webUrl": "https://gitlab.example.com/grace"
+            },
+            "body": "Looks good overall. One question on the rounding.",
+            "createdAt": 1791630000,
+            "id": "101",
+            "position": null,
+            "system": false
+          }
+        ],
+        "resolvable": false,
+        "resolved": false
+      },
+      {
+        "id": "d2",
+        "notes": [
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "lars@example.com",
+              "id": 103,
+              "name": "Lars Tidemann",
+              "username": "lars",
+              "webUrl": "https://gitlab.example.com/lars"
+            },
+            "body": "Could this round to the nearest step instead?\n\n```suggestion\npub fn hud_scale(height: u32) -> u32 {\n```",
+            "createdAt": 1791633600,
+            "id": "102",
+            "position": {
+              "headSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+              "line": 8,
+              "oldLine": null,
+              "oldPath": null,
+              "path": "src/hud.rs",
+              "snippet": "+\n+/// The HUD's scale for a window `height` pixels tall.\n+pub fn hud_scale(height: u32) -> u32 {",
+              "startLine": null,
+              "startOldLine": null
+            },
+            "reactions": [
+              {
+                "count": 1,
+                "mine": false,
+                "name": "thumbsup",
+                "users": [
+                  "Grace Hopper"
+                ]
+              },
+              {
+                "count": 1,
+                "mine": true,
+                "name": "tada",
+                "users": [
+                  "You"
+                ]
+              }
+            ],
+            "system": false
+          },
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "you@example.com",
+              "id": 100,
+              "name": "You",
+              "username": "you",
+              "webUrl": "https://gitlab.example.com/you"
+            },
+            "body": "Done, thanks.",
+            "createdAt": 1791117000,
+            "id": "1001",
+            "position": null,
+            "system": false
+          }
+        ],
+        "resolvable": true,
+        "resolved": true,
+        "resolvedAt": 1791117000,
+        "resolvedBy": "You"
+      },
+      {
+        "id": "d3",
+        "notes": [
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "grace@example.com",
+              "id": 102,
+              "name": "Grace Hopper",
+              "username": "grace",
+              "webUrl": "https://gitlab.example.com/grace"
+            },
+            "body": "Is 720 the right first step?",
+            "createdAt": 1791637200,
+            "id": "103",
+            "position": null,
+            "system": false
+          },
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "ada@example.com",
+              "id": 101,
+              "name": "Ada Lovelace",
+              "username": "ada",
+              "webUrl": "https://gitlab.example.com/ada"
+            },
+            "body": "It's the smallest window we support.",
+            "createdAt": 1791640800,
+            "id": "104",
+            "position": null,
+            "system": false
+          }
+        ],
+        "resolvable": true,
+        "resolved": true,
+        "resolvedAt": 1791644400,
+        "resolvedBy": "Grace Hopper"
+      },
+      {
+        "id": "d4",
+        "notes": [
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "ada@example.com",
+              "id": 101,
+              "name": "Ada Lovelace",
+              "username": "ada",
+              "webUrl": "https://gitlab.example.com/ada"
+            },
+            "body": "added 1 commit",
+            "createdAt": 1791648000,
+            "id": "105",
+            "position": null,
+            "system": true
+          }
+        ],
+        "resolvable": false,
+        "resolved": false
+      },
+      {
+        "id": "d1002",
+        "notes": [
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "you@example.com",
+              "id": 100,
+              "name": "You",
+              "username": "you",
+              "webUrl": "https://gitlab.example.com/you"
+            },
+            "body": "Round here?",
+            "createdAt": 1791117000,
+            "id": "1002",
+            "position": {
+              "headSha": "835569a19fbdd1fbac84bab187f7a247f8bf4c8d",
+              "line": 8,
+              "oldLine": null,
+              "oldPath": null,
+              "path": "src/hud.rs",
+              "snippet": "+\n+/// The HUD's scale for a window `height` pixels tall.\n+pub fn hud_scale(height: u32) -> u32 {",
+              "startLine": null,
+              "startOldLine": null
+            },
+            "system": false
+          }
+        ],
+        "resolvable": true,
+        "resolved": false
+      },
+      {
+        "id": "d1003",
+        "notes": [
+          {
+            "author": {
+              "avatarUrl": null,
+              "email": "you@example.com",
+              "id": 100,
+              "name": "You",
+              "username": "you",
+              "webUrl": "https://gitlab.example.com/you"
+            },
+            "body": "Ship it.",
+            "createdAt": 1791117000,
+            "id": "1003",
+            "position": null,
+            "system": false
+          }
+        ],
+        "resolvable": false,
+        "resolved": false
+      }
+    ]
+  }
+}

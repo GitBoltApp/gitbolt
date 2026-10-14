@@ -1,0 +1,17 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeReview",
+    "params": {
+      "number": 6,
+      "repo": "$repo",
+      "review": {
+        "body": "One more look.",
+        "event": "comment"
+      }
+    }
+  },
+  "response": {
+    "fallback": false
+  }
+}

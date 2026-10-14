@@ -1,0 +1,83 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "InvalidInput",
+    "message": "The main worktree can't be removed",
+    "stderr": null
+  },
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 5,
+          "kind": "worktree",
+          "label": "remove worktree /demo/basic",
+          "op": 5
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 5,
+        "kind": "worktree",
+        "label": "remove worktree /demo/basic",
+        "op": 5
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "worktree",
+      "label": "remove worktree /demo/basic",
+      "op": 5,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/basic": "<version>"
+      },
+      "worktrees": [
+        "/demo/basic"
+      ]
+    },
+    {
+      "command": null,
+      "kind": "worktree",
+      "message": "The main worktree can't be removed",
+      "op": 5,
+      "outcome": "failed",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "worktreeRemove",
+    "params": {
+      "force": true,
+      "path": "$wt",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  }
+}

@@ -1,0 +1,243 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 1,
+          "kind": "merge",
+          "label": "merge feature/x into main",
+          "op": 1
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 1,
+        "kind": "merge",
+        "label": "merge feature/x into main",
+        "op": 1
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "merge",
+      "label": "merge feature/x into main",
+      "op": 1,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/conflicts": "<version>"
+      },
+      "worktrees": [
+        "/demo/conflicts"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": {
+          "entry": 1,
+          "irebase": false,
+          "kind": "merge",
+          "label": "merge feature/x into main",
+          "target": "feature/x"
+        },
+        "redo": null,
+        "redoBlocked": "Finish or abort the merge first",
+        "undo": null,
+        "undoBlocked": "Finish or abort the merge first"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/conflicts"
+    },
+    {
+      "command": null,
+      "kind": "merge",
+      "message": null,
+      "op": 1,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "integrate",
+    "params": {
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "head": "53856dcacdb9e2fc6169f11d1b0f3e22da2e712d",
+        "refs": {}
+      },
+      "kind": "merge",
+      "repo": "$repo",
+      "target": "feature/x",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": {
+        "entry": 1,
+        "irebase": false,
+        "kind": "merge",
+        "label": "merge feature/x into main",
+        "target": "feature/x"
+      },
+      "redo": null,
+      "redoBlocked": "Finish or abort the merge first",
+      "undo": null,
+      "undoBlocked": "Finish or abort the merge first"
+    },
+    "outcome": {
+      "files": 3,
+      "kind": "merge",
+      "status": "stopped"
+    },
+    "staging": {
+      "off": "Stage and unstage can't be undone while files are conflicted.",
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "cb3695deb3ae5130f4631d723d6a3fb77b1e3c03"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "U",
+            "submodule": false
+          },
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "absent"
+            },
+            "oldPath": null,
+            "path": "gone.txt",
+            "status": "U",
+            "submodule": false
+          },
+          {
+            "additions": 0,
+            "deletions": 0,
+            "new": {
+              "kind": "absent"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "85d725d62a144edfc4ab4a6d67427406722844d0"
+            },
+            "oldPath": null,
+            "path": "logo.bin",
+            "status": "U",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 8,
+        "deleted": 0,
+        "files": [
+          {
+            "additions": 8,
+            "conflict": "bothModified",
+            "deletions": 0,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "cb3695deb3ae5130f4631d723d6a3fb77b1e3c03"
+            },
+            "oldPath": null,
+            "path": "a.txt",
+            "status": "U",
+            "submodule": false
+          },
+          {
+            "additions": 0,
+            "conflict": "deletedByUs",
+            "deletions": 0,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "absent"
+            },
+            "oldPath": null,
+            "path": "gone.txt",
+            "status": "U",
+            "submodule": false
+          },
+          {
+            "additions": null,
+            "conflict": "bothModified",
+            "deletions": null,
+            "new": {
+              "kind": "worktree",
+              "worktree": "/demo/conflicts"
+            },
+            "old": {
+              "kind": "object",
+              "oid": "85d725d62a144edfc4ab4a6d67427406722844d0"
+            },
+            "oldPath": null,
+            "path": "logo.bin",
+            "status": "U",
+            "submodule": false
+          }
+        ],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/conflicts"
+    }
+  }
+}

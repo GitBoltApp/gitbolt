@@ -201,29 +201,6 @@ export type NotInDemoMethod = { [M in Method]: (typeof COVERAGE)[M] extends 'not
 /** The real and canned methods with no handler yet: each answers "Not in the demo" until the task
  * or plan that implements it removes it from this list (coverage.test.ts holds them to it). */
 export const PENDING = [
-  'forgeImage', 'forgeVideo',
-  'cancelOp', 'fetch', 'addRemote', 'removeRemote',
-  'queueState', 'queueRemove', 'queueResume', 'queueClear',
-  'undo', 'redo', 'undoEntry',
-  'journalHistory', 'journalState', 'applyKeptStash', 'dismissBanner', 'settlePaused',
-  'conflictFile', 'resolveFile', 'writeWorktreeFile', 'applySuggestion', 'createWorktreeFile',
-  'stage', 'unstage', 'stageAll', 'unstageAll', 'stagingUndo', 'stagingRedo', 'stagingState',
-  'commit', 'editHeadMessage', 'headOnUpstream', 'createBranch', 'renameBranch', 'setUpstream',
-  'worktreeAdd', 'worktreeRemove', 'suggestWorktreePath', 'deleteBranch', 'integrate',
-  'rebaseControl', 'pickControl', 'cherryPick', 'revert', 'commitIdentity',
-  'rebasePlan', 'predictRebase', 'interactiveRebase', 'rewordCommit', 'fastForward', 'mergeAbort',
-  'stagePatch', 'discard', 'push', 'pull', 'checkout', 'stashPush',
-  'stashApply', 'stashDrop', 'reset', 'restoreFile',
-  'createTag', 'deleteTag', 'pushTags', 'forgeAccounts', 'forgeRepoProjects',
-  'forgeProjectSettings', 'forgeForks', 'forgeMrList', 'forgeBranchMrs', 'forgeCachedMrs',
-  'forgeMrDetail', 'forgeMrDiscussions', 'forgeProjectByPath', 'forgeReply', 'forgeApprove',
-  'forgeRequestChanges', 'forgeReview', 'forgePeopleLimits', 'forgeSetSubscribed', 'forgeReact',
-  'forgeEditNote', 'forgeDeleteNote', 'forgeResolve', 'forgeReviewDiff', 'forgeReviewDrafts',
-  'forgeAddDraft', 'forgeEditDraft', 'forgeDeleteDraft', 'forgeSubmitReview', 'forgeDiscardReview',
-  'forgeCommentNow', 'forgeMerge', 'forgeEditMr', 'forgeSetDraft', 'forgeSetAutoMerge',
-  'forgeCancelAutoMerge', 'forgeUpdateBranch', 'forgeCreateContext',
-  'forgeSearchUsers', 'forgeLabels', 'forgeCreateMr', 'forgeCompleteCreate', 'forgeStack',
-  'forgeSyncStack', 'forgeRetarget',
 ] as const satisfies readonly Method[];
 
 export type PendingMethod = (typeof PENDING)[number];

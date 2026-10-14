@@ -1,0 +1,153 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 2,
+          "kind": "rebase",
+          "label": "reword \"A2 Edit notes, reworded\"",
+          "op": 2
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 2,
+        "kind": "rebase",
+        "label": "reword \"A2 Edit notes, reworded\"",
+        "op": 2
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "rebase",
+      "label": "reword \"A2 Edit notes, reworded\"",
+      "op": 2,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs",
+        "head",
+        "state"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/irebase": "<version>"
+      },
+      "worktrees": [
+        "/demo/irebase"
+      ]
+    },
+    {
+      "repo": 1,
+      "type": "refsUpdated"
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 2,
+          "kind": "rebase",
+          "label": "reword \"A2 Edit notes, reworded\""
+        },
+        "undoBlocked": null
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/irebase"
+    },
+    {
+      "command": null,
+      "kind": "rebase",
+      "message": null,
+      "op": 2,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "rewordCommit",
+    "params": {
+      "confirm": {
+        "autostash": false
+      },
+      "expect": {
+        "head": null,
+        "refs": {}
+      },
+      "message": "A2 Edit notes, reworded\n",
+      "oid": "a520ba3173740c28503bca9e78c5cefa6aaf0e7b",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 2,
+        "kind": "rebase",
+        "label": "reword \"A2 Edit notes, reworded\""
+      },
+      "undoBlocked": null
+    },
+    "outcome": {
+      "commits": 7,
+      "fastForward": false,
+      "rewritten": "337317f33beb22047f6d98f57254a220fc3eac97",
+      "status": "done"
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/irebase"
+    }
+  }
+}

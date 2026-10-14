@@ -1,0 +1,15 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeDeleteNote",
+    "params": {
+      "note": {
+        "discussion": "d1",
+        "note": "1001"
+      },
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": null
+}

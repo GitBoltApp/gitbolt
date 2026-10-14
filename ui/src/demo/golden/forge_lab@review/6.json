@@ -1,0 +1,20 @@
+{
+  "error": {
+    "commandId": null,
+    "kind": "AuthFailed",
+    "message": "gitlab.example.com refused: 403 Forbidden",
+    "stderr": null
+  },
+  "events": [],
+  "request": {
+    "method": "forgeDeleteNote",
+    "params": {
+      "note": {
+        "discussion": "d2",
+        "note": "102"
+      },
+      "number": 1,
+      "repo": "$repo"
+    }
+  }
+}

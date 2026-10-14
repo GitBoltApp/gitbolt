@@ -1,0 +1,11 @@
+{
+  "events": [],
+  "request": {
+    "method": "headOnUpstream",
+    "params": {
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": null
+}

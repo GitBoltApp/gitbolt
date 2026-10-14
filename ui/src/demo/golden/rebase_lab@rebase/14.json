@@ -1,0 +1,138 @@
+{
+  "events": [],
+  "request": {
+    "method": "graph",
+    "params": {
+      "limit": null,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "head": {
+      "branch": "refs/heads/lab",
+      "detached": false,
+      "target": "51d3ac74a7497af38240aed8dfce210a31cca5cc",
+      "unborn": false
+    },
+    "labels": [
+      {
+        "checkedOut": "/demo/rebase_lab",
+        "isHead": true,
+        "local": "refs/heads/lab",
+        "name": "lab",
+        "remotes": [],
+        "row": 0,
+        "tag": false,
+        "worktree": null
+      },
+      {
+        "checkedOut": null,
+        "isHead": false,
+        "local": "refs/heads/main",
+        "name": "main",
+        "remotes": [],
+        "row": 2,
+        "tag": false,
+        "worktree": null
+      }
+    ],
+    "maxLanes": 2,
+    "openWorktree": "/demo/rebase_lab",
+    "pinnedRefs": [
+      "refs/heads/main"
+    ],
+    "rows": [
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226440,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "51d3ac74a7497af38240aed8dfce210a31cca5cc",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "155dace1d24d9c3f75c37ddb0416116d114aa3bc"
+        ],
+        "segments": [
+          5243905
+        ],
+        "summary": "L6 Add docs",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226140,
+        "bodyFirstLine": "",
+        "color": 1,
+        "committerTime": 1800000000,
+        "id": "155dace1d24d9c3f75c37ddb0416116d114aa3bc",
+        "kind": "commit",
+        "lane": 1,
+        "mrRefs": [],
+        "parents": [
+          "d6e4077d13d05dce7fc992c5989776bce9c11ca5"
+        ],
+        "segments": [
+          4195329,
+          5243905
+        ],
+        "summary": "L4 Refine four, reworded",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767226620,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767226620,
+        "id": "d6e4077d13d05dce7fc992c5989776bce9c11ca5",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [
+          "ba3eb41fa585381eecb1f505aa705b760d6d6536"
+        ],
+        "segments": [
+          4194305,
+          1048576
+        ],
+        "summary": "Main edits line two",
+        "wip": null
+      },
+      {
+        "authorEmail": "ada@example.com",
+        "authorName": "Ada Lovelace",
+        "authorTime": 1767225720,
+        "bodyFirstLine": "",
+        "color": 0,
+        "committerTime": 1767225720,
+        "id": "ba3eb41fa585381eecb1f505aa705b760d6d6536",
+        "kind": "commit",
+        "lane": 0,
+        "mrRefs": [],
+        "parents": [],
+        "segments": [
+          0
+        ],
+        "summary": "Base",
+        "wip": null
+      }
+    ],
+    "truncated": false,
+    "worktrees": [
+      {
+        "branch": "refs/heads/lab",
+        "head": "51d3ac74a7497af38240aed8dfce210a31cca5cc",
+        "inProgress": null,
+        "isMain": true,
+        "locked": false,
+        "path": "/demo/rebase_lab"
+      }
+    ]
+  }
+}

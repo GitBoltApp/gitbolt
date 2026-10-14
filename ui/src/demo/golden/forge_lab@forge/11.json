@@ -1,0 +1,68 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeMrDetail",
+    "params": {
+      "number": 3,
+      "repo": "$repo"
+    }
+  },
+  "response": {
+    "fetchedAt": "<untimed>",
+    "notModified": "<untimed>",
+    "pollIntervalSecs": "<untimed>",
+    "value": {
+      "assignees": [],
+      "baseSha": "3d45e9ca9ea89f31a28a5453794d46037a2cedc2",
+      "deleteSourceBranch": null,
+      "description": "",
+      "mergeStatus": {
+        "kind": "blocked",
+        "reason": "It's merged already"
+      },
+      "mergedSha": "b806340a30b1c39432b907a7fb6f811151a58d59",
+      "mr": {
+        "author": {
+          "avatarUrl": null,
+          "email": "grace@example.com",
+          "id": 102,
+          "name": "Grace Hopper",
+          "username": "grace",
+          "webUrl": "https://gitlab.example.com/grace"
+        },
+        "autoMerge": null,
+        "conflicts": false,
+        "headSha": "d6792ed3c4849098a73c10903d4399eb8c450ecf",
+        "labelColors": {
+          "audio": "#d9534f"
+        },
+        "labels": [
+          "audio"
+        ],
+        "number": 3,
+        "pipeline": {
+          "status": "success",
+          "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/pipelines/50003"
+        },
+        "review": {
+          "approvals": 0,
+          "approvalsRequired": null,
+          "decision": "none",
+          "reviews": []
+        },
+        "sourceBranch": "fix/dock-chime",
+        "sourceProject": "orbital/forge-lab",
+        "stacked": false,
+        "state": "merged",
+        "targetBranch": "main",
+        "targetProject": "orbital/forge-lab",
+        "title": "Play the docking chime once, softer",
+        "updatedAt": 1791633600,
+        "webUrl": "https://gitlab.example.com/orbital/forge-lab/-/merge_requests/3"
+      },
+      "reviewers": [],
+      "squash": false,
+      "subscribed": false
+    }
+  }
+}

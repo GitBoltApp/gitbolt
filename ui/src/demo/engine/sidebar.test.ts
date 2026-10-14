@@ -4,6 +4,10 @@ import { GOLDEN, noGraph } from '../testing';
 import { readBundle } from './bundle';
 import { MemFs } from './memfs';
 import { DemoRepo } from './repo';
+import * as git from 'isomorphic-git';
+import { makeTestRepo } from './read/testkit';
+import { pushedDev } from './seq/fixtures';
+import { pushed, recordRewrite } from './seq/rewrites';
 import { buildSidebar, pushTarget } from './sidebar';
 
 test("the basic fixture's sidebar", async () => {
@@ -32,4 +36,21 @@ test.each([['basic', 6], ['long_history', 3]])("%s's sidebar matches the core's 
   const { response } = JSON.parse(readFileSync(`${GOLDEN}/${fx}/${n}.json`, 'utf8')) as { response: unknown };
   const want = JSON.stringify(response).replaceAll('$repo', repo.name).replaceAll(/\$wt:([^"/]+)/g, `/demo/.extra/${fx}/$1`).replaceAll('$wt', `/demo/${fx}`);
   expect(sorted(JSON.parse(JSON.stringify(await buildSidebar(repo))))).toEqual(sorted(JSON.parse(want)));
+});
+
+test('a rewritten pushed branch shows its mark in the sidebar until a push or a fetch ends it', async () => {
+  const t = await makeTestRepo();
+  const old = await pushedDev(t);
+  await t.write('d3.txt', 'd3\n');
+  const next = await t.commit('D2, amended', { name: 'You', email: 'you@example.com' }, { parents: [await t.rev('main')] });
+  await git.writeRef({ fs: t.memfs, dir: t.dir, ref: 'refs/heads/dev', value: next, force: true });
+  await recordRewrite(t.repo, 'amend', [{ name: 'refs/heads/dev', old, new: next }], 'you@example.com');
+  const marks = async () => Object.fromEntries((await buildSidebar(t.repo.demo!)).locals.map((b) => [b.name, b.rewritten]));
+  expect(await marks()).toEqual({ dev: { kind: 'amend', remote: 'origin' }, main: null });
+  pushed(t.repo, 'dev');
+  expect((await marks()).dev).toBeNull();
+  await recordRewrite(t.repo, 'amend', [{ name: 'refs/heads/dev', old, new: next }], 'you@example.com');
+  expect((await marks()).dev).not.toBeNull();
+  await git.writeRef({ fs: t.memfs, dir: t.dir, ref: 'refs/remotes/origin/dev', value: await t.rev('main'), force: true });
+  expect((await marks()).dev).toBeNull();
 });

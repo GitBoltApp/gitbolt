@@ -5,11 +5,14 @@ import { useLayoutEffect, useState } from 'react';
  * The app zoom is the webview's page zoom, which Chromium folds into `devicePixelRatio` (120% on
  * a 1x screen is dpr 1.2), so `dpr` is the only factor: a CSS px is `dpr` device px, and anything
  * that must stay crisp or line up across the DOM/canvas boundary is placed on whole device pixels.
+ * The website demo zooms with CSS `zoom` instead, and folds it into `devicePixelRatio` itself
+ * (demo/pageZoom.ts).
  */
 
 /** The window's device pixel ratio, updated when it changes with no resize (a monitor move, the
  * OS scale or the app zoom). `matchMedia`'s query only matches at the dpr it was created with, so
- * each firing re-arms a fresh query at the new dpr rather than listening once. */
+ * each firing re-arms a fresh query at the new dpr rather than listening once. A resize reads it
+ * too: the demo's zoom (demo/pageZoom.ts) changes it with no change to the screen's resolution. */
 export function useDevicePixelRatio(): number {
   const [dpr, setDpr] = useState(() => window.devicePixelRatio || 1);
   useLayoutEffect(() => {
@@ -17,7 +20,11 @@ export function useDevicePixelRatio(): number {
     const mql = window.matchMedia(`(resolution: ${dpr}dppx)`);
     const onChange = () => setDpr(window.devicePixelRatio || 1);
     mql.addEventListener('change', onChange);
-    return () => mql.removeEventListener('change', onChange);
+    window.addEventListener('resize', onChange);
+    return () => {
+      mql.removeEventListener('change', onChange);
+      window.removeEventListener('resize', onChange);
+    };
   }, [dpr]);
   return dpr;
 }

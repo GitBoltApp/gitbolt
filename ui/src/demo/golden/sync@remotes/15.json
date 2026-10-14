@@ -1,0 +1,139 @@
+{
+  "events": [
+    {
+      "queued": [
+        {
+          "id": 11,
+          "kind": "push",
+          "label": "push all tags to origin",
+          "op": 11
+        }
+      ],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": {
+        "id": 11,
+        "kind": "push",
+        "label": "push all tags to origin",
+        "op": 11
+      },
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "interactive": true,
+      "kind": "push",
+      "label": "push all tags to origin",
+      "op": 11,
+      "repo": 1,
+      "type": "opStarted"
+    },
+    {
+      "queued": [],
+      "repo": 1,
+      "running": null,
+      "stopped": null,
+      "type": "queueChanged"
+    },
+    {
+      "kinds": [
+        "worktree",
+        "index",
+        "refs"
+      ],
+      "repo": 1,
+      "type": "repoChanged",
+      "versions": {
+        "/demo/sync": "<version>"
+      },
+      "worktrees": [
+        "/demo/sync"
+      ]
+    },
+    {
+      "repo": 1,
+      "state": {
+        "banners": [],
+        "paused": null,
+        "redo": null,
+        "redoBlocked": "Nothing to redo",
+        "undo": {
+          "entry": 9,
+          "kind": "push",
+          "label": "push all tags to origin"
+        },
+        "undoBlocked": "Push can't be undone"
+      },
+      "type": "journalChanged",
+      "worktree": "/demo/sync"
+    },
+    {
+      "command": null,
+      "kind": "push",
+      "message": null,
+      "op": 11,
+      "outcome": "ok",
+      "repo": 1,
+      "type": "opFinished"
+    }
+  ],
+  "request": {
+    "method": "pushTags",
+    "params": {
+      "remote": "origin",
+      "repo": "$repo",
+      "worktree": "$wt"
+    }
+  },
+  "response": {
+    "journal": {
+      "banners": [],
+      "paused": null,
+      "redo": null,
+      "redoBlocked": "Nothing to redo",
+      "undo": {
+        "entry": 9,
+        "kind": "push",
+        "label": "push all tags to origin"
+      },
+      "undoBlocked": "Push can't be undone"
+    },
+    "outcome": {
+      "op": 11,
+      "remote": "origin",
+      "server": {
+        "lines": 0,
+        "warning": null
+      },
+      "tag": null,
+      "upToDate": true
+    },
+    "staging": {
+      "off": null,
+      "redo": null,
+      "undo": null
+    },
+    "wip": {
+      "staged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "unstaged": {
+        "added": 0,
+        "deleted": 0,
+        "files": [],
+        "version": "<version>"
+      },
+      "version": "<version>",
+      "worktree": "/demo/sync"
+    }
+  }
+}

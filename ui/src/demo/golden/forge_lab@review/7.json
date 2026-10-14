@@ -1,0 +1,11 @@
+{
+  "events": [],
+  "request": {
+    "method": "forgeApprove",
+    "params": {
+      "number": 1,
+      "repo": "$repo"
+    }
+  },
+  "response": null
+}
