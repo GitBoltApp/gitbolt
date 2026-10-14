@@ -248,7 +248,7 @@ footer { position: relative; padding: 96px 0 40px; overflow: hidden; isolation: 
   tr { padding: 14px 16px; border-top: 1px solid rgba(255, 255, 255, .08); }
   tbody tr:first-child { border-top: 0; }
   tr.cmp-group { padding: 10px 16px 9px; background: rgba(255, 255, 255, .055); border-top-color: rgba(255, 255, 255, .14); box-shadow: inset 3px 0 0 var(--c, #8e00c2); }
-  tbody tr.cmp-group th { padding: 0 !important; font: 600 12px var(--display) !important; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); margin: 0; }
+  tbody tr.cmp-group th { padding: 0 !important; box-shadow: none; border: 0; font: 600 12px var(--display) !important; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); margin: 0; }
   tbody th, td { border: 0 !important; padding: 3px 0 !important; background: none !important; border-radius: 0 !important; }
   tbody th { font-weight: 600; margin-bottom: 4px; }
   td { display: grid; grid-template-columns: 84px 1fr; align-items: start; }
