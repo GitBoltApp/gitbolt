@@ -10,6 +10,7 @@ import type { RowPayload } from '../api/gen/RowPayload';
 import { useTabViews } from '../app/tabStores';
 import { useMenu } from '../menu/menuStore';
 import { ACTION_TIP } from './model';
+import { useToast } from '../ui/toastStore';
 import { createRepoViewStore } from '../repo/store';
 import { fakeServices } from '../repo/testServices';
 
@@ -56,8 +57,10 @@ describe('the interactive rebase editor (spec #3 §4.1)', () => {
 
   it('Start is disabled with the first problem as its reason', () => {
     show();
-    fireEvent.click(row('a'));
+    fireEvent.click(row('b'));
     key('f');
+    fireEvent.click(row('a'));
+    key('d');
     const start = screen.getByRole('button', { name: 'Start Rebase' });
     expect(start.getAttribute('aria-disabled')).toBe('true');
   });
@@ -303,5 +306,54 @@ describe('the interactive rebase editor (spec #3 §4.1)', () => {
     expect(edited()).toBe('B, saved\n');
     // The editor's clicks don't change the selection.
     expect(sessionOf('t1')!.state.selected).toEqual([oid('b')]);
+  });
+
+  it('the bottom row\'s Squash and Fixup are greyed with the reason; S and F on it do nothing and say why', () => {
+    show();
+    fireEvent.click(row('a').querySelector('.irebase-action button')!);
+    const rows = useMenu.getState().rows!;
+    expect(rows.map((r) => r.kind === 'action' && [r.label, r.disabledReason])).toEqual([
+      ['Pick', undefined], ['Reword', undefined], ['Squash', 'Nothing below to fold into'],
+      ['Fixup', 'Nothing below to fold into'], ['Drop', undefined], ['Edit', undefined],
+    ]);
+    act(() => useMenu.getState().close());
+    fireEvent.click(row('b').querySelector('.irebase-action button')!);
+    expect(useMenu.getState().rows!.every((r) => r.kind !== 'action' || !r.disabledReason)).toBe(true);
+    act(() => useMenu.getState().close());
+    fireEvent.click(row('a'));
+    for (const k of ['s', 'f']) {
+      useToast.getState().dismiss();
+      key(k);
+      expect(sessionOf('t1')!.state.rows.find((r) => r.oid === oid('a'))!.action).toBe('pick');
+      expect(useToast.getState().message).toBe('Nothing below to fold into');
+    }
+  });
+
+  it('select all then S squashes the entire branch: the bottom row becomes Reword, opens with the combined message', () => {
+    show();
+    fireEvent.click(row('e'));
+    fireEvent.click(row('a'), { shiftKey: true });
+    key('s');
+    const s = sessionOf('t1')!;
+    expect(s.state.rows.map((r) => r.action)).toEqual(['squash', 'squash', 'squash', 'squash', 'reword']);
+    expect(s.editing).toBe(oid('a'));
+    expect((screen.getByRole('textbox', { name: 'Commit summary' }) as HTMLInputElement).value).toBe('A');
+    expect(screen.getByRole('button', { name: 'Start Rebase' }).getAttribute('aria-disabled')).toBe('false');
+  });
+
+  it('select all then F: the bottom row stays Pick and no message editor opens', () => {
+    show();
+    fireEvent.click(row('e'));
+    fireEvent.click(row('a'), { shiftKey: true });
+    key('f');
+    expect(sessionOf('t1')!.state.rows.map((r) => r.action)).toEqual(['fixup', 'fixup', 'fixup', 'fixup', 'pick']);
+    expect(sessionOf('t1')!.editing).toBeNull();
+  });
+
+  it('moving a Squash row to the bottom keeps the problem and the blocked Start', () => {
+    show();
+    act(() => editState('t1', (x) => ({ ...x, rows: [...x.rows.slice(1), { ...x.rows[0], action: 'squash' as const }] })));
+    expect(screen.getByRole('button', { name: 'Start Rebase' }).getAttribute('aria-disabled')).toBe('true');
+    expect(sessionOf('t1')!.state.rows.at(-1)!.action).toBe('squash');
   });
 });

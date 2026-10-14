@@ -9,9 +9,10 @@ import type { Origin } from '../ui/arm/origin';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { registerKeys } from '../ui/keyRouter';
 import { Select } from '../ui/Select';
+import { useToast } from '../ui/toastStore';
 import {
-  ACTION_KEYS, ACTION_LABEL, ACTION_TIP, ACTIONS, dirty, editMessage, grouping, moveRows, moveSelected, problems, reset, select,
-  setActions, targetMessage, type EditorRow, type EditorState, type Grouping, type RowAction,
+  ACTION_KEYS, ACTION_LABEL, ACTION_TIP, ACTIONS, NOTHING_BELOW, bottomRow, chooseAction, dirty, editMessage, grouping, moveRows, moveSelected, problems, reset, select,
+  targetMessage, type EditorRow, type EditorState, type Grouping, type RowAction,
 } from './model';
 import { usePrediction } from './predict';
 import { useRowDrag } from './rowDrag';
@@ -37,6 +38,18 @@ const keyOrigin = (el: HTMLElement | null): Origin | null => (el ? { el, rect: n
 const ACTION_OPTIONS = ACTIONS.map((a) => [a, ACTION_LABEL[a], ACTION_TIP[a]] as const);
 
 const startEditing = (tabId: string, oid: string | null) => editSession(tabId, (s) => ({ ...s, editing: oid }));
+
+/** The dropdown's and the keys' way to set `oids`' action: Reword opens its message at once (Q.3),
+ * as does a Squash or Fixup of the bottom row that made it the Reword target; a refused one says why. */
+function applyAction(tabId: string, oids: readonly string[], action: RowAction, opens: string | null = oids.length === 1 ? oids[0] : null) {
+  const s = sessionOf(tabId)?.state;
+  if (!s) return;
+  const r = chooseAction(s, oids, action);
+  if (r.refused) return void useToast.getState().show(r.refused);
+  editState(tabId, () => r.state);
+  const open = r.reword ?? (action === 'reword' ? opens : null);
+  if (open) startEditing(tabId, open);
+}
 
 /** The keys (spec #3 §4.1), before the app's own: none of them while typing in the message editor. */
 function useEditorKeys(tabId: string, root: React.RefObject<HTMLElement | null>, cancel: React.RefObject<HTMLButtonElement | null>) {
@@ -79,8 +92,7 @@ function useEditorKeys(tabId: string, root: React.RefObject<HTMLElement | null>,
     const action = !e.ctrlKey && !e.metaKey && !e.altKey ? ACTION_KEYS[e.key.toLowerCase()] : undefined;
     if (action && state.selected.length > 0) {
       e.preventDefault();
-      editState(tabId, (x) => setActions(x, x.selected, action));
-      if (action === 'reword' && one) startEditing(tabId, one);
+      applyAction(tabId, state.selected, action);
       return 'handled';
     }
   }), [tabId, root, cancel]);
@@ -129,10 +141,11 @@ function Row({ tabId, row, index, state, g, chips, conflict, editing, drag }: {
   const over = useChipDrag((x) => x.drag?.over === row.oid);
   const count = drag.count(index);
   const choose = (a: RowAction) => {
-    editState(tabId, (s) => setActions(s, s.selected.includes(row.oid) ? s.selected : [row.oid], a));
-    // Q.3: Reword opens the row's message at once.
-    if (a === 'reword') startEditing(tabId, row.oid);
+    applyAction(tabId, targets, a, row.oid);
   };
+  const targets = selected ? state.selected : [row.oid];
+  // The bottom row has nothing to fold into, unless the others it is set with fold into it.
+  const refuse = (a: RowAction) => ((a === 'squash' || a === 'fixup') && row.oid === bottomRow(state) && targets.every((o) => o === row.oid) ? NOTHING_BELOW : undefined);
   return (
     <li
       data-irebase-row=""
@@ -155,7 +168,7 @@ function Row({ tabId, row, index, state, g, chips, conflict, editing, drag }: {
       <HoverTooltip content={ACTION_TIP[row.action]}>
         {/* On a selected row the dropdown sets every selected row: the click keeps the selection. */}
         <span className={`irebase-action is-${row.action}`} onClick={(e) => { if (selected) e.stopPropagation(); }} onDoubleClick={(e) => e.stopPropagation()}>
-          <Select aria-label={`Action for ${short(row.oid)}`} value={row.action} options={ACTION_OPTIONS} onChange={choose} />
+          <Select aria-label={`Action for ${short(row.oid)}`} value={row.action} options={ACTION_OPTIONS} onChange={choose} disabledReason={refuse} />
         </span>
       </HoverTooltip>
       <span className="irebase-fold">{into && <HoverTooltip content={`Folds into ${short(into)}`}><ArrowDown size={13} aria-label={`Folds into ${short(into)}`} /></HoverTooltip>}</span>

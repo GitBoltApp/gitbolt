@@ -5,6 +5,13 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
 
 ## [Unreleased]
 
+### Changed
+
+- **Interactive rebase, bottom row:** Squash and Fixup are greyed out on the commit replayed first
+  ("Nothing below to fold into"), and S and F refuse it. Squashing a selection that includes it
+  makes it a Reword with the combined message, and fixing it up leaves it a Pick, so squashing the
+  whole branch works.
+
 ### Removed
 
 - **GitBolt's paused rebases:** a rebase GitBolt left paused can no longer be continued in GitVolt;

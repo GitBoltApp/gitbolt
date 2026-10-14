@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   addChip, applyPreset, chipChange, chipRow, deleteChip, dirty, editMessage, fromPlan, grouping, mergedMessage, moveChip, moveRow, moveRows, moveSelected,
-  predictionKey, problems, rebasedRow, reload, removeChip, reset, revertChip, samePlan, select, setActions, targetMessage, toRequest, type EditorState,
+  bottomRow, chooseAction, NOTHING_BELOW, predictionKey, problems, rebasedRow, reload, removeChip, reset, revertChip, samePlan, select, setActions, targetMessage, toRequest, type EditorState,
 } from './model';
 import { oid, plan } from './testPlan';
 
@@ -188,5 +188,43 @@ describe('the rebase editor model (spec #3 §4.1, §7)', () => {
     expect(samePlan(s, moveSelected(select(s, oid('a')), 1))).toBe(true);
     expect(samePlan(s, act(s, 'c', 'drop'))).toBe(false);
     expect(samePlan(s, removeChip(s, 'x'))).toBe(false);
+  });
+
+  it('the bottom row can\'t fold: Squash or Fixup on it alone is refused', () => {
+    const s = fromPlan(plan());
+    expect(bottomRow(s)).toBe(oid('a'));
+    expect(bottomRow(act(s, 'a', 'drop'))).toBe(oid('b'));
+    for (const a of ['squash', 'fixup'] as const) {
+      const r = chooseAction(s, [oid('a')], a);
+      expect(r.refused).toBe(NOTHING_BELOW);
+      expect(r.state).toBe(s);
+    }
+    expect(chooseAction(act(s, 'a', 'drop'), [oid('b')], 'fixup').refused).toBe(NOTHING_BELOW);
+    expect(chooseAction(s, [oid('b')], 'squash').refused).toBeUndefined();
+    expect(chooseAction(s, [oid('a')], 'edit').refused).toBeUndefined();
+  });
+
+  it('squashing the whole branch: the bottom row becomes Reword with the combined message, the rest Squash', () => {
+    const r = chooseAction(fromPlan(plan()), ['e', 'd', 'c', 'b', 'a'].map(oid), 'squash');
+    expect(r.reword).toBe(oid('a'));
+    expect(r.state.rows.map((x) => x.action)).toEqual(['squash', 'squash', 'squash', 'squash', 'reword']);
+    expect(problems(r.state)).toEqual([]);
+    expect(targetMessage(r.state, oid('a'))).toBe('A\n\nB\n\nC\n\nD\n\nE\n');
+    expect(toRequest(r.state).rows.at(-1)).toEqual({ oid: oid('a'), action: 'reword', message: 'A\n\nB\n\nC\n\nD\n\nE\n' });
+  });
+
+  it('Fixup of the whole branch: the bottom row stays Pick, keeps its own message, and nothing opens', () => {
+    const r = chooseAction(fromPlan(plan()), ['b', 'a'].map(oid), 'fixup');
+    expect(r.reword).toBeUndefined();
+    expect(r.state.rows.map((x) => x.action)).toEqual(['pick', 'pick', 'pick', 'fixup', 'pick']);
+    expect(problems(r.state)).toEqual([]);
+    expect(targetMessage(r.state, oid('a'))).toBe('A\n');
+  });
+
+  it('a later move or drop that leaves a folding row at the bottom is still a problem', () => {
+    const s = act(fromPlan(plan()), 'e', 'squash');
+    expect(problems(s)).toEqual([]);
+    expect(problems(moveRow(s, 0, 4))[0]).toBe('Nothing below eeeeeee E to squash it into');
+    expect(problems(act(act(fromPlan(plan()), 'b', 'squash'), 'a', 'drop'))[0]).toBe('Nothing below bbbbbbb B to squash it into');
   });
 });

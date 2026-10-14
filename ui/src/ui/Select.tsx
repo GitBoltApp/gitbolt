@@ -16,6 +16,8 @@ export interface SelectProps<T extends string | number> {
   onChange(v: T): void;
   /** What the button shows in place of the chosen option's label (Create's "Template: none"). */
   shown?: ReactNode;
+  /** Why an option can't be chosen (its row greys out with this as its tooltip); `undefined`: it can. */
+  disabledReason?: (v: T) => string | undefined;
   'aria-label'?: string;
   'aria-labelledby'?: string;
 }
@@ -26,12 +28,12 @@ export interface SelectProps<T extends string | number> {
  * never stayed open. Enter / Space (the button's click) and ArrowDown / ArrowUp open it; the menu
  * takes the arrows, Enter and Esc, and gives focus back here.
  */
-export function Select<T extends string | number>({ id, value, options, onChange, shown, ...rest }: SelectProps<T>) {
+export function Select<T extends string | number>({ id, value, options, onChange, shown, disabledReason, ...rest }: SelectProps<T>) {
   const btn = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   const [focused, setFocused] = useState(false);
   const rows = (): MenuRow[] => options.map(([v, l, tip]) => ({
-    kind: 'action', id: `select.${v}`, label: l, icon: v === value ? Check : Blank, tooltip: tip ?? l, run: () => onChange(v),
+    kind: 'action', id: `select.${v}`, label: l, icon: v === value ? Check : Blank, tooltip: tip ?? l, run: () => onChange(v), disabledReason: disabledReason?.(v),
   }));
   const show = () => setOpen(openMenuAt(btn.current!, rows(), `select.${value}`, rows, rest['aria-label']));
   useEffect(() => useMenu.subscribe((s) => { if (s.rows === null) setOpen(false); }), []);

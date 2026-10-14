@@ -169,6 +169,26 @@ export function setActions(s: EditorState, oids: readonly string[], action: RowA
   return withRows(s, s.rows.map((r) => (set.has(r.oid) && r.action !== action ? { ...r, action } : r)));
 }
 
+/** Why Squash and Fixup are refused on the row replayed first. */
+export const NOTHING_BELOW = 'Nothing below to fold into';
+
+/** The row replayed first: the lowest one that isn't dropped. */
+export const bottomRow = (s: EditorState): string | null => s.rows.findLast((r) => r.action !== 'drop')?.oid ?? null;
+
+/** A user's pick of `action` for `oids` (the dropdown, the keys). Squash or Fixup with the
+ * bottom row among them folds the others into it: with Squash it becomes Reword (`reword`: it takes
+ * the merged message); with Fixup it keeps its action (Pick) and its own message; on its own it is refused with `refused`. Moves and drops never come
+ * through here: they leave a folding bottom row to `problems`. */
+export function chooseAction(s: EditorState, oids: readonly string[], action: RowAction): { state: EditorState; refused?: string; reword?: string } {
+  const bottom = bottomRow(s);
+  if (!folds(action) || !bottom || !oids.includes(bottom)) return { state: setActions(s, oids, action) };
+  const rest = oids.filter((o) => o !== bottom);
+  if (!rest.length) return { refused: NOTHING_BELOW, state: s };
+  const folded = setActions(s, rest, action);
+  if (action === 'fixup') return { state: folded.rows.find((r) => r.oid === bottom)!.action === 'fixup' ? setActions(folded, [bottom], 'pick') : folded };
+  return { state: setActions(folded, [bottom], 'reword'), reword: bottom };
+}
+
 /** Sets a row's message; one equal to what it would be anyway is no edit. */
 export function editMessage(s: EditorState, oid: string, text: string): EditorState {
   const cleared = withRows(s, s.rows.map((r) => (r.oid === oid ? { ...r, edited: null } : r)));
