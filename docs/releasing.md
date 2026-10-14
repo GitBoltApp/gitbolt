@@ -111,7 +111,7 @@ No file: a build from source, which is only offered the release page. `just pack
 ## The move from GitBoltApp/gitbolt
 
 The project was called GitBolt until 0.7.0, and its repository was `GitBoltApp/gitbolt`. On
-2026-10-15 it was transferred to `GitVoltApp/gitvolt` and renamed in one call, so GitHub redirects
+2026-10-14 it was transferred to `GitVoltApp/gitvolt` and renamed in one call, so GitHub redirects
 the old addresses. 0.6.1 bridged the two names (it checks `GitVoltApp/gitvolt` first, takes
 `GitVolt_*` packages and updates into GitVolt); 0.6.0 and earlier only know `GitBoltApp/gitbolt`
 and the GitBolt asset names, so they can't follow (the README says so). GitVolt itself checks
