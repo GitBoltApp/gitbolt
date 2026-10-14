@@ -5,11 +5,11 @@
       "force": false,
       "new": {
         "kind": "object",
-        "oid": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c"
+        "oid": "6ef47d2a38d953220f5365ddb6a85a36f21a474a"
       },
       "old": {
         "kind": "object",
-        "oid": "1f5564d66cb9179224126e5b9f5cb238f58bab0f"
+        "oid": "ed5178cf060c33fb386d6a6795804fc542d24a6d"
       },
       "path": "images/title.png",
       "repo": "$repo"
@@ -19,21 +19,21 @@
     "eolOnly": false,
     "image": true,
     "new": {
-      "base64": "sha256:fc831c46683e62f3131e44c6551a8a6b79bf6f789a112170f286daff5a7a5801:20236",
+      "base64": "sha256:6b1c5f0e8848151755b789ad12005ba54454230f7af172ce1d495c95dd6e6285:20124",
       "binary": true,
       "encoding": "",
       "eol": "none",
-      "hash": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c",
-      "size": 15176,
+      "hash": "6ef47d2a38d953220f5365ddb6a85a36f21a474a",
+      "size": 15091,
       "text": null
     },
     "old": {
-      "base64": "sha256:13508d9bd143597d8e077c20b18eeaa078f110391252af1aee95a400254bb600:18312",
+      "base64": "sha256:27078964c128ac59534b4c76ac9ebf3d75e04a072c215010ac20b273d44e6040:18260",
       "binary": true,
       "encoding": "",
       "eol": "none",
-      "hash": "1f5564d66cb9179224126e5b9f5cb238f58bab0f",
-      "size": 13734,
+      "hash": "ed5178cf060c33fb386d6a6795804fc542d24a6d",
+      "size": 13694,
       "text": null
     },
     "tooLarge": false

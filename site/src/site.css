@@ -51,13 +51,13 @@ header.top { position: sticky; top: 0; padding-top: 12px; z-index: 20; }
 .gh svg { width: 21px; }
 .gh:hover { color: var(--ink); background: var(--glass-fill); }
 /* the page's one white control: the call to action */
-.cta { position: relative; display: inline-flex; gap: 8px; align-items: center; padding: 10px 20px; border-radius: 13px; background: #fff; color: #0b0d22; font-weight: 600; text-decoration: none; white-space: nowrap; }
+.cta { position: relative; display: inline-grid; place-items: center; padding: 10px 20px; border-radius: 13px; background: #fff; color: #0b0d22; font-weight: 600; text-decoration: none; white-space: nowrap; }
 .cta::before { content: ""; position: absolute; inset: -3px; border-radius: 15px; z-index: -1; background: conic-gradient(from 180deg, #2ece9d, #0669f7, #8e00c2, #d90171, #f25d2e, #f2ca33, #2ece9d); filter: blur(10px); opacity: .9; }
-.cta small { color: #5a5f7a; font-weight: 500; }
-/* Reserve the widest label ("for Windows") so the label JS fills in never moves the header. */
-/* Centred, not baseline: the empty reserve has no text baseline, which would grow the button once filled. */
-.cta small { display: inline-block; }
-.cta small::before { content: "for Windows"; display: block; height: 0; overflow: hidden; visibility: hidden; }
+.cta small { color: #5a5f7a; font-weight: 500; margin-left: 4px; }
+/* A hidden copy of the widest label ("Download for Windows") in the same grid cell reserves the
+ * button's width, so the label JS fills in never moves the header, and the shown text centres in it. */
+.cta-in, .cta-size { grid-area: 1 / 1; white-space: nowrap; }
+.cta-size { visibility: hidden; }
 
 /* hero */
 .hero { position: relative; padding: 72px 0 40px; isolation: isolate; }
@@ -138,8 +138,9 @@ h2 { font: 800 clamp(32px, 4.6vw, 60px)/1.04 var(--display); letter-spacing: -.0
   background: radial-gradient(120% 90% at 100% 0%, color-mix(in srgb, var(--c) 28%, transparent), transparent 60%),
     linear-gradient(160deg, rgba(255, 255, 255, .06), rgba(255, 255, 255, .01)), rgba(12, 18, 44, .62);
   -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); }
-.shot-in.has-img { padding: 0; overflow: hidden; }
-.shot-in img { display: block; width: 100%; height: 100%; object-fit: cover; }
+/* a taken shot keeps its own proportions: the <img>'s width and height reserve its box */
+.shot-in.has-img { aspect-ratio: auto; padding: 0; overflow: hidden; }
+.shot-in img { display: block; width: 100%; height: auto; }
 .shot-tag { font: 500 11px var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--c-text); }
 .shot-cap { font-size: 15px; color: var(--ink); opacity: .85; }
 
@@ -160,7 +161,10 @@ thead th, thead td { border-top: 0; font: 600 15px var(--display); padding: 18px
 thead th.us::after { content: ""; position: absolute; left: 18px; right: 18px; bottom: 0; height: 3px; border-radius: 3px; background: var(--sweep); }
 tbody th { font-weight: 500; color: var(--ink); width: 34%; }
 td { color: var(--muted); width: 33%; }
-td:last-child { background: linear-gradient(90deg, rgba(142, 0, 194, .12), rgba(6, 105, 247, .08)); }
+td:last-child, thead th.us { background: linear-gradient(90deg, rgba(142, 0, 194, .12), rgba(6, 105, 247, .08)); }
+tr.cmp-group th { font: 600 12px var(--display); letter-spacing: .12em; text-transform: uppercase; color: var(--ink); padding: 11px 18px 10px; width: auto; background: rgba(255, 255, 255, .055); border-top: 1px solid rgba(255, 255, 255, .14); border-bottom: 1px solid rgba(255, 255, 255, .1); box-shadow: inset 3px 0 0 var(--c, #8e00c2); }
+tbody tr.cmp-group:first-child th { border-top: 0; }
+tr.cmp-group[class*="l-"] th { color: var(--c-text); }
 .m { display: inline-block; font: 600 11.5px var(--mono); padding: 2px 8px; border-radius: 999px; margin-right: 6px; }
 .m-yes { color: #7bd938; background: rgba(123, 217, 56, .12); }
 .m-partly { color: #f2ca33; background: rgba(242, 202, 51, .12); }
@@ -243,6 +247,8 @@ footer { position: relative; padding: 96px 0 40px; overflow: hidden; isolation: 
   table, tbody, tr, th, td { display: block; width: auto !important; }
   tr { padding: 14px 16px; border-top: 1px solid rgba(255, 255, 255, .08); }
   tbody tr:first-child { border-top: 0; }
+  tr.cmp-group { padding: 10px 16px 9px; background: rgba(255, 255, 255, .055); border-top-color: rgba(255, 255, 255, .14); box-shadow: inset 3px 0 0 var(--c, #8e00c2); }
+  tbody tr.cmp-group th { padding: 0 !important; font: 600 12px var(--display) !important; letter-spacing: .12em; text-transform: uppercase; color: var(--ink); margin: 0; }
   tbody th, td { border: 0 !important; padding: 3px 0 !important; background: none !important; border-radius: 0 !important; }
   tbody th { font-weight: 600; margin-bottom: 4px; }
   td { display: grid; grid-template-columns: 84px 1fr; align-items: start; }

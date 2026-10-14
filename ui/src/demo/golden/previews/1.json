@@ -4,7 +4,7 @@
     "params": {
       "repo": "$repo",
       "spec": {
-        "id": "c918853073bc4f88137f176872aab0928ab02c68",
+        "id": "5298043ed371fd88ff2f8dad5133e4e6108b98f8",
         "kind": "commit",
         "parent": 0
       }
@@ -67,11 +67,11 @@
         "deletions": null,
         "new": {
           "kind": "object",
-          "oid": "c510031c8a8668a122e258a5869cbf6fccd0f237"
+          "oid": "a7009bbd7053ef71d2beb97595c89d662810e82a"
         },
         "old": {
           "kind": "object",
-          "oid": "7a10cb040a9811a495b685f6415ac532a1fe8cf3"
+          "oid": "84734cabc0423913502c75a891103574dbc84e08"
         },
         "oldPath": null,
         "path": "docs/design.pdf",
@@ -163,11 +163,11 @@
         "deletions": null,
         "new": {
           "kind": "object",
-          "oid": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c"
+          "oid": "6ef47d2a38d953220f5365ddb6a85a36f21a474a"
         },
         "old": {
           "kind": "object",
-          "oid": "1f5564d66cb9179224126e5b9f5cb238f58bab0f"
+          "oid": "ed5178cf060c33fb386d6a6795804fc542d24a6d"
         },
         "oldPath": null,
         "path": "images/title.png",

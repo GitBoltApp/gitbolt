@@ -13,11 +13,13 @@ export interface Highlight { lead: string; kicker: string; lane: Lane; shot: Sho
 
 const REPO = 'https://github.com/GitVoltApp/gitvolt';
 
-/** The page's highlights, in order: README.md's, plus Pinned trunk (from Graph and workspace), as
- * the approved design has them. The README's "Free and MIT licensed" is in the hero. */
+/** The page's highlights, in README.md's order: code review, then the two things used all day
+ * (worktrees, context menus), the diffs, then history and forges. The README's "Free and MIT
+ * licensed" is in the hero. */
 export const HIGHLIGHTS: Highlight[] = [
-  { lead: 'Pinned trunk', kicker: 'Graph', lane: 'cyan', shot: 'graph' },
   { lead: 'Code review on GitHub and GitLab', kicker: 'Code review', lane: 'violet', shot: 'review' },
+  { lead: 'Worktrees', kicker: 'Worktrees', lane: 'teal', shot: 'worktrees' },
+  { lead: 'Context menus', kicker: 'Menus', lane: 'orange', shot: 'menus' },
   { lead: 'Rendered Markdown diffs', kicker: 'Diffs', lane: 'pink', shot: 'markdown' },
   { lead: 'Image diffs', kicker: 'Diffs', lane: 'gold', shot: 'image' },
   { lead: 'File previews', kicker: 'Previews', lane: 'cyan', shot: 'previews' },
@@ -26,13 +28,14 @@ export const HIGHLIGHTS: Highlight[] = [
   { lead: 'Stacked MRs/PRs', kicker: 'Forges', lane: 'gold', shot: 'stack' },
 ];
 
-/** "Everything else": each README group's lane colour. Privacy has its own section on the page. */
+/** "Everything else": each README group's lane colour, six different ones. Privacy has its own section on the page. */
 export const GROUP_LANES: Record<string, Lane> = {
-  'Graph and workspace': 'cyan',
-  'Reviewing and forges': 'violet',
-  'History, merges and rebases': 'pink',
-  'Files and diffs': 'gold',
-  'Keyboard and look': 'cyan',
+  'Graph and navigation': 'cyan',
+  'Workspace': 'violet',
+  'Code review': 'pink',
+  'MRs/PRs': 'orange',
+  'Files and diffs': 'teal',
+  'History, merges and undo': 'gold',
 };
 const SKIP_GROUPS = ['Privacy'];
 
@@ -116,7 +119,17 @@ export function renderGroups(md: string, highlights: Highlight[] = HIGHLIGHTS): 
 
 const MARKS: Array<[mark: string, cls: string, word: string]> = [['✅', 'm-yes', 'Yes'], ['🟡', 'm-partly', 'Partly'], ['❌', 'm-no', 'No']];
 
-export function renderCompare(md: string): string {
+/** The comparison table's subheadings: each group's rows, by the README's exact row label. The table is long; this is only the website's grouping. */
+export const COMPARE_GROUPS: Array<{ title: string; lane?: Lane; rows: string[] }> = [
+  { title: 'Graph and workspace', lane: 'cyan', rows: ['Commit graph with lanes, branch/tag chips and avatars', 'Main branch pinned to the left', 'Tabs, multiple repos, worktrees', 'Hide and solo branches', 'Command palette and keyboard shortcuts', 'Themes', 'Profiles'] },
+  { title: 'Changes and history', lane: 'violet', rows: ['Staging files, hunks and lines', 'Undo / redo', 'Branches, tags, stashes, cherry-pick, revert, reset', 'Merge and rebase', 'Interactive rebase', 'Merge conflict tool with an editable result', 'Push, pull, fetch, remotes, adding a fork as a remote', 'File history and blame', 'Commit signing', 'Signature verification', 'Submodules', 'Git LFS', 'Git Flow'] },
+  { title: 'Diffs and files', lane: 'pink', rows: ['Diffs: inline, split, hunk, word-level', 'Image diffs', 'File previews', 'Rendered Markdown', 'Mermaid diagrams in Markdown'] },
+  { title: 'Reviews and forges', lane: 'orange', rows: ['Pull/merge requests: list, view, create, comment, approve, merge', 'Inline code review comments', 'Stacked pull/merge requests', 'Forges', 'Issue trackers (Jira, Trello, …)'] },
+  { title: 'Beyond Git', lane: 'teal', rows: ['Integrated terminal', 'AI commit messages and summaries', 'Cloud workspaces and team features'] },
+  { title: 'Platform and privacy', lane: 'gold', rows: ['No account needed', 'No telemetry', 'Windows and macOS', 'License'] },
+];
+
+export function renderCompare(md: string, groups = COMPARE_GROUPS): string {
   const section = featureSections(md).find((s) => s.title === 'Compared with GitKraken');
   if (!section) throw new Error("README.md has no '### Compared with GitKraken' table");
   const rows = section.lines.filter((l) => l.startsWith('|')).map((l) => l.replace(/^\|/, '').replace(/\|\s*$/, '').split('|').map((c) => c.trim()));
@@ -134,7 +147,12 @@ export function renderCompare(md: string): string {
     return `<td data-label="${esc(label)}"><span class="cv">${pill}${noteHtml}</span></td>`;
   };
   const th = cols.map((c, i) => `<th scope="col"${i === cols.length - 1 ? ' class="us"' : ''}>${esc(c)}</th>`).join('');
-  const trs = body.map((r) => `<tr><th scope="row">${inline(r[0])}</th>${cell(r[1], cols[0])}${cell(r[2], cols[1])}</tr>`).join('\n');
+  const byLabel = new Map(body.map((r) => [r[0], r]));
+  const placed = new Set(groups.flatMap((g) => g.rows));
+  for (const r of body) if (!placed.has(r[0])) throw new Error(`README.md's comparison row "${r[0]}" is in no group: add it to COMPARE_GROUPS in site/build/readme.ts`);
+  for (const g of groups) for (const label of g.rows) if (!byLabel.has(label)) throw new Error(`COMPARE_GROUPS' "${g.title}" names a row "${label}" that README.md's comparison table doesn't have`);
+  const row = (r: string[]) => `<tr><th scope="row">${inline(r[0])}</th>${cell(r[1], cols[0])}${cell(r[2], cols[1])}</tr>`;
+  const trs = groups.map((g) => `<tr class="cmp-group${g.lane ? ` l-${g.lane}` : ''}"><th colspan="3" scope="colgroup">${esc(g.title)}</th></tr>\n${g.rows.map((l) => row(byLabel.get(l)!)).join('\n')}`).join('\n');
   return `<div class="table-wrap glass"><table>\n<thead><tr><td></td>${th}</tr></thead>\n<tbody>${trs}</tbody>\n</table></div>`;
 }
 

@@ -88,8 +88,10 @@ export function checkPage(dist: string, budgets: typeof PAGE_BUDGETS = PAGE_BUDG
   }
   const first = firstLoadFiles(dist, html).filter((f) => existsSync(join(dist, f)));
   const cssFiles = first.filter((f) => f.endsWith('.css'));
-  // The header's "Download" grows to "Download for <OS>" when JS runs; its CSS must reserve the room.
-  if (/class="cta-os"/.test(html) && !cssFiles.some((f) => readFileSync(join(dist, f), 'utf8').replace(/\s/g, '').includes(`content:"${WIDEST_CTA}"`.replace(/\s/g, '')))) {
+  // The header's "Download" grows to "Download for <OS>" when JS runs; the page must reserve the
+  // room: a hidden `.cta-size` copy of the widest label, or a CSS `content:` one.
+  const sizer = new RegExp(`class="cta-size"[^>]*>[^]*?${WIDEST_CTA}`).test(html);
+  if (/class="cta-os"/.test(html) && !sizer && !cssFiles.some((f) => readFileSync(join(dist, f), 'utf8').replace(/\s/g, '').includes(`content:"${WIDEST_CTA}"`.replace(/\s/g, '')))) {
     errors.push(`the header button's CSS doesn't reserve the width of "${WIDEST_CTA}" (the label would shift the layout)`);
   }
   const sum = (files: string[]) => files.reduce((n, f) => n + wireSize(join(dist, f)), 0);

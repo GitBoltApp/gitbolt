@@ -144,6 +144,9 @@ export function checkBundle(name: string, gz: Uint8Array, buildPrefix: string): 
     if (at('origin.git', ['rev-list', '--count', 'refs/heads/main..refs/demo/teammate']) !== '1') problems.push("the origin lost the teammate's commit");
     if (Number(at('repo', ['rev-list', '--all', '--count'])) < 1_300) problems.push('the history is short');
     if (!files.some((f) => f.path === 'forge.json')) problems.push('forge.json is missing');
+    const linked = files.find((f) => f.path === 'repo/.git/worktrees/wt-release/gitdir');
+    if (!linked || Buffer.from(linked.bytes).toString('utf8') !== '/demo/.extra/orbital/wt-release/.git\n') problems.push('the release worktree is missing, or its gitdir not at the demo\'s path');
+    if (!files.some((f) => f.path === 'wt-release/CHANGELOG.md')) problems.push("the release worktree's checkout is missing");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

@@ -4,7 +4,7 @@
     "params": {
       "repo": "$repo",
       "spec": {
-        "id": "c60c45c75d92a01085f23c0eb90da701778aaa2e",
+        "id": "4e50ed24459b154880e4e70db64258e818bd2413",
         "kind": "commit",
         "parent": 0
       }
@@ -35,11 +35,11 @@
         "deletions": 2,
         "new": {
           "kind": "object",
-          "oid": "48c1468715c3f71a70e1622cd994d79446296f59"
+          "oid": "33a9bee9fd681c0eb56a1e6581f579e162b3c942"
         },
         "old": {
           "kind": "object",
-          "oid": "32c4d0c72406ab107dcd0f40ab78348b7c1368f8"
+          "oid": "c2d2f523e82076960130ac46a6190a82068ac10c"
         },
         "oldPath": null,
         "path": "art/title.png",

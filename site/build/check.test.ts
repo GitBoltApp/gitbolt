@@ -54,11 +54,11 @@ test('over a budget is an error naming it', () => {
 });
 
 const COVERAGE = "export const PENDING = [\n  'undo', 'push',\n] as const satisfies readonly Method[];";
-const SPEC = "{ id: 'graph', needs: [], run }, { id: 'review', needs: ['push'], run }, { id: 'image', needs: [], run },";
+const SPEC = "{ id: 'worktrees', needs: [], run }, { id: 'review', needs: ['push'], run }, { id: 'image', needs: [], run },";
 
 test('expected placeholders come from the scenes whose methods are pending, or that do not exist yet', () => {
   const e = expectedPlaceholders(SPEC, COVERAGE);
-  expect([...e].sort()).toEqual(['hero', 'markdown', 'previews', 'rebase', 'review', 'stack', 'undo']);
+  expect([...e].sort()).toEqual(['hero', 'markdown', 'menus', 'previews', 'rebase', 'review', 'stack', 'undo']);
   expect(expectedPlaceholders(SPEC, "export const PENDING = [] as const")).not.toContain('review');
 });
 
@@ -74,4 +74,6 @@ test('the header button must reserve the width of its longest label', () => {
   expect(checkPage(page(html)).errors).toEqual([expect.stringContaining('reserve')]);
   const css = '.cta small::before{content:"for Windows";visibility:hidden}';
   expect(checkPage(page(html, { 'assets/site.css': css })).errors).toEqual([]);
+  const sized = GOOD.replace('<body>', '<body><a class="cta"><span class="cta-in">Download <small class="cta-os"></small></span><span class="cta-size" aria-hidden="true">Download <small>for Windows</small></span></a>');
+  expect(checkPage(page(sized)).errors).toEqual([]);
 });

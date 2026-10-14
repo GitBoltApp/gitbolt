@@ -5,11 +5,11 @@
       "force": false,
       "new": {
         "kind": "object",
-        "oid": "48c1468715c3f71a70e1622cd994d79446296f59"
+        "oid": "33a9bee9fd681c0eb56a1e6581f579e162b3c942"
       },
       "old": {
         "kind": "object",
-        "oid": "32c4d0c72406ab107dcd0f40ab78348b7c1368f8"
+        "oid": "c2d2f523e82076960130ac46a6190a82068ac10c"
       },
       "path": "art/title.png",
       "repo": "$repo"
@@ -20,33 +20,33 @@
     "image": true,
     "lfs": true,
     "new": {
-      "base64": "sha256:fc831c46683e62f3131e44c6551a8a6b79bf6f789a112170f286daff5a7a5801:20236",
+      "base64": "sha256:6b1c5f0e8848151755b789ad12005ba54454230f7af172ce1d495c95dd6e6285:20124",
       "binary": true,
       "encoding": "",
       "eol": "none",
-      "hash": "d9b8ac0d3a65cf340f57fad4868cdef919d78d4c",
+      "hash": "6ef47d2a38d953220f5365ddb6a85a36f21a474a",
       "lfs": {
         "downloaded": true,
-        "oid": "91abddced57cdc011a56d7c1d83a7ee1fc1b0d30f5444808eb0a62a00bc37b70",
-        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:91abddced57cdc011a56d7c1d83a7ee1fc1b0d30f5444808eb0a62a00bc37b70\nsize 15176\n",
-        "size": 15176
+        "oid": "16c90cf857ba454f5122b6de2abd4ddf42d99e96b0bbdcffaa59b2c1fa98b665",
+        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:16c90cf857ba454f5122b6de2abd4ddf42d99e96b0bbdcffaa59b2c1fa98b665\nsize 15091\n",
+        "size": 15091
       },
-      "size": 15176,
+      "size": 15091,
       "text": null
     },
     "old": {
-      "base64": "sha256:13508d9bd143597d8e077c20b18eeaa078f110391252af1aee95a400254bb600:18312",
+      "base64": "sha256:27078964c128ac59534b4c76ac9ebf3d75e04a072c215010ac20b273d44e6040:18260",
       "binary": true,
       "encoding": "",
       "eol": "none",
-      "hash": "1f5564d66cb9179224126e5b9f5cb238f58bab0f",
+      "hash": "ed5178cf060c33fb386d6a6795804fc542d24a6d",
       "lfs": {
         "downloaded": true,
-        "oid": "06a1859707d1b346b3c59397e36991dc3da61530a492b1a4965cc26cd20e5383",
-        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:06a1859707d1b346b3c59397e36991dc3da61530a492b1a4965cc26cd20e5383\nsize 13734\n",
-        "size": 13734
+        "oid": "29aed208dfa6e27cc542baacf34ec8e57797de83a40f574531bff890cb361e95",
+        "pointer": "version https://git-lfs.github.com/spec/v1\noid sha256:29aed208dfa6e27cc542baacf34ec8e57797de83a40f574531bff890cb361e95\nsize 13694\n",
+        "size": 13694
       },
-      "size": 13734,
+      "size": 13694,
       "text": null
     },
     "tooLarge": false

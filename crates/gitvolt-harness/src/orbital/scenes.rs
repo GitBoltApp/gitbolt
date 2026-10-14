@@ -116,14 +116,28 @@ fn ship_with_flame(c: &mut Canvas, ship: &Canvas, flame: &Canvas, cx: i32, cy: i
 
 /// The key art: the logo over a nebula, a ringed gas giant to the lower right with the scout
 /// climbing out of its orbit, a station and a moon in the distance, rocks in the foreground.
-/// v1 is the early title screen's art (first sprites, capitals only); v2 the reworked one.
+/// v1 is the early title screen's art (first sprites, capitals only) on a cold navy sky with
+/// blue-teal clouds; v2 the reworked one, its sky repainted a warm plum with magenta and violet
+/// clouds.
 pub fn title(version: u16) -> Canvas {
     let v = version.min(2);
     let s = seed(&format!("title:{version}"));
     let glyphs = glyphs::text_glyphs();
     let mut c = Canvas::new(480, 270);
     sky(&mut c, s);
-    nebula(&mut c, s, VIOLET, TEAL, if v >= 2 { 1.0 } else { 0.75 });
+    if v >= 2 {
+        nebula(&mut c, s, RED, &VIOLET[1..], 1.0);
+        // The navy's lighter steps become plum; its darkest stays, for depth at the top.
+        for p in c.px.iter_mut() {
+            if *p == SPACE[1] {
+                *p = STEEL[0];
+            } else if *p == SPACE[2] {
+                *p = VIOLET[0];
+            }
+        }
+    } else {
+        nebula(&mut c, s, TEAL, &[SPACE[2], SPACE[3], TEAL[1]], 0.75);
+    }
     starfield(&mut c, s, 460);
 
     let moon = art::planet("dustball", v);
@@ -413,16 +427,18 @@ mod tests {
     }
 
     #[test]
-    fn title_v2_has_the_stronger_nebula_and_the_teal_mixed_case_tagline() {
+    fn title_v2_has_the_warm_sky_and_the_teal_mixed_case_tagline() {
         let (a, b) = (title(1), title(2));
         // The tagline band (scale 2, from y 96): v1 is steel capitals, v2 teal mixed case.
         let count = |c: &Canvas, ink: u8| (96..112).flat_map(|y| (0..480).map(move |x| (x, y))).filter(|&(x, y)| c.get(x, y) == ink).count();
         assert!(count(&b, TEAL[4]) > count(&a, TEAL[4]) + 40, "{} vs {}", count(&b, TEAL[4]), count(&a, TEAL[4]));
         assert!(count(&a, STEEL[4]) > count(&b, STEEL[4]) + 40);
-        // The nebula goes from 75% to full strength: more of the sky is off the base colour.
-        let nebula = |c: &Canvas| c.px.iter().filter(|&&p| VIOLET.contains(&p) || TEAL.contains(&p)).count();
-        assert!(nebula(&b) > nebula(&a) + 500, "{} vs {}", nebula(&b), nebula(&a));
-        assert_ne!(a.px[..480 * 20], b.px[..480 * 20]);
+        // The sky changes tint: v1's is navy and teal, v2's plum, violet and magenta, so a swipe
+        // between them splits two clearly different backdrops.
+        let warm = |c: &Canvas| c.px.iter().filter(|&&p| VIOLET.contains(&p) || RED.contains(&p) || p == STEEL[0]).count();
+        let cool = |c: &Canvas| c.px.iter().filter(|&&p| SPACE[1..].contains(&p) || TEAL.contains(&p)).count();
+        assert!(cool(&a) > 4 * warm(&a), "v1: {} cool, {} warm", cool(&a), warm(&a));
+        assert!(warm(&b) > 4 * cool(&b), "v2: {} warm, {} cool", warm(&b), cool(&b));
     }
 
     #[test]

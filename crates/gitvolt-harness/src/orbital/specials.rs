@@ -18,6 +18,10 @@ pub const COMMODITIES: &str = "assets/data/economy/commodities.csv";
 pub const FUEL_ICON: &str = "assets/ui/icons/fuel.png";
 pub const HUD_MARGIN_KEY: &str = "crates/orbital-game/src/hud.rs#const:HUD_MARGIN";
 pub const GAUGES: &str = "crates/orbital-game/src/hud_gauges.rs";
+/// The stack's lower branch: hud-polish's first three commits (the frame, the WIP and the fuel
+/// gauge), which Kasimir pushed on their own for an early look. An interactive rebase of
+/// hud-polish moves it along.
+pub const HUD_STACK: (&str, usize) = ("feature/hud-gauges", 2);
 
 pub fn apply(plans: &mut [FeaturePlan], corpus: &Corpus) -> Result<(), String> {
     for p in plans.iter_mut() {

@@ -67,12 +67,33 @@ checksums. After that, GitVolt updates itself (see [Updates](#updates)).
   pending review, then send them with Comment, Approve or Request changes. Suggested changes show
   as a diff of the lines they replace, and **Apply** puts one in your working copy. GitHub.com
   and GitLab, self-managed included.
+- **Worktrees.** Each worktree with changes has its own WIP row in the graph, with its name and
+  change counts, linked to the commit it has checked out. Switch the tab to another worktree from
+  that row, the sidebar or the toolbar, without reopening the repository, or open one in its own
+  tab. Each keeps its own undo history and commit message draft. Create one from any commit or
+  branch.
+- **Context menus.** Related actions share one row as buttons: Reset with Soft, Mixed and Hard,
+  Copy SHA with Short and Full. A destructive row arms in place: it turns red and says what a
+  second click does, so you confirm without moving the mouse, with any option (such as also
+  moving the branches stacked on it) as a checkbox right under it. A greyed-out row says why.
+  Submenus open as soon as the pointer reaches them, a diagonal move into one doesn't close it,
+  and every row and button works from the keyboard. Rows name what they act on, such as both
+  branches of a merge or a rebase.
 - **Rendered Markdown diffs.** Read a changed `.md` file as rendered Markdown, inline or side by
-  side, with the changed words highlighted.
-- **Image diffs.** Side by side, swipe, onion skin and a pixel difference view, all with zoom.
+  side, with the changed words highlighted, inside table rows too, and rows added or removed
+  lined up against a gap. GitHub- and GitLab-flavoured: tables, task lists, footnotes, front
+  matter shown as a table, Mermaid diagrams, syntax-highlighted code, the repository's images and
+  videos, emoji shortcodes, issue and MR/PR references, and sanitized inline HTML such as
+  collapsible `<details>` sections.
+- **Image diffs.** Side by side, swipe, onion skin, and a pixel difference view with an Amplify
+  slider, so near-identical images show where they differ. Zoom to fit or up close with crisp
+  pixels, put a checkerboard, black, white or grey background behind transparency, and match two
+  different sizes so every mode compares the same pixels. Each side shows its dimensions; an SVG
+  can switch to its source and any image to a hex dump, and Copy Image puts it on the clipboard.
+  PNG, JPEG, GIF, WebP, AVIF, BMP, ICO and SVG.
 - **File previews.** HTML pages render in a sandbox, CSV and TSV files show as tables with their
-  rows diffed, PDFs as pages (old and new side by side), and audio, video and fonts play or
-  display, each in place of a hex dump.
+  rows diffed, and PDFs as pages, old and new side by side. Audio and video get a player for each
+  version, and a font shows its name, sample text and glyphs. A hex view is there for any file.
 - **Undo history.** Each worktree keeps a journal of its last 50 operations, and it
   survives restarts: commits and amends, checkouts, branch and tag changes, merges, rebases,
   cherry-picks, reverts, resets, stashes, discards and pulls. Staging has its own undo too.
@@ -87,29 +108,32 @@ checksums. After that, GitVolt updates itself (see [Updates](#updates)).
 
 ### Everything else
 
-#### Graph and workspace
+#### Graph and navigation
 
 - **Pinned trunk.** The graph keeps your main branch and the remote branch it tracks at the left,
   sharing a lane until they diverge. In a fork, it pins the original project's trunk
   (`upstream/main`) with your main. You can pick another branch or turn it off.
-- **Tabs and tab groups.** A tab for each repository or worktree. Drop a tab onto another to
-  group them; a group's chip collapses it, moves it, or saves and closes it to reopen later.
-- **Profiles.** Each has its own tabs, forge accounts and an optional extra git config file.
-- **Worktrees.** Create one, switch to it, or open it in its own tab. Each keeps its own undo
-  history and commit message draft.
-- **Submodules.** The changes say whether a submodule has new commits, modified content or isn't
-  initialised, and its diff names each commit. Update, sync URLs or open one in a tab.
-- **Git LFS.** Diffs, File View and File History show an LFS file's real contents, never its
-  pointer, with **Download** for one that isn't local yet. Pull, fetch, and track or stop
-  tracking a file type from a file's menu.
-- **Compare.** Pick any two commits to see what changed between them, and swap which one is the
-  "from" and which the "to".
-- **Find.** Search commits by message, hash or file path with Ctrl+F, older history included.
 - **Go to the clipboard.** Ctrl+V outside a text field goes to what's on the clipboard: a commit
   hash, an MR/PR (`!12`, `#12` or its link), a forge's commit or file page, a file path with its
   line number, or a branch or tag.
+- **Command palette** (Ctrl+P) with every action, and every shortcut, including the ones that
+  only work in a context, in Help › Keyboard shortcuts (Ctrl+/).
+- **Find.** Search commits by message, hash or file path with Ctrl+F, older history included.
 
-#### Reviewing and forges
+#### Workspace
+
+- **Tabs and tab groups.** A tab for each repository or worktree. Drop a tab onto another to
+  group them; a group's chip collapses it, moves it, or saves and closes it to reopen later.
+- **Git LFS.** Diffs, File View and File History show an LFS file's real contents, never its
+  pointer, with **Download** for one that isn't local yet. Pull, fetch, and track or stop
+  tracking a file type from a file's menu.
+- **Submodules.** The changes say whether a submodule has new commits, modified content or isn't
+  initialised, and its diff names each commit. Update, sync URLs or open one in a tab.
+- **Profiles.** Each has its own tabs, forge accounts and an optional extra git config file.
+- **Themes,** many built in, dark and light, with per-lane graph colours, density presets and
+  app zoom.
+
+#### Code review
 
 - **Pending review.** Your drafts, the summary and the verdict sit in a panel in the MR/PR view,
   and a chip in the top bar ("Reviewing !12 · 3 pending") stays in view while you browse. A
@@ -118,46 +142,48 @@ checksums. After that, GitVolt updates itself (see [Updates](#updates)).
 - **Review threads in the diff.** Threads show as cards under their lines, outdated ones marked;
   a resolved one folds into its author's avatar in the gutter. F9 and Shift+F9 step through
   them, and the file list marks files that have threads.
+- **Compare an MR/PR** from its branch card: its merge base, then its head, as a compare in the
+  graph with the changed files open, so the diff matches the forge's.
+- **Spell check,** built in, in the commit message and the MR/PR text fields.
+
+#### MRs/PRs
+
 - **MR/PR view.** Docked beside the graph: reply, resolve, react, edit, approve, request changes,
   change reviewers, assignees and labels, and check out (adding the fork's remote first).
-  Pipeline status and the activity timeline, in rendered Markdown with Mermaid diagrams.
+- **Pipelines and timeline.** Pipeline status, and the activity timeline in rendered Markdown
+  with Mermaid diagrams.
 - **Merge panel.** Merge, or set auto-merge for when the checks pass. When the branch is behind
   its target (worked out from your fetched commits), one split button rebases it or merges the
   target in, the way you last chose.
 - **Creating MRs/PRs** with templates, people and label pickers, and drafts. Committing to main
   in your fork suggests a branch first.
-
-#### History, merges and rebases
-
-- **Merge tool:** three-way, with an editable result and a conflict minimap.
-- **File history and blame,** with each version's diff, and restore a file from any commit.
-- **Cherry-pick and revert,** each with a no-commit variant; stashes; tags.
-- **Signed commits** through your git config, and signature verification in the commit details.
-- **Undo menu:** undo an older action out of order when nothing later depends on it.
-- **Activity log** of every git command GitVolt ran, with its output, hooks included.
+- **MR/PR badges** on branch chips, an MR/PR section in the sidebar, and hover cards.
 
 #### Files and diffs
 
 - **Diffs:** inline, split or hunk, with word-level changes, syntax highlighting and sticky
-  scroll. Stage and unstage files, hunks and lines from the diff.
-- **Rendered HTML** as a static page in a sandbox: its scripts don't run and nothing is fetched,
-  with its relative images and stylesheets read from the repository.
+  scroll. Stage and unstage files, hunks and lines.
+- **Rendered HTML** in a sandbox: scripts don't run and nothing is fetched, but relative images
+  and stylesheets load from the repository.
 - **CSV and TSV tables:** the header row and row numbers stay in view, and a diff lines the rows
   up, a changed row's cells marked.
 - **PDFs** as pages with selectable text; a diff shows the two versions side by side, scrolled in
   step.
 - **Audio, video and fonts:** a player for each side, or a font's name, a pangram and its glyphs.
   **Hex** shows any file's bytes.
-- **File View:** read a file rendered or as source, edit a working-tree file, or create one.
+- **File View:** read a file rendered or as source, and edit or create a working-tree file.
   **Open in** your editor, file manager or default app, old versions included.
 
-#### Keyboard and look
+#### History, merges and undo
 
-- **Command palette** (Ctrl+P) with every action, and every shortcut, including the ones that
-  only work in a context, in Help › Keyboard shortcuts (Ctrl+/).
-- **Themes,** many built in, dark and light, with per-lane graph colours, density presets and
-  app zoom.
-- **Spell check,** built in, in the commit message and the MR/PR text fields.
+- **Undo menu:** undo an older action out of order when nothing later depends on it.
+- **Merge tool:** three-way, with an editable result and a conflict minimap.
+- **Compare.** Pick any two commits to see what changed between them, and swap which one is the
+  "from" and which the "to".
+- **File history and blame,** with each version's diff, and restore a file from any commit.
+- **Cherry-pick and revert,** each with a no-commit variant; stashes; tags.
+- **Activity log** of every git command GitVolt ran, with its output, hooks included.
+- **Signed commits** through your git config, and signature verification in the commit details.
 
 #### Privacy
 
@@ -186,8 +212,10 @@ checksums. After that, GitVolt updates itself (see [Updates](#updates)).
 | Push, pull, fetch, remotes, adding a fork as a remote | ✅ | ✅ |
 | Diffs: inline, split, hunk, word-level | ✅ | ✅ |
 | Image diffs | 🟡 | ✅ Side by side, swipe, onion skin, difference |
+| File previews | ❌ | ✅ CSV/TSV tables with row diffs, PDFs side by side, sandboxed HTML, audio, video, fonts, and a hex view |
 | File history and blame | ✅ | ✅ |
 | Rendered Markdown | 🟡 Files only | ✅ Files, diffs and MR/PR threads |
+| Mermaid diagrams in Markdown | ❌ | ✅ |
 | Pull/merge requests: list, view, create, comment, approve, merge | ✅ | ✅ Also auto-merge, and updating a branch that's behind |
 | Inline code review comments | ✅ GitHub | ✅ GitHub and GitLab: lines and ranges, a pending review, suggested changes you can apply |
 | Stacked pull/merge requests | 🟡 GitHub.com only | ✅ GitHub and GitLab |
@@ -197,14 +225,16 @@ checksums. After that, GitVolt updates itself (see [Updates](#updates)).
 | Command palette and keyboard shortcuts | ✅ | ✅ Every one listed in Help › Keyboard shortcuts (Ctrl+/) |
 | Themes | ✅ | ✅ Many built in, with per-lane graph colours |
 | Profiles | ✅ Multiple on paid plans | ✅ |
-| Hide and solo branches | ✅ | ❌ |
+| Hide and solo branches | ✅ | ❌ Not there yet |
 | Submodules | ✅ | ✅ State in the file list; update, sync and open in a tab |
 | Git LFS | ✅ | ✅ Real files in diffs and history, download, pull, track by extension |
 | Git Flow | ✅ | ❌ Not planned unless there's demand |
-| Integrated terminal | ✅ | ❌ |
-| AI commit messages and summaries | ✅ | ❌ |
-| Issue trackers (Jira, Trello, …) | ✅ | ❌ |
-| Cloud workspaces and team features | ✅ | ❌ |
+| Integrated terminal | ✅ | ❌ Not planned |
+| AI commit messages and summaries | ✅ | ❌ Not planned |
+| Issue trackers (Jira, Trello, …) | ✅ | ❌ Not planned |
+| Cloud workspaces and team features | ✅ | ❌ Not planned |
+| No account needed | ❌ Sign-in required | ✅ |
+| No telemetry | ❌ Collects usage analytics | ✅ |
 | Windows and macOS | ✅ | ✅ (macOS: Apple Silicon only) |
 | License | Proprietary; free for local and public repos | MIT |
 
@@ -213,8 +243,9 @@ checksums. After that, GitVolt updates itself (see [Updates](#updates)).
 - **Planned:** Forgejo.
 - **Not there yet:** hiding or soloing branches.
 - **Not planned unless there's demand:** Git Flow.
-- **Not planned:** Intel Macs, an integrated terminal, AI features, issue tracker integrations, and
-  Bitbucket, Azure DevOps or GitHub Enterprise Server support. Use the tools you already have for those.
+- **Not planned:** Intel Macs, an integrated terminal, AI features, issue tracker integrations,
+  cloud workspaces and team features, and Bitbucket, Azure DevOps or GitHub Enterprise Server
+  support. Use the tools you already have for those.
 
 ## Updates
 

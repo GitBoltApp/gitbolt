@@ -1135,6 +1135,11 @@ fn run_observed(plans: &[FeaturePlan], content: &Content, messages: &Messages, h
         };
         refs.insert(format!("refs/heads/{name}"), head);
         refs.insert(format!("refs/remotes/origin/{name}"), origin);
+        if p.feature.fate == Fate::Irebase {
+            let (lower, at) = super::specials::HUD_STACK;
+            refs.insert(format!("refs/heads/{lower}"), c[at]);
+            refs.insert(format!("refs/remotes/origin/{lower}"), c[at]);
+        }
     }
     for name in releases.iter().flat_map(|r| [Some(r.branch), r.cuts]).flatten().filter(|b| *b != "main") {
         if let Some(b) = tl.branches.get(name) {
