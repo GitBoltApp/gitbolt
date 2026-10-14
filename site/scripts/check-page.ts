@@ -5,7 +5,7 @@ import { checkPage, expectedPlaceholders, PAGE_BUDGETS } from '../build/check.ts
 
 const read = (rel: string) => readFileSync(new URL(rel, import.meta.url), 'utf8');
 const expected = expectedPlaceholders(read('../e2e-shots/shots.spec.ts'), read('../../ui/src/demo/coverage.ts'));
-const { errors, warnings, budgets } = checkPage(process.argv[2] ?? 'site/dist', PAGE_BUDGETS, { expected });
+const { errors, warnings, budgets } = checkPage(process.argv[2] ?? 'site/dist', PAGE_BUDGETS, { expected, base: process.env.GITVOLT_SITE_BASE || '/' });
 for (const b of budgets) console.log(`check-page: ${b.name.padEnd(10)} ${String(b.actual).padStart(8)} of ${b.limit}`);
 for (const w of warnings) console.warn(`check-page: warning: ${w}`);
 for (const e of errors) console.error(`check-page: ${e}`);

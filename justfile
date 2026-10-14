@@ -116,6 +116,18 @@ site-shots *args: demo-build
     (cd site && GITVOLT_SITE_SHOTS_RAW="$tmp" npx playwright test -c playwright.shots.config.ts --workers=1 {{args}})
     python3 scripts/site-shots.py "$tmp" site/shots
 
+# The site's social-sharing image (site/public/og.jpg, og:image): site/og/og.html, drawn with the
+# page's tokens, fonts and art and the hero screenshot, rendered by headless Chromium
+# (site/scripts/og-image.ts) and saved as a JPEG under 300 KB (Pillow). On demand: rerun after the
+# hero shot or the brand changes, and commit the result.
+site-og:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [ -d site/node_modules ] || (cd site && npm ci)
+    tmp=$(mktemp -d); trap 'rm -rf "$tmp"' EXIT
+    node site/scripts/og-image.ts "$tmp/og.png"
+    python3 scripts/site-og.py "$tmp/og.png" site/public/og.jpg
+
 # The website's Playwright checks (site/e2e/, its own config): the built site and demo, served as
 # static files: no request to another origin, no console error, the downloads from release.json,
 # the live demo booting and resetting, a phone getting the still. Arguments go to Playwright.

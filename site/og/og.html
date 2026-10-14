@@ -1,0 +1,48 @@
+<!doctype html>
+<!-- The site's social-sharing image (og:image), 1200x630: `just site-og` renders it with
+     site/scripts/og-image.ts into site/public/og.jpg. It uses the page's own tokens, frame and art
+     (src/site.css, src/art/), the fonts from the site's packages, and the hero screenshot. The brand
+     and the headline stay in the middle, since some previews crop to near-square. -->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="../node_modules/@fontsource/sora/latin-700.css" />
+    <link rel="stylesheet" href="../node_modules/@fontsource/sora/latin-800.css" />
+    <link rel="stylesheet" href="../node_modules/@fontsource/inter/latin-500.css" />
+    <link rel="stylesheet" href="../node_modules/@fontsource/inter/latin-400.css" />
+    <link rel="stylesheet" href="../src/site.css" />
+    <style>
+      html, body { width: 1200px; height: 630px; overflow: hidden; }
+      body { position: relative; isolation: isolate; }
+      /* The hero's lanes, a little smaller than on the page so more of them fit. */
+      .og-lanes { position: absolute; left: 50%; top: -6px; width: 3520px; height: 720px; transform: translateX(-50%); z-index: -2; }
+      /* A soft darkening behind the words, as the hero's text shadow does. */
+      .og-shade { position: absolute; inset: 0; z-index: -1;
+        background: radial-gradient(ellipse 520px 210px at 50% 170px, rgba(7, 12, 29, .92), rgba(7, 12, 29, .55) 70%, rgba(7, 12, 29, 0)); }
+      .brand { justify-content: center; gap: 18px; margin-top: 44px; font-size: 64px; font-weight: 800; letter-spacing: -.035em; line-height: 1; }
+      .brand img { width: 76px; height: 76px; }
+      h1 { margin: 26px auto 0; text-align: center; font: 700 50px/1.12 var(--display); letter-spacing: -.035em; }
+      h1, .og-sub { text-shadow: 0 0 6px var(--bg), 0 0 24px var(--bg), 0 0 48px var(--bg); }
+      h1 .grad { text-shadow: none; }
+      .og-sub { margin: 18px 0 0; text-align: center; color: var(--muted); font: 500 25px/1.2 var(--body); }
+      /* A slice of the hero screenshot in the page's window frame, leaning back a little and running
+         off the bottom edge. */
+      .og-shot { position: absolute; left: 50%; top: 372px; width: 1000px; margin-left: -500px; padding: 2px;
+        transform: perspective(1800px) rotateX(16deg); transform-origin: 50% 0; }
+      .og-shot .chrome { height: 30px; }
+      .og-crop { height: 330px; overflow: hidden; background: #16181d; }
+      .og-crop img { display: block; width: 1900px; margin: -817px 0 0 -294px; }
+    </style>
+  </head>
+  <body>
+    <img class="og-lanes" src="../src/art/hero-lanes.svg" alt="" />
+    <div class="og-shade"></div>
+    <div class="brand"><img src="../src/art/icon.svg" alt="" />GitVolt</div>
+    <h1>A fast, keyboard&#8209;friendly<br /><span class="grad">desktop Git client</span></h1>
+    <p class="og-sub">Free and MIT licensed · Linux, Windows and macOS</p>
+    <div class="og-shot window"><div class="window-in">
+      <div class="chrome"><span class="dots"><i></i><i></i><i></i></span><span class="title">GitVolt · orbital</span><span></span></div>
+      <div class="og-crop"><img src="../shots/hero.webp" alt="" /></div>
+    </div></div>
+  </body>
+</html>

@@ -97,8 +97,9 @@ GitHub Pages sends every file with `Cache-Control: max-age=600` and has no setti
 `just site-pages` builds `site/dist/` as the workflow does and runs `ui/scripts/check-site.mjs`:
 
 - **The page's own checks** (`just site-build`, `site/build/check.ts`): nothing left unfilled, the
-  first screen's weight, and a placeholder screenshot only while its scene waits on a demo method
-  still pending (`ui/src/demo/coverage.ts`).
+  first screen's weight, a placeholder screenshot only while its scene waits on a demo method
+  still pending (`ui/src/demo/coverage.ts`), and `og:image` and `twitter:image` there, absolute
+  and a file of the build under `GITVOLT_SITE_BASE`.
 - **Pages:** `index.html`, `404.html`, `demo/demo.html` and the demo's manifest are there; no
   dotfile (the upload leaves them out) and no source map.
 - **No third-party requests:** every script, stylesheet, image, frame, font and icon a page or
@@ -131,6 +132,21 @@ To browse it as Pages serves it:
 ```sh
 python3 -m http.server -d site/dist 8000   # http://localhost:8000/
 ```
+
+## Link previews
+
+The page's `og:` and `twitter:` tags give link previews (chat apps, social sites) a title, a
+description and an image. Scrapers need absolute URLs, so the build writes `og:url`, `og:image`
+and `twitter:image` from two settings (`site/build/social.ts`):
+
+- **`GITVOLT_SITE_ORIGIN`:** the scheme and host, `https://gitvolt.com` by default.
+- **`GITVOLT_SITE_BASE`:** the path under it, `/` by default (see The domain).
+
+**The image** is `site/public/og.jpg`, 1200x630, served unhashed at the site's root. It's drawn
+from `site/og/og.html` (the page's tokens, fonts and lane art, and a slice of the hero
+screenshot) by `just site-og`: headless Chromium, then a JPEG under 300 KB (Pillow). Rerun it
+after the hero screenshot or the brand changes, and commit the result. Keep the brand and the
+headline in the middle 630 px, since some previews crop to near-square.
 
 ## Security
 
@@ -167,4 +183,5 @@ holds gitvolt.com, so no other account can claim it. DNS at the registrar: `A` r
 
 `GITVOLT_SITE_BASE` is the path the site is served under: `/`, the default. To serve it under a
 path instead (Pages without the domain: `/gitvolt/`), set it as an `env:` entry on the build job
-in `.github/workflows/site.yml`.
+in `.github/workflows/site.yml`, with `GITVOLT_SITE_ORIGIN` (`https://gitvoltapp.github.io`) for
+the link previews' URLs.

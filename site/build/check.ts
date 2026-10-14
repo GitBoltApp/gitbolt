@@ -1,8 +1,8 @@
 // The landing page's own checks, run by `just site-build` right after the page's build. Plan 6's
 // ui/scripts/check-site.mjs then checks the whole Pages artefact (links, third-party loads, image
 // sizes, the demo's data and code); this adds what only the page knows: no generated part left
-// unfilled, which screenshots are still placeholders, the header button's reserved width, and the
-// weight of the first screen, which paints before the demo loads (spec §4.5). Text is counted
+// unfilled, which screenshots are still placeholders, the header button's reserved width, the link
+// previews' image (an absolute URL to a file in the build), and the weight of the first screen, which paints before the demo loads (spec §4.5). Text is counted
 // gzipped, as GitHub Pages serves it.
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { dirname, extname, join, normalize } from 'node:path';
@@ -74,11 +74,31 @@ const WIDEST_CTA = 'for Windows';
 export interface PageOptions {
   /** Shots allowed to still be placeholders; any other placeholder is an error, not a warning. */
   expected?: Set<ShotId>;
+  /** The path the site is served under (GITVOLT_SITE_BASE), to find og:image's file in the build. */
+  base?: string;
+}
+
+const metaContent = (html: string, key: string): string | undefined =>
+  [...html.matchAll(/<meta\b[^>]*>/g)].map((m) => m[0]).filter((t) => attr(t, 'property') === key || attr(t, 'name') === key).map((t) => attr(t, 'content'))[0];
+
+/** og:image and twitter:image: there, absolute (scrapers don't resolve relative URLs), and a file
+ * this build has under `base`. */
+export function checkSocial(dist: string, html: string, base = '/'): string[] {
+  const errors: string[] = [];
+  for (const key of ['og:image', 'twitter:image']) {
+    const url = metaContent(html, key);
+    if (!url) { errors.push(`index.html: no ${key} <meta> (link previews would have no image)`); continue; }
+    if (!/^https:\/\/[^/]+\//.test(url)) { errors.push(`index.html: ${key} "${url}" isn't an absolute https URL`); continue; }
+    const path = decodeURIComponent(new URL(url).pathname);
+    if (!path.startsWith(base) || !existsSync(join(dist, path.slice(base.length)))) errors.push(`index.html: ${key} "${url}" isn't a file in the build (base ${base})`);
+  }
+  return errors;
 }
 
 export function checkPage(dist: string, budgets: typeof PAGE_BUDGETS = PAGE_BUDGETS, opts: PageOptions = {}): PageReport {
   const html = readFileSync(join(dist, 'index.html'), 'utf8');
   const errors = [...html.matchAll(/<!--([a-z]+:[a-z0-9-]+)-->/g)].map((m) => `index.html: <!--${m[1]}--> was never filled`);
+  errors.push(...checkSocial(dist, html, opts.base));
   const warnings: string[] = [];
   const altToId = new Map((Object.entries(SHOTS) as [ShotId, { alt: string }][]).map(([id, s]) => [s.alt, id]));
   for (const m of html.matchAll(/<span class="shot-cap">([^<]*)<\/span>/g)) {

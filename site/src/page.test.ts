@@ -33,7 +33,7 @@ test('a skip link before the demo lands on the features', () => {
 });
 
 test('every generated part has its marker', () => {
-  for (const m of ['readme:highlights', 'readme:groups', 'readme:compare', 'release:version', 'release:downloads', 'hero:still']) expect(html).toContain(`<!--${m}-->`);
+  for (const m of ['readme:highlights', 'readme:groups', 'readme:compare', 'release:version', 'release:downloads', 'hero:still', 'social:meta']) expect(html).toContain(`<!--${m}-->`);
 });
 
 test('Reset demo carries both its labels, so arming shifts nothing', () => {
