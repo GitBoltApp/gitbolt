@@ -23,7 +23,7 @@ export const branchOf = (ref: string) => ref.replace(/^refs\/heads\//, '');
 export const mergedName = (message: string) => /^Merge (?:remote-tracking )?branch '([^']+)'/.exec(message)?.[1] ?? null;
 
 /** Each side's name for operation `p` (`null`: unknown). `branch`: the worktree's checked-out
- * branch; `nameAt`: a branch at a commit; `target`: a GitBolt-started op's own target name. */
+ * branch; `nameAt`: a branch at a commit; `target`: a GitVolt-started op's own target name. */
 export function conflictSides(p: InProgress | null, branch: string | null, nameAt: (sha: string) => string | null = () => null, target: string | null = null): ConflictSides {
   const here = branch ? branchOf(branch) : null;
   switch (p?.kind) {

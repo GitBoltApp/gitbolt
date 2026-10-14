@@ -14,7 +14,7 @@ import { detectHostKind } from './hostKind';
 import { effectiveKind } from './urls';
 import './accounts.css';
 
-export const FILE_WARNING = 'Stored in a file, not the system keyring: install or start a Secret Service (GNOME Keyring, KWallet), then restart GitBolt to secure it.';
+export const FILE_WARNING = 'Stored in a file, not the system keyring: install or start a Secret Service (GNOME Keyring, KWallet), then restart GitVolt to secure it.';
 const KINDS: Array<[ForgeKind, string]> = [['gitlab', 'GitLab'], ['github', 'GitHub']];
 
 /** What an account's last requests said, in plain words; `null` when all is well. */
@@ -44,7 +44,7 @@ export function statusChip(v: ForgeAccountView): { tone: 'ok' | 'warn' | 'err'; 
 type Panel = { mode: 'add' } | { mode: 'replace'; host: string; kind: ForgeKind };
 const TOKEN_HELP: Record<ForgeKind, string> = {
   gitlab: 'Opens your profile\'s token page with the api scope selected. Copy the token, then paste it here.',
-  github: 'Opens GitHub\'s fine-grained token page with the permissions GitBolt needs selected. Some organizations cap these tokens\' lifetime (e.g. 90 days); use a classic token for those.',
+  github: 'Opens GitHub\'s fine-grained token page with the permissions GitVolt needs selected. Some organizations cap these tokens\' lifetime (e.g. 90 days); use a classic token for those.',
 };
 const CLASSIC_HELP = 'Opens GitHub\'s classic token page with the repo and read:org scopes selected. Classic tokens don\'t expire unless you set a date.';
 /** GitHub's answer when an organization caps fine-grained token lifetimes. */

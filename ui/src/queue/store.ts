@@ -29,7 +29,7 @@ export async function loadQueue(repo: number): Promise<void> {
     // A queueChanged that arrived meanwhile is newer than this response.
     if (useQueue.getState().byRepo[repo] === before) useQueue.getState().set(repo, s);
   } catch (e) {
-    console.warn('[gitbolt] queue state', e);
+    console.warn('[gitvolt] queue state', e);
   }
 }
 

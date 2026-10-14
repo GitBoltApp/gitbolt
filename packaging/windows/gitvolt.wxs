@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- GitVolt's MSI (WiX v5): per machine, into Program Files\GitVolt, for managed deployment.
+     scripts/package-windows.ps1 builds it from the staged folder (the "stage" bind path) and
+     defines Version (numeric, X.Y.Z.0), DisplayVersion, Publisher, Icon and InstallKind (the
+     install-kind-msi file).
+
+     Windows Installer compares only a version's first three fields, so every build of one X.Y.Z
+     (its pre-releases, the release and local builds) has the same ProductVersion;
+     AllowSameVersionUpgrades lets each replace whichever is installed, and the upgrade removes
+     the old version before installing the new one. An older X.Y.Z is refused.
+     Settings and repositories' data in %APPDATA% and %LOCALAPPDATA% stay on uninstall. -->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <!-- Never change UpgradeCode: it's what makes a new version replace an installed one, GitBolt's MSI (the app's name before 0.7.0) included. -->
+  <Package Name="GitVolt" Manufacturer="$(var.Publisher)" Version="$(var.Version)"
+           UpgradeCode="7003EA59-7995-4744-BA0C-D01FB85D7BBA" Scope="perMachine" Language="1033">
+    <SummaryInformation Description="GitVolt $(var.DisplayVersion)" />
+    <MajorUpgrade AllowSameVersionUpgrades="yes"
+                  DowngradeErrorMessage="A newer version of GitVolt is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="GitVolt.ico" SourceFile="$(var.Icon)" />
+    <Property Id="ARPPRODUCTICON" Value="GitVolt.ico" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Property Id="ARPNOREPAIR" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="GitVolt" />
+    </StandardDirectory>
+
+    <Feature Id="Main">
+      <ComponentGroupRef Id="App" />
+      <ComponentRef Id="StartMenuShortcut" />
+      <ComponentRef Id="OpenInGitVolt" />
+      <ComponentRef Id="InstallKind" />
+    </Feature>
+
+    <ComponentGroup Id="App" Directory="INSTALLFOLDER">
+      <Files Include="!(bindpath.stage)\**" />
+    </ComponentGroup>
+
+    <!-- How GitVolt was installed, beside GitVolt.exe: its update check offers the MSI. -->
+    <Component Id="InstallKind" Directory="INSTALLFOLDER">
+      <File Id="InstallKindFile" Name="install-kind" Source="$(var.InstallKind)" KeyPath="yes" />
+    </Component>
+
+    <!-- The Start menu shortcut. Windows Installer wants a shortcut's component keyed by a
+         registry value under HKCU (ICE43, ICE57), even in a per-machine package. -->
+    <Component Id="StartMenuShortcut" Directory="ProgramMenuFolder">
+      <Shortcut Name="GitVolt" Target="[INSTALLFOLDER]GitVolt.exe" WorkingDirectory="INSTALLFOLDER" />
+      <RegistryValue Root="HKCU" Key="Software\GitVolt" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
+    </Component>
+
+    <!-- "Open in GitVolt" on a folder, and on a folder's background, in File Explorer (Windows 11
+         lists it under "Show more options"). The app opens the folder it's given. -->
+    <Component Id="OpenInGitVolt" Directory="INSTALLFOLDER">
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\shell\GitVolt">
+        <RegistryValue Value="Open in GitVolt" Type="string" KeyPath="yes" />
+        <RegistryValue Name="Icon" Value="&quot;[INSTALLFOLDER]GitVolt.exe&quot;,0" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]GitVolt.exe&quot; &quot;%V&quot;" Type="string" />
+      </RegistryKey>
+      <RegistryKey Root="HKLM" Key="Software\Classes\Directory\Background\shell\GitVolt">
+        <RegistryValue Value="Open in GitVolt" Type="string" />
+        <RegistryValue Name="Icon" Value="&quot;[INSTALLFOLDER]GitVolt.exe&quot;,0" Type="string" />
+        <RegistryValue Key="command" Value="&quot;[INSTALLFOLDER]GitVolt.exe&quot; &quot;%V&quot;" Type="string" />
+      </RegistryKey>
+    </Component>
+  </Package>
+</Wix>

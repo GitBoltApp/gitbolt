@@ -112,7 +112,7 @@ export const sameJson = (a: unknown, b: unknown): boolean => a === b || JSON.str
 export const keepSame = <T,>(old: T, next: T): T => (sameJson(old, next) ? old : next);
 
 /** Load bookkeeping outside the store (it must not re-render anything): per MR (`<tab>:<n>`),
- * `loading` and `freshAt`; per tab, `writes` (the write epoch: GitBolt forge writes answered so
+ * `loading` and `freshAt`; per tab, `writes` (the write epoch: GitVolt forge writes answered so
  * far) and `activatedAt` (the last full `activate` poll, which outlives the tab's pollers). */
 export const forgeScratch = { loading: new Map<string, Promise<void>>(), freshAt: new Map<string, number>(), writes: new Map<string, number>(), activatedAt: new Map<string, number>(), /** Tabs whose next poll asks the forges again (an account was added or removed). */ recheck: new Set<string>(), /** A tab's review session's Compare watch (`watchCompare`). */ reviewUnsub: new Map<string, () => void>(), /** The refs (`<number> <base> <start> <head>`, as the drafts read reported them) a tab's review diff was last read for (`refreshReview`). */ reviewRefs: new Map<string, string>() };
 

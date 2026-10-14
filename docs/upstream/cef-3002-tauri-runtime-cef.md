@@ -1,9 +1,9 @@
 # Upstream report: tauri-runtime-cef idle busy loop (CEF #3002)
 
-Committed copy of the draft originally written in the GitBolt CEF spike
+Committed copy of the draft originally written in the GitVolt CEF spike
 (`spike-cef/UPSTREAM_ISSUE.md`, on the `spike/webkitgtk` worktree branch), kept here so
-`vendor/tauri-runtime-cef/GITBOLT-PATCH.md` doesn't link to a worktree that may not exist in every
-checkout. This is the fix vendored in `vendor/tauri-runtime-cef` (see `GITBOLT-PATCH.md` for the
+`vendor/tauri-runtime-cef/GITVOLT-PATCH.md` doesn't link to a worktree that may not exist in every
+checkout. This is the fix vendored in `vendor/tauri-runtime-cef` (see `GITVOLT-PATCH.md` for the
 exact files changed).
 
 A version of this report was posted as a comment on the upstream issue:
@@ -117,9 +117,9 @@ The last check makes the workaround a no-op if CEF/Chromium ever fixes `HandlePr
 `cef::initialize` that is exactly one source. `MessagePumpGlib`'s destructor later calls
 `g_source_destroy` + `g_source_unref`, and destroying an already-destroyed source is a no-op.
 
-Patch against 3.0.0-alpha.4 (condensed; the full diff is in the GitBolt spike's
+Patch against 3.0.0-alpha.4 (condensed; the full diff is in the GitVolt spike's
 `evidence/tauri-runtime-cef-3002.patch`, and applied in this repo's
-`vendor/tauri-runtime-cef` — see `GITBOLT-PATCH.md`):
+`vendor/tauri-runtime-cef` — see `GITVOLT-PATCH.md`):
 
 ```rust
 // external_message_pump/linux.rs
@@ -161,15 +161,15 @@ A proper fix belongs in CEF. `MessagePumpExternal` should not attach `MessagePum
 source (or should derive from a non-glib pump), or `HandlePrepare` should return -1 when `state_`
 is null. The workaround above is safe to keep in the meantime.
 
-### Note on Task 14's own measurements (GitBolt `gitbolt-app`, not the spike)
+### Note on Task 14's own measurements (GitVolt `gitvolt-app`, not the spike)
 
-The workaround demonstrably still works in `gitbolt-app`: an idle, no-repo-open control measured
+The workaround demonstrably still works in `gitvolt-app`: an idle, no-repo-open control measured
 0.700% over 30 s, a settled 60 s sample with a large repository open measured 0.617%, and the
 "workaround not found" warning never fired in any launch's log — both figures consistent with the
 spike's own 0.72–1.00%. One further 60 s sample, taken while other desktop apps were actively
-running (Firefox, GNOME Shell, another desktop git client, a live `git` fetch), measured 13.517%, concentrated in GitBolt's
+running (Firefox, GNOME Shell, another desktop git client, a live `git` fetch), measured 13.517%, concentrated in GitVolt's
 own browser and renderer processes. `/proc/<pid>/stat`'s `utime+stime` only counts a process's
-own on-CPU time, so that's real work by GitBolt's processes during a period of genuinely higher
+own on-CPU time, so that's real work by GitVolt's processes during a period of genuinely higher
 desktop activity, not scheduling contention inflating the count. The user reviewed these numbers
 and accepted them for the CEF runtime on 2026-09-27 (their laptop is thermally capped at 70°C, so
 per-run CPU throughput isn't perfectly consistent).

@@ -11,7 +11,7 @@ export interface ForgeRef {
 
 export type MessageToken = { kind: 'text'; text: string } | { kind: 'link'; text: string; url: string; ref: ForgeRef | null };
 
-/** At most this many labels, mirroring `MAX_MESSAGE_REFS` (`gitbolt-core/src/message_refs.rs`), so
+/** At most this many labels, mirroring `MAX_MESSAGE_REFS` (`gitvolt-core/src/message_refs.rs`), so
  * a pathological message can't blow up `referenceLabels`. */
 const MAX_MESSAGE_REFS = 20;
 
@@ -45,7 +45,7 @@ function isGlued(c: string): boolean {
 }
 
 /** The `[start, end)` span of the reference whose `!`/`#` sits at `sigil`, if there is one. A
- * direct, character-wise port of `reference_at` in `gitbolt-core/src/message_refs.rs` — see that
+ * direct, character-wise port of `reference_at` in `gitvolt-core/src/message_refs.rs` — see that
  * file for the reasoning behind each check. */
 function referenceAt(message: string, sigil: number): [number, number] | null {
   const digitsStart = sigil + 1;
@@ -62,7 +62,7 @@ function referenceAt(message: string, sigil: number): [number, number] | null {
 
 /** Every `!N`, `path!N`, `#N` and `path#N` reference in `message`, exactly as written, in
  * first-occurrence order, deduplicated, capped at `MAX_MESSAGE_REFS`. The host kind isn't
- * involved: this mirrors `parse_message_refs` (`gitbolt-core/src/message_refs.rs`) byte-for-byte,
+ * involved: this mirrors `parse_message_refs` (`gitvolt-core/src/message_refs.rs`) byte-for-byte,
  * and is pinned against the same shared vectors (`testdata/message-refs.json`). */
 export function referenceLabels(message: string): string[] {
   const out: string[] = [];

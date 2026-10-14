@@ -33,7 +33,7 @@ export function registerRepoImageLoader(fn: RepoImageLoader, release?: (url: str
  * `broken.why`: the placeholder's tooltip, so one failure can be told from another. */
 type View = { kind: 'loading' } | { kind: 'shown'; url: string; id: string } | { kind: 'ask'; host: string } | { kind: 'broken'; why: string };
 
-const NOT_ALLOWED = "Not loaded: GitBolt doesn't load images from this address";
+const NOT_ALLOWED = "Not loaded: GitVolt doesn't load images from this address";
 const failed = (why: string): View => ({ kind: 'broken', why: `Couldn't load: ${why}` });
 
 /** An image (spec §4.2): the forge's own hosts load through the core; another host waits for

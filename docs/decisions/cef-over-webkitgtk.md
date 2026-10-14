@@ -1,6 +1,6 @@
 # CEF over WebKitGTK
 
-**Decision:** GitBolt runs on Tauri's CEF runtime (`tauri-runtime-cef`, a Chromium build) instead
+**Decision:** GitVolt runs on Tauri's CEF runtime (`tauri-runtime-cef`, a Chromium build) instead
 of Tauri's default Linux webview, WebKitGTK. WebKit can't run the Monaco diff editor smoothly, and
 the cause is in the engine itself. CEF runs it at full frame rate with about 35× fewer janky
 frames; its own problems were either fixable or had workarounds, and the costs below were
@@ -11,7 +11,7 @@ repository; the numbers below are copied from them unchanged.
 
 ## The question
 
-Is WebKitGTK fast enough for GitBolt's heaviest surfaces: a canvas commit graph over a
+Is WebKitGTK fast enough for GitVolt's heaviest surfaces: a canvas commit graph over a
 virtualized list, the Monaco diff editor with Shiki highlighting on a 5,000-line file, and 12 tabs
 kept mounted with React `<Activity>`? If not, is Tauri's CEF runtime a usable alternative?
 
@@ -145,7 +145,7 @@ stays. Unpatched and patched builds, alternated, unsandboxed:
 fps doesn't change, and the `invoke()` round trip stays at 2.2 ms (patched) vs 2.1 ms (unpatched)
 median over 30 calls. Jank on the light, fixed-rate scrolls read higher patched (median 2.62% vs
 1.09% at 16 px/frame); with four batches each, that small increase is neither confirmed nor ruled
-out. GitBolt carries this workaround in `vendor/tauri-runtime-cef` (see `GITBOLT-PATCH.md` there,
+out. GitVolt carries this workaround in `vendor/tauri-runtime-cef` (see `GITVOLT-PATCH.md` there,
 and the upstream report in `docs/upstream/cef-3002-tauri-runtime-cef.md`).
 
 ### Memory
@@ -165,7 +165,7 @@ zygote, so the sandboxed total should be no lower.
   window, so every click goes to CEF and GTK never records a button press. Without one,
   `drag_window()` (behind both `data-tauri-drag-region` and `startDragging()`) fails silently, and
   so does `startResizeDragging()`. Upstream: tauri#14936 (the same bug on an older CEF, a crash
-  there). GitBolt therefore keeps **native window decorations** (`decorations: true`).
+  there). GitVolt therefore keeps **native window decorations** (`decorations: true`).
 - **`element.requestFullscreen()`** fills the window but doesn't fullscreen it (tauri#16025);
   Tauri's `setFullscreen()` works.
 - **Works:** IPC (round trip 1.9 ms), window buttons (minimize, maximize, close), double-click
@@ -199,7 +199,7 @@ before/after batches of the workaround; the stock busy loop is the same either w
 | `.deb` file | **146.4 MB** |
 
 - **`.deb`: works**, with the setuid helper in place. The bundler declared `Depends: libgtk-3-0`
-  although the runtime links GTK 4; GitBolt's `scripts/fix-deb.sh` rewrites it to `libgtk-4-1`.
+  although the runtime links GTK 4; GitVolt's `scripts/fix-deb.sh` rewrites it to `libgtk-4-1`.
 - **AppImage: failed.** The bundler's script needs `patchelf`, then failed to download two files
   from its upstream tooling (HTTP 404), independent of CEF.
 - Every launch prints harmless-looking errors: `gtk_disable_setlocale() must be called before
@@ -212,11 +212,11 @@ before/after batches of the workaround; the stock busy loop is the same either w
 
 At the time, the spike recommended staying on WebKitGTK because of CEF's memory, download size,
 alpha gaps and the runtime patch, but said CEF could be adopted with native decorations and the
-#3002 workaround if those costs were acceptable. They were accepted, and GitBolt adopted CEF:
+#3002 workaround if those costs were acceptable. They were accepted, and GitVolt adopted CEF:
 
 - **Diff editor:** passes on CEF; on WebKit, the problem sits in the engine, out of reach of app
   code.
-- **Memory:** 554 MB vs 280 MB for 12 tabs. GitBolt's memory budget is now under 650 MB with 12
+- **Memory:** 554 MB vs 280 MB for 12 tabs. GitVolt's memory budget is now under 650 MB with 12
   tabs open, and its idle CPU budget under 1.5% (`just bench`).
 - **Download size:** a ~146 MB `.deb` and ~322 MB installed, where WebKitGTK comes with the
   system. Building needs the ~320 MB CEF download once.
@@ -224,7 +224,7 @@ alpha gaps and the runtime patch, but said CEF could be adopted with native deco
   one-time install of the helper or a `chown`/`chmod` after each build. The app requires the
   sandbox (`SandboxPolicy::Required`) and won't start without it.
 - **Alpha runtime:** Tauri 3.0.0-alpha.4 and `tauri-runtime-cef` 3.0.0-alpha.5 are pinned, and
-  the runtime is vendored with GitBolt's patches until upstream fixes them. Known gaps: no
+  the runtime is vendored with GitVolt's patches until upstream fixes them. Known gaps: no
   custom-title-bar drag (native decorations instead), no AppImage, a wrong GTK dependency in the
   bundler's `.deb` (fixed by `scripts/fix-deb.sh`), and always XWayland.
 - **Graph jank:** 1.5–1.8% janky frames, just over the < 1% threshold, at CEF's own floor; fps and

@@ -1,6 +1,6 @@
 # Licensing and third-party notices
 
-GitBolt is MIT licensed (`LICENSE`). Its packages also contain other people's code: the Rust
+GitVolt is MIT licensed (`LICENSE`). Its packages also contain other people's code: the Rust
 crates the binary links, the npm packages bundled into the interface, the Chromium Embedded
 Framework (CEF) with Chromium, and an English spell-check dictionary. Their licenses require their notices to ship with the binary, so
 every package carries them, generated fresh by each `just package`.
@@ -9,33 +9,33 @@ every package carries them, generated fresh by each `just package`.
 
 | File | Contents |
 | --- | --- |
-| `LICENSE` | GitBolt's own license |
-| `THIRD-PARTY-NOTICES-rust.txt` | Every crate `gitbolt-app` links, grouped by license |
+| `LICENSE` | GitVolt's own license |
+| `THIRD-PARTY-NOTICES-rust.txt` | Every crate `gitvolt-app` links, grouped by license |
 | `THIRD-PARTY-NOTICES-ui.txt` | Every npm package in the UI bundle, grouped by license; Shiki's grammars and themes with their own licenses; notices packages ship (Monaco's `ThirdPartyNotices.txt`); the licenses a package keeps beside files bundled from a subfolder (pdf.js's `wasm/LICENSE_OPENJPEG`, `LICENSE_JBIG2`) |
 | `CEF-LICENSE.txt` | CEF's license, from the CEF distribution the build used |
 | `CHROMIUM-CREDITS.html.gz` | Chromium's credits for everything it bundles, from the same distribution (about 20 MB of HTML, gzipped to about 2 MB) |
 | `DICTIONARY-en-US-LICENSE.txt` | The spell-check dictionary's source and license (below) |
 
-- The `.deb` installs them in `/usr/share/doc/gitbolt/`, with a `copyright` file in Debian's
-  machine-readable format (DEP-5, written by `scripts/package-meta.py`): GitBolt is MIT, CEF and
+- The `.deb` installs them in `/usr/share/doc/gitvolt/`, with a `copyright` file in Debian's
+  machine-readable format (DEP-5, written by `scripts/package-meta.py`): GitVolt is MIT, CEF and
   Chromium's files BSD-3-Clause, the dictionary SCOWL's license, each pointing to the file above.
   The control file has `License: MIT` too, which GNOME Software shows for a `.deb` that isn't
   installed yet, and the AppStream metainfo says `project_license` MIT.
-- The Arch package has the same files, plus `/usr/share/licenses/gitbolt`, a symlink to
-  `/usr/share/doc/gitbolt` (Arch's location for license files). Its `license` lines are MIT, the
+- The Arch package has the same files, plus `/usr/share/licenses/gitvolt`, a symlink to
+  `/usr/share/doc/gitvolt` (Arch's location for license files). Its `license` lines are MIT, the
   licenses in the two notices files' summaries, `BSD-3-Clause` and `LicenseRef-SCOWL`.
-- The RPM has the same files and the same `/usr/share/licenses/gitbolt` symlink (Fedora's
+- The RPM has the same files and the same `/usr/share/licenses/gitvolt` symlink (Fedora's
   location too). They're `%license` files, so dnf installs them even with `tsflags=nodocs`. Its
   `License` tag is the Arch package's list as one SPDX expression (`MIT AND Apache-2.0 AND …`).
 - The Windows installers put them in `licenses\` in the install folder.
-- On macOS they're inside the app, in `GitBolt.app/Contents/Resources/licenses/`
-  (`crates/gitbolt-app/packaging/macos/dmg.conf.json`).
-- In the app, **Help > About GitBolt > Open source licenses** shows all of them except the
+- On macOS they're inside the app, in `GitVolt.app/Contents/Resources/licenses/`
+  (`crates/gitvolt-app/packaging/macos/dmg.conf.json`).
+- In the app, **Help > About GitVolt > Open source licenses** shows all of them except the
   Chromium credits, which are too large to embed in the app; the page gives their installed path instead.
   The UI build copies the files into `ui/dist/licenses/`, which the app embeds, so they're in a
   lazy chunk, not the startup bundle.
 
-Each notices file lists every package under the license GitBolt uses it under (for "MIT OR
+Each notices file lists every package under the license GitVolt uses it under (for "MIT OR
 Apache-2.0", the one chosen by the allow-list's order, below) with the copyright lines from its
 license files. The full text of each license follows its list once; texts that differ in more
 than their copyright lines (a crate that adds its own terms, a header from a copied source file)
@@ -47,12 +47,12 @@ are printed separately, each with the packages that use it.
 so the notices can't go stale.
 
 1. **`scripts/licenses.sh`** writes `target/licenses/`:
-   - **Rust:** `cargo about generate` (cargo-about 0.9.2) produces JSON for `gitbolt-app`'s graph:
+   - **Rust:** `cargo about generate` (cargo-about 0.9.2) produces JSON for `gitvolt-app`'s graph:
      the crates it links on `x86_64-unknown-linux-gnu` (`x86_64-pc-windows-msvc` for the Windows
      installers: `scripts/package-windows.ps1` runs the script in Git for Windows' bash, which
      passes that target; `aarch64-apple-darwin` for the `.dmg`, from `scripts/package-macos.sh`
      on a Mac), without dev-only or build-time crates and
-     without GitBolt's own workspace crates (the harness isn't in the graph at all). Then
+     without GitVolt's own workspace crates (the harness isn't in the graph at all). Then
      `scripts/notices.py` groups it and writes the text file. cargo-about was chosen over
      `cargo-bundle-licenses` or a script over `cargo metadata` because it does the hard parts
      reliably: it evaluates each crate's SPDX expression against the allow-list, identifies
@@ -78,14 +78,14 @@ so the notices can't go stale.
    fails if the grammars don't match them.
 
 `.deb` packaging takes the files from `target/licenses/` and `ui/dist/licenses/` (the `files`
-map in `crates/gitbolt-app/tauri.conf.json`); `scripts/check-deb.sh`, `scripts/package-arch.sh`,
+map in `crates/gitvolt-app/tauri.conf.json`); `scripts/check-deb.sh`, `scripts/package-arch.sh`,
 `scripts/check-arch-pkg.sh`, `scripts/package-rpm.sh` and `scripts/check-rpm-pkg.sh` fail if any
 of them is missing or empty, as
 `scripts/package-macos.sh` does for the `.dmg`'s app.
 
 ## Windows packaging tools
 
-The Windows build uses three tools that aren't GitBolt dependencies (`scripts/package-windows.ps1`
+The Windows build uses three tools that aren't GitVolt dependencies (`scripts/package-windows.ps1`
 downloads them, pinned, into `target\windows-tools`). Only NSIS puts code of its own in a
 package:
 
@@ -95,19 +95,19 @@ package:
   LZMA module is under the Common Public License 1.0, a copyleft license.
 - **WiX 5.0.2** (Microsoft Reciprocal License) builds the MSI. The MSI has no custom actions and
   no WiX UI, so no WiX code ships in it.
-- **rcedit 2.0.0** (MIT) writes GitBolt's icon, version information and manifest into
-  `GitBolt.exe` and `GitBolt.dll`.
+- **rcedit 2.0.0** (MIT) writes GitVolt's icon, version information and manifest into
+  `GitVolt.exe` and `GitVolt.dll`.
 
-`GitBolt.exe` itself is CEF's `bootstrap.exe`, covered by `CEF-LICENSE.txt`.
+`GitVolt.exe` itself is CEF's `bootstrap.exe`, covered by `CEF-LICENSE.txt`.
 
 ## The spell-check dictionary
 
-Chromium downloads its spell-check dictionaries from Google, and GitBolt's Chromium can't reach
+Chromium downloads its spell-check dictionaries from Google, and GitVolt's Chromium can't reach
 the network (PRIVACY.md). So the packages ship the English (US) one, and the app copies it into
-Chromium's profile at startup (`Cef::bundled_dictionary`, vendor/tauri-runtime-cef/GITBOLT-PATCH.md).
+Chromium's profile at startup (`Cef::bundled_dictionary`, vendor/tauri-runtime-cef/GITVOLT-PATCH.md).
 
-- **The file:** `crates/gitbolt-app/dictionaries/en-US-10-1.bdic`, committed (452 KB), installed
-  as `/usr/share/GitBolt/dictionaries/en-US-10-1.bdic`. It is the exact file Chromium downloads
+- **The file:** `crates/gitvolt-app/dictionaries/en-US-10-1.bdic`, committed (452 KB), installed
+  as `/usr/share/GitVolt/dictionaries/en-US-10-1.bdic`. It is the exact file Chromium downloads
   for en-US: `en-US-10-1.bdic` from `chromium/deps/hunspell_dictionaries` at
   `cccf64a8acc951afe3f47fee023908e55699bc58`, the commit Chromium 152.0.7977.83's `DEPS` pins
   (SHA-256 `a075b01d9b015c616511a9e87da77da3d9881621db32f584e4606ddabf1c1100`). Committed rather
@@ -117,7 +117,7 @@ Chromium's profile at startup (`Cef::bundled_dictionary`, vendor/tauri-runtime-c
   these word lists … provided that the above copyright notice appears in all copies"), with the
   affix file under Geoff Kuenning's BSD-style Ispell license and public-domain word lists. Chromium
   adds the 561 words of its `en_US.dic_delta` (Chromium's license, already in `CEF-LICENSE.txt`
-  and the Chromium credits). `crates/gitbolt-app/dictionaries/en-US-LICENSE.txt` records the
+  and the Chromium credits). `crates/gitvolt-app/dictionaries/en-US-LICENSE.txt` records the
   source and has the dictionary's README verbatim, with every notice; it ships as
   `DICTIONARY-en-US-LICENSE.txt` and in the app's license list. No copyleft term applies, so
   the allow-list (below), which only the Rust crates and the npm packages go through, needs no
@@ -125,7 +125,7 @@ Chromium's profile at startup (`Cef::bundled_dictionary`, vendor/tauri-runtime-c
 
 ## The license allow-list
 
-`accepted` in `about.toml` is the list of licenses GitBolt ships code under: MIT, Apache-2.0,
+`accepted` in `about.toml` is the list of licenses GitVolt ships code under: MIT, Apache-2.0,
 BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, Zlib, MPL-2.0, EPL-2.0, Unicode, OFL-1.1, CC0-1.0, BSL-1.0,
 Unlicense and CDLA-Permissive-2.0. The UI plugin reads the same list. The website's shipped fonts (OFL-1.1) are checked against
 `about.toml` by `site/build/fonts.ts`, not by `just licenses`. A crate or package under any other
@@ -164,7 +164,7 @@ their source.
   Markdown file, shows as plain text.
   - Grammars: the UI imports `ui/src/diff/shikiLanguages.ts`, never `shiki/langs`, whose registry
     imports every grammar Shiki ships. That file is Shiki's registry without the dropped grammars,
-    and with GitBolt's own files for the replaced ones (below), generated by
+    and with GitVolt's own files for the replaced ones (below), generated by
     `node ui/scripts/gen-shiki-languages.mjs`; `shikiLanguages.test.ts` fails when it no longer
     matches Shiki's registry or the `dropped` and `replaced` lists, so rerun the script after a
     Shiki upgrade.
@@ -190,20 +190,20 @@ their source.
     license is copyleft, unreviewed, `"(none)"` (the project states none) or has no text. Every
     bundled grammar's license is recorded, so the build has no warnings about them.
 - **A grammar with no license upstream is replaced, or dropped.** `replaced` lists the Shiki
-  grammars GitBolt swaps for its own file, `ui/src/diff/grammars/<id>.json`: a TextMate grammar from
+  grammars GitVolt swaps for its own file, `ui/src/diff/grammars/<id>.json`: a TextMate grammar from
   a permissively licensed project, converted from its plist to JSON (with Python's `plistlib`)
   with `name` set to the language id. They keep Shiki's id, so files and fenced blocks find them
   as before; `ui/src/diff/language.ts` also maps the shader-stage extensions (`.vert`, `.frag`,
   `.geom`, `.tesc`, `.tese`, `.comp`, `.vsh`, …) to `glsl`, and a `tclsh` shebang to `tcl`.
 
-  | Id | Replaces Shiki's (no license) | GitBolt's file, from | License |
+  | Id | Replaces Shiki's (no license) | GitVolt's file, from | License |
   | --- | --- | --- | --- |
   | `glsl` | `polym0rph/GLSL.tmbundle` | `euler0/sublime-glsl` `GLSL.tmLanguage` at `59a5f8a`, the grammar GitHub Linguist uses | Unlicense (in the allow-list) |
   | `tcl` | `sleutho/tcl` | `textmate/tcl.tmbundle` `Syntaxes/Tcl.plist` at `f06f801`, the grammar Linguist uses | `LicenseRef-TextMate-Bundle` |
 
   Each entry gives the `license`, the `source` file at that commit and the `reason`; the text is
   `ui/build/grammar-licenses/<id>.txt`. The notices list the grammar with its license and source
-  ("GitBolt's copy … in place of Shiki's"), and print the text. The build fails if Shiki's copy of
+  ("GitVolt's copy … in place of Shiki's"), and print the text. The build fails if Shiki's copy of
   a replaced grammar is bundled, or if a file in `ui/src/diff/grammars/` has no `replaced` entry,
   no text, or a license outside the allow-list and `licenses`.
 
@@ -218,6 +218,6 @@ their source.
   research an unrecorded one upstream, and replace or drop one whose project states no license.
 - **CEF upgrade:** the notices follow the `cef` crate's version. Check the dictionary's version
   in that Chromium's `components/spellcheck/common/spellcheck_common.cc` (`{"en-US", "-10-1"}`);
-  if it changed, replace the `.bdic` (and the name in `crates/gitbolt-app/src/lib.rs`,
+  if it changed, replace the `.bdic` (and the name in `crates/gitvolt-app/src/lib.rs`,
   `tauri.conf.json` and the package checks) with the one its `DEPS` pins, and update its
   license file.

@@ -4,7 +4,7 @@ import { fixtures, openUrl } from './fixtures';
 // Diff prefs persist in localStorage (plan 1B amendment 3). Every test starts from the defaults
 // (Inline, no toggles): the key is cleared on the test's first page load only, so a reload inside
 // a test keeps what it picked.
-const DIFF_PREFS_KEY = 'gitbolt.diffPrefs.v1';
+const DIFF_PREFS_KEY = 'gitvolt.diffPrefs.v1';
 const COMMIT = 'Rename guide and update assets';
 
 const fileRow = (page: Page, path: string) => page.getByRole('option').and(page.locator(`[data-path="${path}"]`));
@@ -644,7 +644,7 @@ test.describe('diff viewer controls', () => {
   test('closing and reopening a file wakes the kept panel fast: the reopen is well under the cold open (J16)', { tag: '@budget' }, async ({ page }) => {
     const ready: number[] = [];
     page.on('console', (m) => {
-      const t = /\[gitbolt\] diff ready in (\d+) ms/.exec(m.text());
+      const t = /\[gitvolt\] diff ready in (\d+) ms/.exec(m.text());
       if (t) ready.push(Number(t[1]));
     });
     const d = diff(page);

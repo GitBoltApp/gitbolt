@@ -13,13 +13,13 @@ import { packFixture } from './pack-demo.mjs';
 const ui = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repoRoot = join(ui, '..');
 const targetDir = process.env.CARGO_TARGET_DIR ? (isAbsolute(process.env.CARGO_TARGET_DIR) ? process.env.CARGO_TARGET_DIR : join(repoRoot, process.env.CARGO_TARGET_DIR)) : join(repoRoot, 'target');
-const harness = join(targetDir, 'debug', 'gitbolt-harness');
+const harness = join(targetDir, 'debug', 'gitvolt-harness');
 const golden = join(ui, 'src', 'demo', 'golden');
 const requestsDir = join(golden, 'requests');
 // basic first: the manifest's active tab.
 const fixtures = readdirSync(requestsDir).filter((f) => f.endsWith('.json')).map((f) => f.slice(0, -5)).sort((a, b) => Number(b === 'basic') - Number(a === 'basic') || (a < b ? -1 : 1));
 
-const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'gitbolt-golden-')));
+const tmp = realpathSync(mkdtempSync(join(tmpdir(), 'gitvolt-golden-')));
 try {
   for (const name of fixtures) {
     const root = join(tmp, name);

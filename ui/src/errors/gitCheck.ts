@@ -17,7 +17,7 @@ export const useGitCheck = create<GitCheck>((set, get) => ({
       set({ problem: null });
     } catch (e) {
       if (isGbError(e) && (e.kind === 'GitTooOld' || gitNotFound(e))) set({ problem: e });
-      else console.warn('[gitbolt] git check failed; continuing', e);
+      else console.warn('[gitvolt] git check failed; continuing', e);
     }
   },
   /** Re-checks; once git is fine, reloads so boot opens the repos it skipped. */

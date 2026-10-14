@@ -174,7 +174,7 @@ describe('FlyoutHost (spec #4 §5)', () => {
     const host = () => document.querySelector<HTMLElement>('.flyout-host')!;
     const dockBtn = () => screen.getByRole('button', { name: /^(Dock beside the graph|Undock)/ });
     beforeEach(() => {
-      localStorage.removeItem('gitbolt.flyoutDock.v1');
+      localStorage.removeItem('gitvolt.flyoutDock.v1');
       reloadDockPrefs();
     });
 
@@ -197,7 +197,7 @@ describe('FlyoutHost (spec #4 §5)', () => {
       expect(host()).toHaveClass('docked');
       expect(dockBtn()).toHaveAccessibleName('Undock (float over the graph)');
       expect(dockBtn()).toHaveAttribute('aria-pressed', 'true');
-      expect(JSON.parse(localStorage.getItem('gitbolt.flyoutDock.v1')!)).toEqual({ docked: true, width: null });
+      expect(JSON.parse(localStorage.getItem('gitvolt.flyoutDock.v1')!)).toEqual({ docked: true, width: null });
       // The next one opens docked, also after a reload.
       act(() => closeFlyout('t'));
       act(() => reloadDockPrefs());

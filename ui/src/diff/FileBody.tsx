@@ -28,7 +28,7 @@ import { fileTableOf } from '../table/limits';
 type ViewState = ReturnType<MonacoHost['fileViewState']>;
 
 /** Rendered's tooltip for an HTML file: a static preview, and the keyboard stays with the app. */
-export const HTML_RENDERED_TIP = "A static preview: scripts don't run, and the keyboard stays with GitBolt (scroll the page with the mouse wheel)";
+export const HTML_RENDERED_TIP = "A static preview: scripts don't run, and the keyboard stays with GitVolt (scroll the page with the mouse wheel)";
 
 const VIEW_LABELS: Record<ViewKind, string> = { markdown: 'Markdown view', html: 'HTML view', table: 'Table view' };
 

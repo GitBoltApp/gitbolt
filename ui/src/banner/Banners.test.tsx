@@ -95,8 +95,8 @@ describe('banners (spec #2 §6.4, §5.1)', () => {
   });
 
   it('an interrupted abort says it may not have run, and where the work is (3C final fix M6)', () => {
-    show([{ ...base, kind: 'abortInterrupted', label: 'abort the rebase of feature/x', stashMessage: 'GitBolt: work from the aborted rebase of feature/x', target: 'feature/x-rebase-work' }]);
-    expect(notices().textContent).toContain('GitBolt stopped before it could abort the rebase of feature/x: the abort may not have run; your work is in the working tree or the stash "GitBolt: work from the aborted rebase of feature/x", and your commits from the stop are on feature/x-rebase-work.');
+    show([{ ...base, kind: 'abortInterrupted', label: 'abort the rebase of feature/x', stashMessage: 'GitVolt: work from the aborted rebase of feature/x', target: 'feature/x-rebase-work' }]);
+    expect(notices().textContent).toContain('GitVolt stopped before it could abort the rebase of feature/x: the abort may not have run; your work is in the working tree or the stash "GitVolt: work from the aborted rebase of feature/x", and your commits from the stop are on feature/x-rebase-work.');
   });
 
   it('× dismisses and keeps the stash', async () => {
@@ -119,7 +119,7 @@ describe('banners (spec #2 §6.4, §5.1)', () => {
     api.dismissBanner.mockResolvedValue(state([]));
     confirm.answer = false;
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Dismiss' })); });
-    expect(confirm.asked[0].body).toBe('The snapshot is the only copy of your changes from before discard a.php. Once dismissed, GitBolt can\'t restore them.');
+    expect(confirm.asked[0].body).toBe('The snapshot is the only copy of your changes from before discard a.php. Once dismissed, GitVolt can\'t restore them.');
     expect(api.dismissBanner).not.toHaveBeenCalled();
     confirm.answer = true;
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Dismiss' })); });
@@ -129,8 +129,8 @@ describe('banners (spec #2 §6.4, §5.1)', () => {
   it('crash recovery: Restore for a snapshot, Apply for an autostash', () => {
     show([{ ...base, kind: 'recovery', label: 'discard a.php', stash: null, stashMessage: null, target: null, snapshot: true }, { ...base, entry: 6, kind: 'recovery', label: 'checkout feature/x' }]);
     const text = notices().textContent;
-    expect(text).toContain('GitBolt stopped during discard a.php. Your changes are safe in a snapshot.');
-    expect(text).toContain('GitBolt stopped during checkout feature/x. Your changes are safe in the autostash.');
+    expect(text).toContain('GitVolt stopped during discard a.php. Your changes are safe in a snapshot.');
+    expect(text).toContain('GitVolt stopped during checkout feature/x. Your changes are safe in the autostash.');
     expect(screen.getByRole('button', { name: 'Restore' })).toBeInTheDocument();
     expect(screen.getAllByRole('button', { name: 'Apply' })).toHaveLength(1);
   });

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""GitBolt's version rules (`just release`, `just package`, fix-deb.sh, the release workflow).
+"""GitVolt's version rules (`just release`, `just package`, fix-deb.sh, the release workflow).
 
 A release version is SemVer without build metadata: X.Y.Z or X.Y.Z-<pre-release>, where the
 pre-release is dot-separated identifiers that are each lowercase letters or a number, the first

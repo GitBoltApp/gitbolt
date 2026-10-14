@@ -18,7 +18,7 @@ export const DEFAULT_EDITOR_SETTINGS: EditorSettings = { stickyScroll: false };
 export const STICKY_SCROLL_NOTE =
   "Sticky scroll pins the enclosing scope's first line. With brace-on-next-line styles (common in PHP) it may show only the brace; it can also appear a moment after a file opens.";
 
-export const EDITOR_SETTINGS_STORAGE_KEY = 'gitbolt.editorSettings.v1';
+export const EDITOR_SETTINGS_STORAGE_KEY = 'gitvolt.editorSettings.v1';
 
 /** Stored data → settings; anything invalid takes its default. */
 export function parseEditorSettings(raw: unknown): EditorSettings {

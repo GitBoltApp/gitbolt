@@ -123,7 +123,7 @@ export const cannedHandlers: Pick<
     const chromium = /Chrome\/(\S+)/.exec(ui.userAgent)?.[1] ?? 'unknown';
     const os = typeof navigator !== 'undefined' && navigator.platform ? navigator.platform : 'unknown';
     const settings = JSON.stringify(scrubSettings(ui.settings), null, 2) ?? 'null';
-    return `GitBolt (web demo)\nRuntime: browser\nChromium: ${chromium}\nOS: ${os}\nSession: web\ngit: isomorphic-git (in the browser)\nSettings:\n${settings}\n`;
+    return `GitVolt (web demo)\nRuntime: browser\nChromium: ${chromium}\nOS: ${os}\nSession: web\ngit: isomorphic-git (in the browser)\nSettings:\n${settings}\n`;
   },
   // The demo ships no updates: it is always the release it was built from.
   updateStatus: async () => ({ state: 'upToDate' }),

@@ -17,7 +17,7 @@ rewritten?: string, } | { "status": "upToDate",
  */
 warning?: string, } | { "status": "stopped", kind: PausedKind, files: number, 
 /**
- * 3C final fix (M1, M2): something GitBolt meant to do at the stop didn't happen (a
+ * 3C final fix (M1, M2): something GitVolt meant to do at the stop didn't happen (a
  * commit-msg hook refused a new message): the toast says so.
  */
 warning?: string, } | { "status": "aborted", 

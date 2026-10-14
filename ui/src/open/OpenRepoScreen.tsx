@@ -47,8 +47,8 @@ const sameFolder = (a: string, b: string) => a.replace(/\/+$/, '') === b.replace
  *  and layout, one list (the default) or a list under each directory; both remembered. */
 type Order = 'recent' | 'alpha';
 type Layout = 'merged' | 'grouped';
-const ORDER_KEY = 'gitbolt.yourReposOrder.v1';
-const LAYOUT_KEY = 'gitbolt.yourReposLayout.v1';
+const ORDER_KEY = 'gitvolt.yourReposOrder.v1';
+const LAYOUT_KEY = 'gitvolt.yourReposLayout.v1';
 function loadPref<T extends string>(key: string, other: T, fallback: T): T {
   try {
     return localStorage.getItem(key) === other ? other : fallback;

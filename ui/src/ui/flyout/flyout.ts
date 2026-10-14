@@ -89,7 +89,7 @@ export const DOCK_W = { min: FLYOUT_W.min, default: 480, max: FLYOUT_W.max } as 
 /** What a docked flyout leaves of the center: the graph's usable 360 px plus the details panel's
  * narrowest (280; the details panel itself never squeezes the graph under 320, `CENTER_MIN`). */
 export const DOCK_KEEP = 640;
-const DOCK_KEY = 'gitbolt.flyoutDock.v1';
+const DOCK_KEY = 'gitvolt.flyoutDock.v1';
 
 export interface DockPrefs { docked: boolean; width: number | null }
 

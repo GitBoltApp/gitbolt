@@ -6,15 +6,15 @@
       "file": "orbital.gbdemo",
       "group": null,
       "open": "active",
-      "digest": "e51bbc7d57a525c6",
-      "bytes": 3419516
+      "digest": "62ead2b8485ffaa9",
+      "bytes": 3419382
     },
     {
       "name": "basic",
       "file": "basic.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "ed09fb1044861355",
+      "digest": "f52bcd9bc140a1be",
       "bytes": 8324
     },
     {
@@ -22,7 +22,7 @@
       "file": "sync.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "65065545984e729a",
+      "digest": "f4bc939a471e2b7c",
       "bytes": 10763
     },
     {
@@ -30,7 +30,7 @@
       "file": "conflicts.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "b42897ac19a67fac",
+      "digest": "ac0f227beff15ec6",
       "bytes": 5513
     },
     {
@@ -38,7 +38,7 @@
       "file": "stack.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "e976f03c12ab5269",
+      "digest": "63d2d51f23a1970c",
       "bytes": 5298
     },
     {
@@ -46,7 +46,7 @@
       "file": "wip_staging.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "76b6ef0801ffa248",
+      "digest": "67d1ec04ccd9d590",
       "bytes": 3742
     },
     {
@@ -54,7 +54,7 @@
       "file": "rebase_lab.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "8ae0f95fd08a6acc",
+      "digest": "380be71727ffc6e5",
       "bytes": 5838
     },
     {
@@ -62,7 +62,7 @@
       "file": "previews.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "8cb94d30ae0e219d",
+      "digest": "a610f8c04840d218",
       "bytes": 610134
     },
     {
@@ -70,7 +70,7 @@
       "file": "submodules.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "9a9eac49610e22f2",
+      "digest": "a3dc05c4cd09ed94",
       "bytes": 7508
     },
     {
@@ -78,7 +78,7 @@
       "file": "lfs.gbdemo",
       "group": "Playground",
       "open": "tab",
-      "digest": "6c3af22ca1d889a9",
+      "digest": "c24001b2a4bb68cd",
       "bytes": 46045
     }
   ],

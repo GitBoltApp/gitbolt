@@ -5,7 +5,7 @@ const copyText = vi.hoisted(() => vi.fn(async (_t: string) => {}));
 const api = vi.hoisted(() => ({
   commandLog: vi.fn(async () => [{ id: 5, args: ['fetch', '--all'], cwd: '/r', startedMs: 1, durationMs: 9, exitCode: 128, stderr: 'fatal: nope' }]),
   logsDir: vi.fn(async (): Promise<string | null> => null),
-  diagnostics: vi.fn(async () => 'GitBolt 0.1.0'),
+  diagnostics: vi.fn(async () => 'GitVolt 0.1.0'),
   openLogsFolder: vi.fn(async () => null),
 }));
 vi.mock('../api/client', () => ({ api, errorMessage: String, onEvent: () => () => {} }));
@@ -120,14 +120,14 @@ describe('ActivityModal (K101)', () => {
     await act(async () => { await Promise.resolve(); });
     expect(screen.getByRole('button', { name: 'Open logs directory' })).toBeDisabled();
     fireEvent.click(screen.getByRole('button', { name: 'Copy diagnostics' }));
-    await vi.waitFor(() => expect(copyText).toHaveBeenCalledWith('GitBolt 0.1.0'));
+    await vi.waitFor(() => expect(copyText).toHaveBeenCalledWith('GitVolt 0.1.0'));
     const perf = screen.getByRole('button', { name: 'Perf overlay' });
     expect(perf).toHaveAttribute('aria-pressed', 'false');
     fireEvent.click(perf);
     expect(useActivityUi.getState().perfOverlay).toBe(true);
     expect(perf).toHaveAttribute('aria-pressed', 'true');
     act(() => useActivityUi.getState().setOpen(false));
-    api.logsDir.mockResolvedValueOnce('/home/u/.cache/gitbolt/logs');
+    api.logsDir.mockResolvedValueOnce('/home/u/.cache/gitvolt/logs');
     act(() => openActivityLog());
     await act(async () => { await Promise.resolve(); });
     const logs = screen.getByRole('button', { name: 'Open logs directory' });

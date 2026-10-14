@@ -27,7 +27,7 @@ test('each request is recorded, with its params and outcome', async () => {
 describe('createDemoTransport', () => {
   test('calls made before the demo is ready wait for it', async () => {
     let ready: (rt: DemoRuntime) => void = () => {};
-    const t = createDemoTransport(new Promise((r) => { ready = r; }), table({ appInfo: async () => ({ appVersion: '1', build: null, gitVersion: 'x', installKind: 'none', home: null }) }));
+    const t = createDemoTransport(new Promise((r) => { ready = r; }), table({ appInfo: async () => ({ appVersion: '1', build: null, gitVersion: 'x', installKind: 'none', home: null, legacyBundle: null }) }));
     const reply = t.call({ method: 'appInfo' });
     ready(runtime());
     expect(await reply).toMatchObject({ appVersion: '1' });

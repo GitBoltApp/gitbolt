@@ -5,7 +5,7 @@
 # Version (scripts/rpm-pkg.py version), and every neighbouring pair must compare "older" under
 # `dpkg --compare-versions`, pacman's `vercmp` and rpm's `rpm.vercmp`.
 # A `+<UTC time>.<commit>` stamp is a local build of the version before it.
-# vercmp and rpm: the local ones when installed; else, with GITBOLT_TEST_DOCKER=1, in
+# vercmp and rpm: the local ones when installed; else, with GITVOLT_TEST_DOCKER=1, in
 # archlinux:latest and fedora:latest (Docker; not part of `just test-scripts`); else that part is
 # skipped.
 set -euo pipefail
@@ -36,7 +36,7 @@ fi
 vercmp_lines='while read -r a b; do echo "$a $b $(vercmp "$a" "$b")"; done'
 if command -v vercmp >/dev/null; then
   results=$(pairs arch | bash -c "$vercmp_lines")
-elif [ "${GITBOLT_TEST_DOCKER:-}" = 1 ]; then
+elif [ "${GITVOLT_TEST_DOCKER:-}" = 1 ]; then
   results=$(pairs arch | docker run --rm -i archlinux:latest bash -c "$vercmp_lines")
 fi
 if [ -n "${results:-}" ]; then
@@ -52,7 +52,7 @@ rpmcmp_lines='while read -r a b; do echo "$a $b $(rpm --eval "%{lua:print(rpm.ve
 results=
 if command -v rpm >/dev/null; then
   results=$(pairs rpm | bash -c "$rpmcmp_lines")
-elif [ "${GITBOLT_TEST_DOCKER:-}" = 1 ]; then
+elif [ "${GITVOLT_TEST_DOCKER:-}" = 1 ]; then
   results=$(pairs rpm | docker run --rm -i fedora:latest bash -c "$rpmcmp_lines")
 fi
 if [ -n "$results" ]; then

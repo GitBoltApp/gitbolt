@@ -10,7 +10,7 @@ import './auth.css';
 
 /**
  * Spec §5.4: git's (or ssh's) credential prompt, one at a time; the credential helper decides
- * whether anything is remembered. Only user-started ops ever get here: GitBolt's own background
+ * whether anything is remembered. Only user-started ops ever get here: GitVolt's own background
  * fetches never prompt (their askpass calls are refused, Review Focus 3).
  */
 export function AuthModal() {

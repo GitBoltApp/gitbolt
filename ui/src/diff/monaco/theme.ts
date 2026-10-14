@@ -1,7 +1,7 @@
 import { DEFAULT_THEME_ID, THEMES, type ThemeDef } from '../../theme/themes';
 
 /**
- * GitBolt's colours on top of a Shiki editor theme, per app theme (plan 1D ruling R6). They go into
+ * GitVolt's colours on top of a Shiki editor theme, per app theme (plan 1D ruling R6). They go into
  * the themes Shiki is created with, so every `shikiToMonaco` call (the first one, and one per newly
  * loaded grammar) defines each theme with them, before any editor exists (see `ensureTheme`).
  *

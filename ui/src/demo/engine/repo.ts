@@ -26,7 +26,7 @@ import { compareBytes, readRefFiles, type RefFile } from './refs';
 import { hostKind, mismatchedUpstream, parseRemoteUrl, remoteFor, remoteId } from './remotes';
 
 export const DEFAULT_COMMIT_LIMIT = 2000;
-const COMPARE_REFS = 'refs/gitbolt/compare/';
+const COMPARE_REFS = 'refs/gitvolt/compare/';
 const NULL_OID = '0'.repeat(40);
 const OID = /^[0-9a-f]{40}$/;
 /** What `git init` makes and a bundle (files only) can't carry: isomorphic-git lists and writes

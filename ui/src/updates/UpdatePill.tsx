@@ -27,7 +27,7 @@ export function UpdatePill() {
   switch (state.state) {
     case 'available':
       return (
-        <HoverTooltip content={viaDialog ? `GitBolt ${v} is available` : `Download GitBolt ${v}`}>
+        <HoverTooltip content={viaDialog ? `GitVolt ${v} is available` : `Download GitVolt ${v}`}>
           <button type="button" className="sb-update" data-state="available" onClick={() => (viaDialog ? openDialog() : void download())}>
             <ArrowDownToLine size={11} aria-hidden />Update to {v}
           </button>
@@ -36,8 +36,8 @@ export function UpdatePill() {
     case 'downloading': {
       const pct = percentOf(state);
       return (
-        <HoverTooltip content={`Downloading GitBolt ${v}: ${pct}%`}>
-          <button type="button" className="sb-update" data-state="downloading" aria-label={`Downloading GitBolt ${v}, ${pct}%`} onClick={openDialog}>
+        <HoverTooltip content={`Downloading GitVolt ${v}: ${pct}%`}>
+          <button type="button" className="sb-update" data-state="downloading" aria-label={`Downloading GitVolt ${v}, ${pct}%`} onClick={openDialog}>
             <span className="sb-update-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></span>
           </button>
         </HoverTooltip>

@@ -3,7 +3,7 @@
  * until plan 1C's settings screen: localStorage, every access in try/catch (storage may be
  * unavailable), per browser profile.
  */
-export const OPEN_IN_KEY = 'gitbolt.openIn.v1';
+export const OPEN_IN_KEY = 'gitvolt.openIn.v1';
 
 export function loadLastOpener(): string | null {
   try {

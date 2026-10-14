@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Usage: scripts/set-version.py <version>  (part of `just release`)
 
-Sets GitBolt's version everywhere it's recorded, editing only the version lines (no
-reformatting): crates/gitbolt-app/tauri.conf.json (what the packages are named after), the
+Sets GitVolt's version everywhere it's recorded, editing only the version lines (no
+reformatting): crates/gitvolt-app/tauri.conf.json (what the packages are named after), the
 workspace's [workspace.package] in Cargo.toml and the workspace members' entries in Cargo.lock,
 ui/package.json, and ui/package-lock.json's two copies. Each file is parsed again afterwards
 and must differ from the original only in those versions. Errors exit with status 2 before
@@ -55,7 +55,7 @@ def main(argv):
         raise Fail(f"unexpected characters in {version!r}")
     writes = []
 
-    writes.append(json_edit("crates/gitbolt-app/tauri.conf.json", version,
+    writes.append(json_edit("crates/gitvolt-app/tauri.conf.json", version,
                             [(r'^(  "version": ")([^"]*)(")', ["version"])]))
     writes.append(json_edit("ui/package.json", version, [(r'^(  "version": ")([^"]*)(")', ["version"])]))
     writes.append(json_edit("ui/package-lock.json", version, [

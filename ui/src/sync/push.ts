@@ -37,7 +37,7 @@ export function defaultRemote(tabId: string): string {
 
 const REWROTE: Record<RewriteKind, string> = { rebase: 'rebased', amend: 'amended' };
 
-/** GitBolt rewrote the branch since its last push and a plain push would be rejected: Push
+/** GitVolt rewrote the branch since its last push and a plain push would be rejected: Push
  * force-pushes with the lease recorded at the rewrite, without asking (spec #2 §12.3). The
  * verb, else null. */
 export function rewroteSincePush(b: LocalBranch): string | null {

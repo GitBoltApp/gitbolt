@@ -1,4 +1,4 @@
-// Drives a running debug build of the app over the DevTools protocol (`GITBOLT_DEV_CDP_PORT`):
+// Drives a running debug build of the app over the DevTools protocol (`GITVOLT_DEV_CDP_PORT`):
 // the commit graph, a commit, its diff and a fetch, in the `basic` fixture the app was launched
 // on; then, given a second fixture (`sync`), a second launch of the app on it, which must hand its
 // path to the first instance and exit; then, on macOS, given the app's bundle and a third fixture
@@ -8,7 +8,7 @@
 //
 //   node ui/scripts/cdp-smoke.mjs <cdp port> <out dir> <repo> [<app executable> <second repo> [<app bundle> <third repo>]]
 //
-// The second launch inherits this process's environment (GITBOLT_DEV_DIRS, TMPDIR), which keys
+// The second launch inherits this process's environment (GITVOLT_DEV_DIRS, TMPDIR), which keys
 // the single-instance socket. Exits 1 on the first failed step, after a screenshot of it.
 import { execFile } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';

@@ -57,7 +57,7 @@ jobs:
 
       - name: Tests
         id: tests
-        run: cargo nextest run --profile ci --no-fail-fast -p gitbolt-core -p gitbolt-forge -p gitbolt-harness
+        run: cargo nextest run --profile ci --no-fail-fast -p gitvolt-core -p gitvolt-forge -p gitvolt-harness
 
       - name: Summary
         if: always()
@@ -118,7 +118,7 @@ jobs:
       - name: UI placeholder
         run: |
           mkdir -p ui/dist
-          [ -f ui/dist/index.html ] || echo '<!doctype html><title>GitBolt</title>' > ui/dist/index.html
+          [ -f ui/dist/index.html ] || echo '<!doctype html><title>GitVolt</title>' > ui/dist/index.html
 
       - name: Check
         id: check
@@ -221,7 +221,7 @@ jobs:
 
       # The `fixture` command, for the repositories the app opens.
       - name: Build the harness
-        run: cargo build -p gitbolt-harness
+        run: cargo build -p gitvolt-harness
 
       - name: Save the CEF archive
         if: steps.cef.outputs.cache-hit != 'true'
@@ -234,29 +234,29 @@ jobs:
         with:
           tool: nextest
 
-      # The vendored runtime's own tests (GITBOLT-PATCH.md), on macOS.
+      # The vendored runtime's own tests (GITVOLT-PATCH.md), on macOS.
       - name: Runtime tests
         id: runtime-tests
         run: cargo nextest run -p tauri-runtime-cef --lib --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/runtime-tests.log"
 
       # A debug build with the UI embedded (`cargo tauri build` turns on tauri/custom-protocol),
-      # bundled as GitBolt.app: the framework and the helper apps by the Tauri CLI's bundler,
+      # bundled as GitVolt.app: the framework and the helper apps by the Tauri CLI's bundler,
       # ad-hoc signed (tauri.macos.conf.json).
-      - name: Build GitBolt.app (debug)
+      - name: Build GitVolt.app (debug)
         id: build
-        working-directory: crates/gitbolt-app
+        working-directory: crates/gitvolt-app
         run: cargo tauri build --debug --bundles app --verbose 2>&1 | tee "$RUNNER_TEMP/build.log"
 
       - name: The bundle
         id: bundle
         if: always() && steps.build.outcome == 'success'
         run: |
-          app=target/debug/bundle/macos/GitBolt.app
+          app=target/debug/bundle/macos/GitVolt.app
           echo "app=$app" >> "$GITHUB_OUTPUT"
           mkdir -p out
           {
             echo '## Layout'
-            find "$app" -maxdepth 4 -not -path '*/Resources/*' | sed "s|^$app|GitBolt.app|" | sort
+            find "$app" -maxdepth 4 -not -path '*/Resources/*' | sed "s|^$app|GitVolt.app|" | sort
             echo
             echo '## Info.plist'
             plutil -p "$app/Contents/Info.plist"
@@ -265,7 +265,7 @@ jobs:
             ls -R "$app/Contents/Resources"
             echo
             echo '## Helper Info.plist'
-            plutil -p "$app/Contents/Frameworks/GitBolt Helper (Renderer).app/Contents/Info.plist"
+            plutil -p "$app/Contents/Frameworks/GitVolt Helper (Renderer).app/Contents/Info.plist"
             echo
             echo '## Signatures'
             codesign -dv --entitlements - "$app" 2>&1
@@ -285,11 +285,11 @@ jobs:
         run: |
           root="$RUNNER_TEMP/gb"
           mkdir -p "$root" out/shots
-          repo=$(target/debug/gitbolt-harness fixture basic "$root/basic")
-          second=$(target/debug/gitbolt-harness fixture sync "$root/sync")
-          third=$(target/debug/gitbolt-harness fixture stack "$root/stack")
-          export GITBOLT_DEV_DIRS="$root/dirs" GITBOLT_DEV_CDP_PORT=9333 RUST_LOG=info
-          exe="$APP/Contents/MacOS/GitBolt"
+          repo=$(target/debug/gitvolt-harness fixture basic "$root/basic")
+          second=$(target/debug/gitvolt-harness fixture sync "$root/sync")
+          third=$(target/debug/gitvolt-harness fixture stack "$root/stack")
+          export GITVOLT_DEV_DIRS="$root/dirs" GITVOLT_DEV_CDP_PORT=9333 RUST_LOG=info
+          exe="$APP/Contents/MacOS/GitVolt"
           "$exe" "$repo" > out/app.log 2>&1 &
           echo $! > out/app.pid
           sleep 5
@@ -309,7 +309,7 @@ jobs:
             ps -axo pid,ppid,args | grep -E '[G]itBolt' | cut -c1-400
             echo
             echo '## sandbox_check (1: sandboxed)'
-            for pid in $(pgrep -f 'GitBolt'); do
+            for pid in $(pgrep -f 'GitVolt'); do
               python3 -c 'import ctypes,sys; l=ctypes.CDLL("/usr/lib/libSystem.B.dylib"); l.sandbox_check.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int]; print(sys.argv[1], l.sandbox_check(int(sys.argv[1]), None, 0), sys.argv[2])' "$pid" "$(ps -o args= -p "$pid" | cut -c1-200)"
             done
           } > out/sandbox.txt 2>&1 || true
@@ -320,7 +320,7 @@ jobs:
         run: |
           [ -f out/app.pid ] && kill "$(cat out/app.pid)" 2>/dev/null || true
           sleep 3
-          pkill -f 'GitBolt.app' || true
+          pkill -f 'GitVolt.app' || true
           tail -n 200 out/app.log 2>/dev/null || true
 
       - name: Summary
@@ -433,7 +433,7 @@ jobs:
         working-directory: ui
         run: npm ci
 
-      # The release package, as release.yml builds it: the notices, the release GitBolt.app and
+      # The release package, as release.yml builds it: the notices, the release GitVolt.app and
       # the .dmg, and their checks (scripts/package-macos.sh).
       - name: Build the .dmg
         id: build
@@ -446,12 +446,12 @@ jobs:
           path: ${{ env.CEF_PATH }}/${{ steps.version.outputs.cef }}/cef_binary_*.tar.bz2
           key: ${{ steps.cef.outputs.cache-primary-key }}
 
-      # What a user does: mount it, check it, copy GitBolt.app to /Applications.
+      # What a user does: mount it, check it, copy GitVolt.app to /Applications.
       - name: The .dmg
         id: dmg
         if: always() && steps.build.outcome == 'success'
         run: |
-          dmg=$(ls target/release/bundle/dmg/GitBolt_*_aarch64.dmg)
+          dmg=$(ls target/release/bundle/dmg/GitVolt_*_aarch64.dmg)
           echo "dmg=$dmg" >> "$GITHUB_OUTPUT"
           mkdir -p out/shots
           mnt=$(mktemp -d)
@@ -463,29 +463,29 @@ jobs:
             echo
             echo '## Its volume'
             ls -la "$mnt"
-            du -sh "$mnt/GitBolt.app"
+            du -sh "$mnt/GitVolt.app"
             echo
             echo '## codesign --verify --deep --strict'
-            codesign --verify --deep --strict --verbose=2 "$mnt/GitBolt.app" 2>&1
+            codesign --verify --deep --strict --verbose=2 "$mnt/GitVolt.app" 2>&1
             echo
             echo '## codesign -dv'
-            codesign -dv --verbose=2 "$mnt/GitBolt.app" 2>&1
+            codesign -dv --verbose=2 "$mnt/GitVolt.app" 2>&1
             echo
             echo '## spctl --assess (ad-hoc signed, not notarized: expect "rejected")'
-            spctl --assess --type execute --verbose=4 "$mnt/GitBolt.app" 2>&1 || echo "(exit $?)"
+            spctl --assess --type execute --verbose=4 "$mnt/GitVolt.app" 2>&1 || echo "(exit $?)"
             spctl --assess --type open --context context:primary-signature --verbose=4 "$dmg" 2>&1 || echo "(exit $?)"
             echo
             echo '## Info.plist'
-            plutil -p "$mnt/GitBolt.app/Contents/Info.plist"
+            plutil -p "$mnt/GitVolt.app/Contents/Info.plist"
             echo
             echo '## Contents/Resources'
-            ls -R "$mnt/GitBolt.app/Contents/Resources"
+            ls -R "$mnt/GitVolt.app/Contents/Resources"
             echo
             echo '## Extended attributes (the .dmg, then the app)'
             xattr -l "$dmg" || true
-            xattr -lr "$mnt/GitBolt.app" | grep -v 'com.apple.cs.' | head -20 || true
+            xattr -lr "$mnt/GitVolt.app" | grep -v 'com.apple.cs.' | head -20 || true
           } > out/dmg.txt 2>&1
-          ditto "$mnt/GitBolt.app" /Applications/GitBolt.app
+          ditto "$mnt/GitVolt.app" /Applications/GitVolt.app
           hdiutil detach "$mnt"
           cat out/dmg.txt
 
@@ -506,13 +506,13 @@ jobs:
             git init -q -b main "$root/$n"
             git -C "$root/$n" commit -q --allow-empty -m "The $n repository"
           done
-          open -a /Applications/GitBolt.app "$root/first"
+          open -a /Applications/GitVolt.app "$root/first"
           sleep 25
           screencapture -x out/shots/01-cold-open.png || echo "screencapture failed"
-          open -a /Applications/GitBolt.app "$root/second"
+          open -a /Applications/GitVolt.app "$root/second"
           sleep 10
           screencapture -x out/shots/02-open-a-running.png || echo "screencapture failed"
-          support="$HOME/Library/Application Support/GitBolt"
+          support="$HOME/Library/Application Support/GitVolt"
           {
             echo '## Profile tabs'
             for p in "$support"/profiles/*/profile.json; do
@@ -520,7 +520,7 @@ jobs:
             done
             echo
             echo '## Log'
-            cat "$HOME"/Library/Caches/GitBolt/logs/* | grep -E 'asked to open|sandbox|ERROR|WARN' | head -40
+            cat "$HOME"/Library/Caches/GitVolt/logs/* | grep -E 'asked to open|sandbox|ERROR|WARN' | head -40
           } > out/launch.txt 2>&1 || true
           cat out/launch.txt
           ok=1
@@ -539,14 +539,14 @@ jobs:
             ps -axo pid,ppid,args | grep -E '[G]itBolt' | cut -c1-300
             echo
             echo '## sandbox_check (1: sandboxed)'
-            for pid in $(pgrep -f 'GitBolt'); do
+            for pid in $(pgrep -f 'GitVolt'); do
               python3 -c 'import ctypes,sys; l=ctypes.CDLL("/usr/lib/libSystem.B.dylib"); l.sandbox_check.argtypes=[ctypes.c_int,ctypes.c_char_p,ctypes.c_int]; print(sys.argv[1], l.sandbox_check(int(sys.argv[1]), None, 0), sys.argv[2])' "$pid" "$(ps -o args= -p "$pid" | cut -c1-160)"
             done
           } > out/sandbox.txt 2>&1 || true
           cat out/sandbox.txt
           grep -E '^[0-9]+ 1 .*Renderer' out/sandbox.txt >/dev/null || { echo "::error::No sandboxed renderer"; exit 1; }
 
-      # The updater's install, for real: core's DMG_INSTALL script (crates/gitbolt-core/src/
+      # The updater's install, for real: core's DMG_INSTALL script (crates/gitvolt-core/src/
       # updates/install.rs) over the running app in /Applications, from this .dmg; then Restart's
       # way of starting it again, and the new bundle's signature.
       - name: Update in place
@@ -555,32 +555,57 @@ jobs:
         env:
           DMG: ${{ steps.dmg.outputs.dmg }}
         run: |
-          script=$(awk '/^pub const DMG_INSTALL/ { f = 1; sub(/.*r#"/, ""); print; next } f { if (/"#;$/) { sub(/"#;$/, ""); print; exit } print }' crates/gitbolt-core/src/updates/install.rs)
-          before=$(stat -f %i /Applications/GitBolt.app)
-          /bin/sh -c "$script" gitbolt-update "$PWD/$DMG" /Applications/GitBolt.app
-          after=$(stat -f %i /Applications/GitBolt.app)
+          script=$(awk '/^pub const DMG_INSTALL/ { f = 1; sub(/.*r#"/, ""); print; next } f { if (/"#;$/) { sub(/"#;$/, ""); print; exit } print }' crates/gitvolt-core/src/updates/install.rs)
+          before=$(stat -f %i /Applications/GitVolt.app)
+          /bin/sh -c "$script" gitvolt-update "$PWD/$DMG" /Applications/GitVolt.app
+          after=$(stat -f %i /Applications/GitVolt.app)
           [ "$before" != "$after" ] || { echo "::error::The bundle wasn't replaced"; exit 1; }
-          find /Applications -maxdepth 1 -iname '*gitbolt*'
-          if hdiutil info | grep -q gitbolt-update; then echo "::error::Still mounted"; exit 1; fi
-          codesign --verify --deep --strict --verbose=2 /Applications/GitBolt.app
-          if xattr -lr /Applications/GitBolt.app | grep -q quarantine; then echo "::error::Quarantined"; exit 1; fi
-          pgrep -f '/Applications/GitBolt.app/Contents/MacOS/GitBolt' >/dev/null && echo "The running app is still up."
+          find /Applications -maxdepth 1 -iname '*gitvolt*'
+          if hdiutil info | grep -q gitvolt-update; then echo "::error::Still mounted"; exit 1; fi
+          codesign --verify --deep --strict --verbose=2 /Applications/GitVolt.app
+          if xattr -lr /Applications/GitVolt.app | grep -q quarantine; then echo "::error::Quarantined"; exit 1; fi
+          pgrep -f '/Applications/GitVolt.app/Contents/MacOS/GitVolt' >/dev/null && echo "The running app is still up."
           # Restart: quit, then start the replaced bundle.
-          pkill -f '/Applications/GitBolt.app/Contents/MacOS/GitBolt' || true
+          pkill -f '/Applications/GitVolt.app/Contents/MacOS/GitVolt' || true
           sleep 3
-          open -a /Applications/GitBolt.app
+          open -a /Applications/GitVolt.app
           sleep 20
           screencapture -x out/shots/03-after-update.png || echo "screencapture failed"
-          pgrep -f '/Applications/GitBolt.app/Contents/MacOS/GitBolt' >/dev/null || { echo "::error::It didn't start again"; exit 1; }
+          pgrep -f '/Applications/GitVolt.app/Contents/MacOS/GitVolt' >/dev/null || { echo "::error::It didn't start again"; exit 1; }
+
+      # A 0.6.1 user who quit instead of pressing Restart leaves GitBolt.app beside GitVolt.app, and
+      # GitBolt's folders: GitVolt's first start moves the folders (crates/gitvolt-core/src/migrate.rs)
+      # and notices the old bundle, which the UI then offers to remove (`AppInfo.legacyBundle`,
+      # crates/gitvolt-core/src/updates/install.rs). The removal itself asks Finder: not run here.
+      - name: From GitBolt's names
+        id: rename
+        if: always() && steps.update.outcome == 'success'
+        run: |
+          pkill -f '/Applications/GitVolt.app/Contents/MacOS/GitVolt' || true
+          sleep 3
+          support="$HOME/Library/Application Support"
+          caches="$HOME/Library/Caches"
+          ditto /Applications/GitVolt.app /Applications/GitBolt.app
+          plutil -replace CFBundleIdentifier -string dev.gitbolt.desktop /Applications/GitBolt.app/Contents/Info.plist
+          if [ -d "$support/GitVolt" ]; then mv "$support/GitVolt" "$support/GitBolt"; fi
+          if [ -d "$caches/GitVolt" ]; then mv "$caches/GitVolt" "$caches/GitBolt"; fi
+          if [ -d "$caches/com.gitvolt.desktop" ]; then mv "$caches/com.gitvolt.desktop" "$caches/dev.gitbolt.desktop"; fi
+          open -a /Applications/GitVolt.app
+          sleep 20
+          ls -d /Applications/Git* "$support"/Git* "$caches"/Git* "$caches"/*.desktop 2>/dev/null || true
+          pgrep -f '/Applications/GitVolt.app/Contents/MacOS/GitVolt' >/dev/null || { echo "::error::It didn't start"; exit 1; }
+          { [ -d "$caches/GitVolt/logs" ] && [ ! -e "$caches/GitBolt" ] && [ ! -e "$support/GitBolt" ] && [ ! -e "$caches/dev.gitbolt.desktop" ]; } || { echo "::error::GitBolt's folders didn't move"; exit 1; }
+          grep -rq 'GitBolt.app is still beside GitVolt.app' "$caches/GitVolt/logs" || { echo "::error::It didn't notice GitBolt.app"; exit 1; }
+          [ -d /Applications/GitBolt.app ] || { echo "::error::GitBolt.app went away by itself"; exit 1; }
 
       - name: Stop the app
         if: always()
         run: |
-          pkill -f 'GitBolt.app' || true
+          pkill -f 'GitVolt.app' || true
           sleep 3
-          pkill -9 -f 'GitBolt.app' || true
+          pkill -9 -f 'GitVolt.app' || true
           mkdir -p out
-          cp "$HOME"/Library/Caches/GitBolt/logs/* out/ 2>/dev/null || true
+          cp "$HOME"/Library/Caches/GitVolt/logs/* out/ 2>/dev/null || true
 
       - name: Summary
         if: always()
@@ -590,9 +615,10 @@ jobs:
           LAUNCH: ${{ steps.launch.outcome }}
           SANDBOX: ${{ steps.sandbox.outcome }}
           UPDATE: ${{ steps.update.outcome }}
+          RENAME: ${{ steps.rename.outcome }}
         run: |
           {
-            echo "### Package: build $BUILD, dmg $DMG, launch $LAUNCH, sandbox $SANDBOX, update $UPDATE"
+            echo "### Package: build $BUILD, dmg $DMG, launch $LAUNCH, sandbox $SANDBOX, update $UPDATE, rename $RENAME"
             echo '```'
             grep -E 'package-macos|^error|panicked' "$RUNNER_TEMP/package.log" 2>/dev/null | tail -20 || true
             grep -E -A3 '^## (codesign --verify|spctl)' out/dmg.txt 2>/dev/null || true

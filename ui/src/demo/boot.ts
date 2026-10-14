@@ -6,7 +6,7 @@ import type { DemoRuntime } from './transport';
 
 export async function bootDemo(): Promise<DemoRuntime> {
   // The build's rev of its data (ui/build/demoDataRev.ts); none on the dev server.
-  const rev = (import.meta.env.VITE_GITBOLT_DEMO_DATA_REV as string | undefined) ?? '';
+  const rev = (import.meta.env.VITE_GITVOLT_DEMO_DATA_REV as string | undefined) ?? '';
   const data = httpData(new URL('demo-data/', document.baseURI), rev);
   const [manifest, graph] = await Promise.all([data.manifest(), loadGraphWasm()]);
   return createRuntime({ manifest, data, graph, width: window.innerWidth });

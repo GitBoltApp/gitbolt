@@ -43,7 +43,7 @@ vi.mock('../repo/store', () => ({
     }),
 }));
 
-const rebase = (conflicted: number, message = 'Fix x\n\nWhy.\n\n# Conflicts:\n#\tc.txt\n'): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/feature/x', step: 1, total: 1, stoppedAt: 'a'.repeat(40), editStop: null, editBase: null, editAdded: [], editChanged: false, editConflict: false, messageFailed: null, gitbolt: true, conflicted, message });
+const rebase = (conflicted: number, message = 'Fix x\n\nWhy.\n\n# Conflicts:\n#\tc.txt\n'): InProgress => ({ kind: 'rebase', onto: 'b'.repeat(40), headName: 'refs/heads/feature/x', step: 1, total: 1, stoppedAt: 'a'.repeat(40), editStop: null, editBase: null, editAdded: [], editChanged: false, editConflict: false, messageFailed: null, gitvolt: true, conflicted, message });
 
 async function show() {
   const { CommitBox } = await import('./CommitBox');
@@ -202,7 +202,7 @@ describe('the commit box in an operation', () => {
   // --- 3C T13, UX L ---
   /** git's own Edit stop (no soft reset): `at` is the commit git made. */
   const editStop = (at: string): InProgress => ({ ...rebase(0, 'Fix x\n\nWhy.\n'), editStop: at } as InProgress);
-  /** UX L: GitBolt's Edit stop, "about to commit": HEAD went back to `base`, the commit's parent. */
+  /** UX L: GitVolt's Edit stop, "about to commit": HEAD went back to `base`, the commit's parent. */
   const aboutToCommit = (at: string, base: string): InProgress => ({ ...editStop(at), editBase: base } as InProgress);
 
   it('an Edit stop about to commit: the notice, the commit\'s message in the box, Commit and Continue, no Skip (UX L)', async () => {
@@ -371,7 +371,7 @@ describe('the commit box in an operation', () => {
     await waitFor(() => expect(useToast.getState()).toMatchObject({ message: 'Your commits from the stop are on feature/x-rebase-work', sticky: false, tone: 'warning' }));
   });
 
-  it('a conflict stop: Abort keeps hand-made changes in GitBolt\'s rebase (its journal session), discards the resolution otherwise (fix 1 M5, UX N)', async () => {
+  it('a conflict stop: Abort keeps hand-made changes in GitVolt\'s rebase (its journal session), discards the resolution otherwise (fix 1 M5, UX N)', async () => {
     h.inProgress = rebase(1);
     h.unstaged = [{ status: 'U' }];
     h.staged = [{ status: 'M' }];
@@ -391,7 +391,7 @@ describe('the commit box in an operation', () => {
   });
 
   it('an Edit stop of a rebase started in a terminal: no Commit, the box stays Continue\'s (fix 1 A1; UX L leaves it git\'s)', async () => {
-    h.inProgress = { ...editStop('p'), gitbolt: false } as InProgress;
+    h.inProgress = { ...editStop('p'), gitvolt: false } as InProgress;
     const { rerender } = await show();
     expect(screen.getByRole('region', { name: 'Rebase in progress' })).toHaveTextContent('Finish this rebase where you started it.');
     const { CommitBox } = await import('./CommitBox');

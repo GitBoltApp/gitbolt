@@ -1,7 +1,7 @@
 // Builds the demo the demo e2e suite serves (`vite build --mode demo` into dist-demo-e2e, with
 // the parity suite's fixtures as its data), unless the build there was made from the same
 // inputs: the sources (the WebAssembly and the golden data included), the pages, the build
-// config and the locked dependencies. GITBOLT_E2E_REBUILD=1 always rebuilds.
+// config and the locked dependencies. GITVOLT_E2E_REBUILD=1 always rebuilds.
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -29,9 +29,9 @@ for (const path of [...files(join(ui, 'src')), ...files(join(ui, 'build')), ...[
 }
 const key = hash.digest('hex');
 
-if (!process.env.GITBOLT_E2E_REBUILD && existsSync(stamp) && readFileSync(stamp, 'utf8') === key) {
+if (!process.env.GITVOLT_E2E_REBUILD && existsSync(stamp) && readFileSync(stamp, 'utf8') === key) {
   console.log('demo e2e build is up to date (dist-demo-e2e)');
 } else {
-  execFileSync('npx', ['vite', 'build', '--mode', 'demo', '--outDir', 'dist-demo-e2e', '--emptyOutDir', '--logLevel', 'warn'], { cwd: ui, stdio: 'inherit', env: { ...process.env, GITBOLT_DEMO_DATA: data } });
+  execFileSync('npx', ['vite', 'build', '--mode', 'demo', '--outDir', 'dist-demo-e2e', '--emptyOutDir', '--logLevel', 'warn'], { cwd: ui, stdio: 'inherit', env: { ...process.env, GITVOLT_DEMO_DATA: data } });
   writeFileSync(stamp, key);
 }

@@ -18,7 +18,7 @@ afterEach(() => {
   ev.handler = null;
 });
 
-describe('the native menu bar (macOS, crates/gitbolt-app/src/menu.rs)', () => {
+describe('the native menu bar (macOS, crates/gitvolt-app/src/menu.rs)', () => {
   it("runs the app action an item names, as its shortcut would, and stops listening when removed", async () => {
     (window as unknown as Record<string, unknown>).__TAURI_INTERNALS__ = {};
     const run = vi.fn();

@@ -1,7 +1,7 @@
 // The website demo's data in its build (`vite build --mode demo`): a data folder's manifest and
 // bundles, served at /demo-data/ by the dev server, and published into the build's demo-data/
 // with their revs (demoDataRev.ts), the manifest's built into the code as
-// import.meta.env.VITE_GITBOLT_DEMO_DATA_REV; and the WebAssembly crates' notices, into its
+// import.meta.env.VITE_GITVOLT_DEMO_DATA_REV; and the WebAssembly crates' notices, into its
 // licenses/.
 import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -26,11 +26,11 @@ export function demoData(dir: string, wasmNotices: string): Plugin {
   let outDir = '';
   let published: PublishedData | null = null;
   return {
-    name: 'gitbolt-demo-data',
+    name: 'gitvolt-demo-data',
     config(_config, env) {
       if (env.command !== 'build') return;
       published = publishedData(dir);
-      return { define: { 'import.meta.env.VITE_GITBOLT_DEMO_DATA_REV': JSON.stringify(published?.rev ?? '') } };
+      return { define: { 'import.meta.env.VITE_GITVOLT_DEMO_DATA_REV': JSON.stringify(published?.rev ?? '') } };
     },
     configResolved(config) {
       outDir = resolve(config.root, config.build.outDir);

@@ -13,7 +13,7 @@ test('the demo boots into basic: its graph and sidebar, narrow panels in a small
     await expect(grid.getByRole('row')).toHaveCount(10);
     await expect(grid.getByText("Merge branch 'feature/login'")).toBeVisible();
     await expect(grid.getByText('// WIP')).toHaveCount(2);
-    await expect(page).toHaveTitle('GitBolt — basic');
+    await expect(page).toHaveTitle('GitVolt — basic');
   });
 
   await test.step('the sidebar: its branches, at the narrow width', async () => {

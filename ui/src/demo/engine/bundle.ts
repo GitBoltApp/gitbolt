@@ -27,7 +27,7 @@ export async function readBundle(bytes: Uint8Array): Promise<Bundle> {
 /** An unpacked bundle's files. Throws on anything else: a truncated bundle, trailing bytes, a
  * path that would leave its fixture folder, a name that isn't a plain file name. */
 export function parseBundle(raw: Uint8Array): Bundle {
-  if (raw.length < 12 || MAGIC.some((b, i) => raw[i] !== b)) throw new Error('not a GitBolt demo bundle');
+  if (raw.length < 12 || MAGIC.some((b, i) => raw[i] !== b)) throw new Error('not a GitVolt demo bundle');
   const n = new DataView(raw.buffer, raw.byteOffset, raw.byteLength).getUint32(8, true);
   if (12 + n > raw.length) throw new Error('truncated demo bundle (header)');
   const header = JSON.parse(new TextDecoder().decode(raw.subarray(12, 12 + n))) as Header;

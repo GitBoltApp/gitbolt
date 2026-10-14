@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
 # Encodes the showcase's video and compressed audio, once, from frames and samples our own code
-# makes (`gitbolt-harness media frames|wav`). The outputs are committed in
-# crates/gitbolt-harness/src/fixture_data/, so building fixtures never needs ffmpeg; re-run this
+# makes (`gitvolt-harness media frames|wav`). The outputs are committed in
+# crates/gitvolt-harness/src/fixture_data/, so building fixtures never needs ffmpeg; re-run this
 # only to change them.
 #
 #   scripts/gen-fixture-media.sh HARNESS
 set -euo pipefail
 harness=${1:?usage: scripts/gen-fixture-media.sh HARNESS}
-out=crates/gitbolt-harness/src/fixture_data
+out=crates/gitvolt-harness/src/fixture_data
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 flags=(-loglevel error -y -fflags +bitexact)

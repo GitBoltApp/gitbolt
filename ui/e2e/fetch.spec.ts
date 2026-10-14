@@ -4,7 +4,7 @@ import { freshFixture, git, harnessHttp, openUrl } from './fixtures';
 import { expect, test, type Page } from './test';
 
 /** The harness answers 401 on any `/test/auth/…` path, so git asks for credentials. The port is
- * this run's harness port (GITBOLT_E2E_PORT_BASE), never a fixed one. */
+ * this run's harness port (GITVOLT_E2E_PORT_BASE), never a fixed one. */
 const AUTH_URL = `${harnessHttp}/test/auth/x.git`;
 
 const fetchButton = (page: Page) => page.getByRole('button', { name: 'Fetch', exact: true });

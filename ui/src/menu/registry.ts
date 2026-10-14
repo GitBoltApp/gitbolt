@@ -32,7 +32,7 @@ export const GROUP_ORDER: Record<MenuKind, readonly string[]> = {
   // A sidebar MR/PR row: Open, Check out (here or in a new worktree), Show in graph, the copies
   // and the link, then the author's draft ⇄ ready.
   mr: ['open', 'checkout', 'view', 'copy', 'forge'],
-  // --- 5A T6: a link in rendered Markdown (spec #5 §4.1): Open in GitBolt / in browser, then the copies ---
+  // --- 5A T6: a link in rendered Markdown (spec #5 §4.1): Open in GitVolt / in browser, then the copies ---
   link: ['open', 'copy'],
   // --- end 5A T6 ---
 };

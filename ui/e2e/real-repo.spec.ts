@@ -1,4 +1,4 @@
-// Opt-in: opens the real repository named by GITBOLT_REAL_REPO (read-only) and checks the
+// Opt-in: opens the real repository named by GITVOLT_REAL_REPO (read-only) and checks the
 // graph actually renders at scale. Skipped entirely unless that env var is set, so `just e2e`
 // never depends on any particular developer's machine.
 import { createHash } from 'node:crypto';
@@ -7,10 +7,10 @@ import { existsSync, readFileSync, statSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 import { expect, test } from './test';
 
-const REAL_REPO = process.env.GITBOLT_REAL_REPO;
+const REAL_REPO = process.env.GITVOLT_REAL_REPO;
 
 // Never let a read command take git's optional locks (see GitCli::run in git.rs, and the
-// GIT_OPTIONAL_LOCKS=0 fix this guards): the whole point of this spec is proving GitBolt (and
+// GIT_OPTIONAL_LOCKS=0 fix this guards): the whole point of this spec is proving GitVolt (and
 // this spec's own bookkeeping) never write to the repo it's inspecting.
 const READ_ONLY_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: '0' };
 
@@ -35,7 +35,7 @@ interface Snapshot {
   indexMtimeMs: number;
 }
 
-/** Everything GitBolt (or this spec) must leave untouched: working-tree status, refs, and the
+/** Everything GitVolt (or this spec) must leave untouched: working-tree status, refs, and the
  * main worktree's index (bytes + mtime — a plain, unlocked `git status` rewrites this even when
  * nothing tracked actually changed). */
 function snapshot(repo: string): Snapshot {
@@ -63,14 +63,14 @@ function dirtyWorktreeCount(repo: string): number {
 }
 
 test.describe('real repository (opt-in)', () => {
-  test.skip(!REAL_REPO, 'set GITBOLT_REAL_REPO=/path/to/repo to run this against a real repository');
+  test.skip(!REAL_REPO, 'set GITVOLT_REAL_REPO=/path/to/repo to run this against a real repository');
 
   test('renders the real graph read-only, at scale', async ({ page }, testInfo) => {
     const before = snapshot(REAL_REPO!);
 
     const readyLogs: string[] = [];
     page.on('console', (msg) => {
-      if (msg.text().includes('[gitbolt] graph ready')) readyLogs.push(msg.text());
+      if (msg.text().includes('[gitvolt] graph ready')) readyLogs.push(msg.text());
     });
 
     const t0 = Date.now();
@@ -79,7 +79,7 @@ test.describe('real repository (opt-in)', () => {
     await expect(grid).toBeVisible();
     await expect(page.getByRole('row').first()).toBeVisible();
     const firstRowMs = Date.now() - t0;
-    await expect.poll(() => readyLogs.length, { message: 'waiting for the app\'s own [gitbolt] graph ready console log' }).toBeGreaterThan(0);
+    await expect.poll(() => readyLogs.length, { message: 'waiting for the app\'s own [gitvolt] graph ready console log' }).toBeGreaterThan(0);
     console.log(`[real-repo] page load -> first row visible: ${firstRowMs} ms`);
     console.log(`[real-repo] app-reported: ${readyLogs.at(-1)}`);
 
@@ -106,7 +106,7 @@ test.describe('real repository (opt-in)', () => {
     test.setTimeout(120_000);
     const before = snapshot(REAL_REPO!);
     const logs: string[] = [];
-    page.on('console', (msg) => { if (/\[gitbolt\] (details|diff) ready/.test(msg.text())) logs.push(msg.text()); });
+    page.on('console', (msg) => { if (/\[gitvolt\] (details|diff) ready/.test(msg.text())) logs.push(msg.text()); });
     await page.goto(`/?repo=${encodeURIComponent(REAL_REPO!)}`);
     const grid = page.getByRole('grid', { name: 'Commit graph' });
     await expect(grid).toBeVisible();

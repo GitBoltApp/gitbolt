@@ -380,7 +380,7 @@ describe('ContextMenu', () => {
   });
 
   // K24: under GNOME (mutter on Xwayland), every button press in the window refocuses it
-  // (WM_TAKE_FOCUS; vendor/tauri-runtime-cef/GITBOLT-PATCH.md), so the page gets a window blur and
+  // (WM_TAKE_FOCUS; vendor/tauri-runtime-cef/GITVOLT-PATCH.md), so the page gets a window blur and
   // then a focus a few ms after the right-click that opened the menu. Closing on that blur closed
   // every menu at once. Only a blur the window doesn't come back from closes it.
   it('a window focus bounce (a press under the window manager) keeps it open (K24); a real blur closes it', () => {

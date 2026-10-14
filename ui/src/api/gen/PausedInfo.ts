@@ -3,7 +3,7 @@ import type { PausedKind } from "./PausedKind";
 
 export type PausedInfo = { entry: number, kind: PausedKind, label: string, target: string, 
 /**
- * UX N fix round 1: GitBolt's interactive rebase (the pause carries its session): its Abort
+ * UX N fix round 1: GitVolt's interactive rebase (the pause carries its session): its Abort
  * keeps the work done at the stop.
  */
 irebase: boolean, };

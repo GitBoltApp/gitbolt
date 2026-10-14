@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { HARNESS_BIN } from './harness-path';
 
 export default function globalSetup() {
-  const root = mkdtempSync(join(tmpdir(), 'gitbolt-e2e-'));
+  const root = mkdtempSync(join(tmpdir(), 'gitvolt-e2e-'));
   const make = (name: string) =>
     execFileSync(HARNESS_BIN, ['fixture', name, join(root, name)], { encoding: 'utf8' }).trim();
   const fixtures = { basic: make('basic'), unborn: make('unborn'), longLabels: make('long_labels'), wide: make('wide'), details: make('details'), longHistory: make('long_history'), diffView: make('diff_view'), mergeLock: make('merge_lock'), notRepo: root };

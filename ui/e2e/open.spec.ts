@@ -85,7 +85,7 @@ test.describe('open repository screen', () => {
   test('clone credential prompts can be cancelled; a clone opens in the tab', async ({ page }) => {
     await page.goto('/');
     await test.step('clone credential prompts can be cancelled', async () => {
-      const dest = join(mkdtempSync(join(tmpdir(), 'gitbolt-e2e-clone-')), 'x');
+      const dest = join(mkdtempSync(join(tmpdir(), 'gitvolt-e2e-clone-')), 'x');
       await page.getByLabel('Repository URL').fill(`${harnessHttp}/test/auth/x.git`);
       await page.getByLabel('Destination').fill(dest);
       await page.getByRole('button', { name: 'Clone', exact: true }).click();
@@ -96,7 +96,7 @@ test.describe('open repository screen', () => {
     });
     await test.step('clone opens the clone in the tab', async () => {
       const repo = freshFixture('basic');
-      const dest = join(mkdtempSync(join(tmpdir(), 'gitbolt-e2e-clone-')), 'origin');
+      const dest = join(mkdtempSync(join(tmpdir(), 'gitvolt-e2e-clone-')), 'origin');
       await page.getByLabel('Repository URL').fill(`file://${join(dirname(repo), 'origin.git')}`);
       await page.getByLabel('Destination').fill(dest);
       await page.getByRole('button', { name: 'Clone', exact: true }).click();

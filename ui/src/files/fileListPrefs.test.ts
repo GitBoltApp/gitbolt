@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const KEY = 'gitbolt.fileList.v1';
+const KEY = 'gitvolt.fileList.v1';
 
 /** A fresh copy of the module, so the store reads storage the way it does at app start. */
 async function fresh() {

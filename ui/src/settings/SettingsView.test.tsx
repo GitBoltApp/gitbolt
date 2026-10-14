@@ -86,7 +86,7 @@ describe('SettingsView', () => {
     expect(screen.getByRole('radio', { name: 'Standard' })).toBeChecked();
     fireEvent.click(screen.getByRole('radio', { name: 'Compact' }));
     expect(useDensity.getState().density).toBe('compact');
-    expect(localStorage.getItem('gitbolt.density.v1')).toBe('compact');
+    expect(localStorage.getItem('gitvolt.density.v1')).toBe('compact');
     expect(dialog.querySelectorAll('input[name="density"]')).toHaveLength(3);
   });
 
@@ -96,7 +96,7 @@ describe('SettingsView', () => {
     expect(box).not.toBeChecked();
     fireEvent.click(box);
     expect(useEditorSettings.getState().settings.stickyScroll).toBe(true);
-    expect(JSON.parse(localStorage.getItem('gitbolt.editorSettings.v1')!)).toEqual({ stickyScroll: true });
+    expect(JSON.parse(localStorage.getItem('gitvolt.editorSettings.v1')!)).toEqual({ stickyScroll: true });
     fireEvent.mouseEnter(screen.getByText('Sticky scroll in the diff viewer'));
     expect(screen.getByText(STICKY_SCROLL_NOTE)).toBeInTheDocument();
   });

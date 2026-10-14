@@ -32,10 +32,10 @@ export interface OperationView {
   stoppedAt: string | null;
   /** At an interactive rebase's Edit stop (spec #3 §3.5): the commit git made there; `null` otherwise. */
   editStop: string | null;
-  /** 3C T13 fix 1 (A1): an Edit stop of a rebase started outside GitBolt (in a terminal): the core
+  /** 3C T13 fix 1 (A1): an Edit stop of a rebase started outside GitVolt (in a terminal): the core
    * refuses Commit there, so the box stays Continue's. */
   editElsewhere?: boolean;
-  /** UX L: GitBolt's Edit stop is "about to commit": HEAD went back to the commit's parent (this
+  /** UX L: GitVolt's Edit stop is "about to commit": HEAD went back to the commit's parent (this
    * oid), its changes staged, its message the box's. The box commits normally there (pieces), and
    * Continue commits what's staged, then goes on. `null`: git's own stop. */
   editBase?: string | null;
@@ -43,7 +43,7 @@ export interface OperationView {
    * whether the index differs from the commit (an Abort keeps it). */
   editAdded?: string[];
   editChanged?: boolean;
-  /** UX N: GitBolt's own interactive rebase (fix round 1: its journal session, as the core
+  /** UX N: GitVolt's own interactive rebase (fix round 1: its journal session, as the core
    * decides): its Abort keeps the work done at the stop that can't be had again (changes made by
    * hand in a conflict resolution too). */
   keepsWork?: boolean;
@@ -58,7 +58,7 @@ export interface OperationView {
   /** What to do next: resolve the conflicts first, or go on (a paused one says so). */
   hint: string;
   conflicted: number;
-  /** The primary button; `null`: GitBolt has no control for it (finish it in a terminal). */
+  /** The primary button; `null`: GitVolt has no control for it (finish it in a terminal). */
   primary: string | null;
   skip: boolean;
   /** Identifies one stop: the box's message is prefilled once per stop. */
@@ -103,10 +103,10 @@ export function operationView(p: InProgress, paused: PausedInfo | null, branch: 
       const onto = paused?.target ?? nameAt(p.onto) ?? short(p.onto);
       // --- 3C T13: an Edit stop (its message is HEAD's: the commit's subject) ---
       const edit = p.editStop && p.conflicted === 0 ? p.editStop : null;
-      // `gitbolt`: GitBolt started this rebase (its interactive rebase), not a terminal.
-      const elsewhere = !!edit && !p.gitbolt;
+      // `gitvolt`: GitVolt started this rebase (its interactive rebase), not a terminal.
+      const elsewhere = !!edit && !p.gitvolt;
       // --- end 3C T13 ---
-      // UX L: "about to commit" (GitBolt's own Edit stop, soft-reset there).
+      // UX L: "about to commit" (GitVolt's own Edit stop, soft-reset there).
       const base = edit && !elsewhere ? p.editBase : null;
       const subject = edit ? subjectOf(edit) ?? p.message.split('\n')[0] : '';
       const editing = `Editing ${short(edit ?? '')} ${subject}`.trimEnd();

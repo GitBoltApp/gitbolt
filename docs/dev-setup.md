@@ -1,6 +1,6 @@
 # Dev setup: CEF sandbox
 
-`gitbolt-app` runs on the Tauri CEF runtime, which is a Chromium build. Unbundled runs (`just dev`,
+`gitvolt-app` runs on the Tauri CEF runtime, which is a Chromium build. Unbundled runs (`just dev`,
 `just build-app` / `just run-app`) need Chromium's root-owned setuid `chrome-sandbox` helper —
 Ubuntu restricts unprivileged user namespaces, so without it Chromium's sandbox can't start and
 the app either won't launch or (never do this) has to run with the sandbox disabled.
@@ -11,7 +11,7 @@ bundler writes the tar entry that way; there is no post-install script involved)
 AppImage build. The app uses `SandboxPolicy::Required` on Linux: it refuses to start rather than run unsandboxed.
 
 **Symptom:** an unbundled run without a usable setuid helper opens no window and exits with code 133.
-The only message is Chromium's `FATAL:...] No usable sandbox!`, and GitBolt itself prints nothing
+The only message is Chromium's `FATAL:...] No usable sandbox!`, and GitVolt itself prints nothing
 more useful. **Fix:** install the helper once (see "Recommended" below), or fix the copy next to the
 binary (see "Fallback").
 
@@ -30,17 +30,17 @@ away, Chromium reads `CHROME_DEVEL_SANDBOX`; with it present, the variable is ig
 One time, after any build that has produced `target/release/chrome-sandbox` (e.g. `just build-app`):
 
 ```bash
-sudo install -D -o root -g root -m 4755 target/release/chrome-sandbox /usr/local/lib/gitbolt/chrome-sandbox
+sudo install -D -o root -g root -m 4755 target/release/chrome-sandbox /usr/local/lib/gitvolt/chrome-sandbox
 ```
 
-From then on `just dev` and `just run-app` see `/usr/local/lib/gitbolt/chrome-sandbox`, export
+From then on `just dev` and `just run-app` see `/usr/local/lib/gitvolt/chrome-sandbox`, export
 `CHROME_DEVEL_SANDBOX` pointing at it, and delete the build's non-setuid copy next to the binary
 before launching. The sandbox stays **on**; only the helper's location changes.
 
 - If a `just dev` run still aborts with "found, but is not configured correctly", that build just
   re-ran the CEF build script and copied a fresh helper back; run `just dev` again.
 - Re-run the `sudo install` after a CEF upgrade, so the helper matches the Chromium it serves.
-- To go back to the per-build flow below, `sudo rm /usr/local/lib/gitbolt/chrome-sandbox`.
+- To go back to the per-build flow below, `sudo rm /usr/local/lib/gitvolt/chrome-sandbox`.
 
 ## Fallback: fix the helper next to the binary after every rebuild
 
@@ -51,14 +51,14 @@ just built:
 # after `just build-app` (target/release):
 sudo chown root:root target/release/chrome-sandbox && sudo chmod 4755 target/release/chrome-sandbox
 
-# after `just dev` or a plain `cargo build -p gitbolt-app` (target/debug):
+# after `just dev` or a plain `cargo build -p gitvolt-app` (target/debug):
 sudo chown root:root target/debug/chrome-sandbox && sudo chmod 4755 target/debug/chrome-sandbox
 ```
 
 ## Never disable the sandbox in committed code
 
 Never set the runtime's sandbox policy to `Disabled` as a default or in committed code.
-`crates/gitbolt-app/src/lib.rs` sets `SandboxPolicy::Required` on Linux, so a missing helper
+`crates/gitvolt-app/src/lib.rs` sets `SandboxPolicy::Required` on Linux, so a missing helper
 stops the app instead of silently dropping the sandbox, which `Auto` would do. If you need a one-off unsandboxed run for a specific
 measurement (e.g. reading `/proc/<pid>/smaps_rollup` for PSS, which is unreadable for a sandboxed,
 non-dumpable renderer), that's a manual, temporary override you make yourself, not something to
@@ -85,11 +85,11 @@ land in the repo.
 
 ## Dock and app-grid icon (unbundled builds)
 
-The window names itself `gitbolt` (X11 `WM_CLASS`, set in `crates/gitbolt-app/src/desktop.rs`)
+The window names itself `gitvolt` (X11 `WM_CLASS`, set in `crates/gitvolt-app/src/desktop.rs`)
 and carries a 256 px window icon (`_NET_WM_ICON`, Tauri's default window icon: the first PNG in
 `tauri.conf.json`'s `bundle.icon`). An X11 taskbar can show that, but **Wayland docks need the
 `.desktop` file to show the icon**: Wayland has no window-icon property, so GNOME and KDE match
-the window to a `.desktop` entry by its class/app id (`StartupWMClass=gitbolt`) and show that
+the window to a `.desktop` entry by its class/app id (`StartupWMClass=gitvolt`) and show that
 entry's `Icon=`. (The CEF window runs through XWayland, where a shell may fall back to
 `_NET_WM_ICON` for an unmatched window, but pinning, the app grid and a reliable dock icon all
 need the entry.) An unbundled build has no entry until you install one.
@@ -97,13 +97,13 @@ need the entry.) An unbundled build has no entry until you install one.
 From the main checkout, after `just build-app`:
 
 ```bash
-just install-desktop     # ~/.local/share/applications/gitbolt.desktop + hicolor icons
+just install-desktop     # ~/.local/share/applications/gitvolt.desktop + hicolor icons
 just uninstall-desktop   # removes them again
 ```
 
 Both honour `XDG_DATA_HOME` (default `~/.local/share`). The entry runs `just run-app` in this
 checkout. Re-run `just install-desktop` after regenerating the icons; GNOME may need you to log
-out and back in before it picks up a changed icon. The `.deb` installs its own entry (`GitBolt.desktop`);
+out and back in before it picks up a changed icon. The `.deb` installs its own entry (`GitVolt.desktop`);
 run `just uninstall-desktop` before installing it so the local entry can't shadow it.
 
 ## Running `just e2e`
@@ -118,12 +118,12 @@ loaded run doesn't trip them), then `webkit`. Arguments go to Playwright:
   `ui/dist-e2e`, served by `vite preview`. The build is redone only when its inputs change
   (`ui/src`, the build config, the lockfile: `ui/e2e/build-ui.mjs`), so a one-spec run starts in
   seconds. The `e2e` mode keeps the test hooks (`window.__gb`) that the release bundle compiles
-  out. `GITBOLT_E2E_DEV=1` tests the dev server instead (unminified, for debugging a spec);
-  `GITBOLT_E2E_REBUILD=1` forces a fresh build.
+  out. `GITVOLT_E2E_DEV=1` tests the dev server instead (unminified, for debugging a spec);
+  `GITVOLT_E2E_REBUILD=1` forces a fresh build.
 - **Traces are off.** Recording one for every test (to keep the failures') took about half the
   run's CPU time. A failure still leaves a screenshot under `ui/test-results/`. To get its trace,
-  rerun the spec with `GITBOLT_E2E_TRACE=1` and open it with `npx playwright show-trace`.
-- **Fixtures** are built once per run by `gitbolt-harness fixture` and copied for each test that
+  rerun the spec with `GITVOLT_E2E_TRACE=1` and open it with `npx playwright show-trace`.
+- **Fixtures** are built once per run by `gitvolt-harness fixture` and copied for each test that
   asks for a fresh one (`freshFixture` in `ui/e2e/fixtures.ts`): `cp -a`, the copy's absolute
   paths repointed, its index refreshed.
 - `expect.poll` (from `ui/e2e/test.ts`) retries every 100 ms instead of Playwright's back-off to
@@ -131,31 +131,31 @@ loaded run doesn't trip them), then `webkit`. Arguments go to Playwright:
 
 ### From parallel worktrees
 
-`just e2e` starts the `gitbolt-harness` WebSocket server and the UI server on fixed ports
+`just e2e` starts the `gitvolt-harness` WebSocket server and the UI server on fixed ports
 (7433 and 1420 by default). Two `just e2e` runs on those same ports collide, so if you're running
 the suite from more than one git worktree at once, give each worktree a
-distinct `GITBOLT_E2E_PORT_BASE`:
+distinct `GITVOLT_E2E_PORT_BASE`:
 
 ```bash
 # worktree A
 just e2e
 # worktree B (concurrently)
-GITBOLT_E2E_PORT_BASE=7600 just e2e
+GITVOLT_E2E_PORT_BASE=7600 just e2e
 # worktree C (concurrently)
-GITBOLT_E2E_PORT_BASE=7700 just e2e
+GITVOLT_E2E_PORT_BASE=7700 just e2e
 ```
 
-Setting `GITBOLT_E2E_PORT_BASE=N` runs the harness on port `N` and the UI on port `N+1`; leave it
+Setting `GITVOLT_E2E_PORT_BASE=N` runs the harness on port `N` and the UI on port `N+1`; leave it
 unset to keep the defaults (7433 / 1420). Pick bases far enough apart that `N` and `N+1` don't
 overlap another worktree's pair -- e.g. 7500, 7600, 7700. This only affects `just e2e`; `just dev`
 and the packaged app are unaffected and always use 1420.
 
 ## The website demo
 
-`just demo-build` builds `ui/demo.html` into `site/dist/demo/` (`GITBOLT_DEMO_DATA=<folder>` for
+`just demo-build` builds `ui/demo.html` into `site/dist/demo/` (`GITVOLT_DEMO_DATA=<folder>` for
 other data than `site/demo-data/`); `just test-demo` runs its vitest suites, the parity suite
 included; `just e2e-demo` its Playwright smoke test (its own config, port
-`GITBOLT_E2E_PORT_BASE + 2`, 1422 by default). `just demo-golden` re-records the core's answers the
+`GITVOLT_E2E_PORT_BASE + 2`, 1422 by default). `just demo-golden` re-records the core's answers the
 parity suite compares with, after a change to them or to the `basic` and `long_history` fixtures.
 `just demo-data` rebuilds the demo's repositories into `site/demo-data/` (see docs/playground.md);
 a change to `playground/media_repos.rs` needs both `just demo-data` and `just demo-golden`.
@@ -165,7 +165,7 @@ The website itself is `site/`, its own npm project (Vite, plain TypeScript and C
 it (nothing left unfilled, the first screen's weight); `just demo-build` adds the demo under
 `site/dist/demo/`; `just site-dev` serves the page at http://localhost:1430 with the last demo
 build at `/demo/`; `just test-site` runs its unit tests and `just e2e-site` its Playwright checks
-(port `GITBOLT_E2E_PORT_BASE + 3`, 1423 by default). The features and the GitKraken table are
+(port `GITVOLT_E2E_PORT_BASE + 3`, 1423 by default). The features and the GitKraken table are
 generated from README.md and the downloads from `site/data/release.json` at build time.
 `just site-shots` retakes the screenshots in `site/shots/` from the demo build (headless Chromium,
 port base + 4; needs Pillow): on demand only, then commit them. The four review, undo,
@@ -189,7 +189,7 @@ website the way its deploy does and checks it ([docs/website.md](website.md)).
   re-optimising all of core. `just package` and `just build-app` unset `CARGO_INCREMENTAL` for
   their build so a caller's `=0` can't undo that.
 - **One harness test binary.** The harness's integration tests are modules of `tests/it/`:
-  `cargo test -p gitbolt-harness --test it forge_stacks::` runs one old file's tests.
+  `cargo test -p gitvolt-harness --test it forge_stacks::` runs one old file's tests.
 - **cargo-nextest** (`cargo install --locked cargo-nextest`, or the prebuilt binary from
   nexte.st into `~/.cargo/bin`) runs the workspace's tests in under half the time of
   `cargo test` here: every test is its own process, and all the test binaries run at once instead
@@ -205,13 +205,13 @@ website the way its deploy does and checks it ([docs/website.md](website.md)).
 
 ## How the app behaves at runtime
 
-How GitBolt works inside (the request API, reads and writes, askpass, the watcher, background
+How GitVolt works inside (the request API, reads and writes, askpass, the watcher, background
 fetch, where settings and logs live, the harness) is in [ARCHITECTURE.md](../ARCHITECTURE.md).
 A few things that matter while developing:
 
 - **One instance per config dir.** `just dev` or `just run-app` with your own config while an
-  installed GitBolt runs only focuses that one and exits. Point `XDG_CONFIG_HOME`,
-  `XDG_CACHE_HOME` and `XDG_DATA_HOME` at throwaway dirs, or set `GITBOLT_MULTI_INSTANCE=1`.
+  installed GitVolt runs only focuses that one and exits. Point `XDG_CONFIG_HOME`,
+  `XDG_CACHE_HOME` and `XDG_DATA_HOME` at throwaway dirs, or set `GITVOLT_MULTI_INSTANCE=1`.
 - **Open Repository** (Ctrl+O, or the automatic tab of an empty profile): Recent (pinned first,
   filterable), "Your repos" (a scan of the profile's default repos folder; a banner offers to set
   one), **Open folder…** and Clone. Any folder inside a repository opens that repository; a linked
@@ -230,16 +230,16 @@ A few things that matter while developing:
 
 ## Trying the askpass flow (no real keys)
 
-Everything lives in `/tmp/gb-askpass` and runs in a **throwaway GitBolt instance**. Neither the
+Everything lives in `/tmp/gb-askpass` and runs in a **throwaway GitVolt instance**. Neither the
 setup nor that instance reads your git config:
 - `GIT_CONFIG_GLOBAL=/dev/null` and `GIT_CONFIG_NOSYSTEM=1` keep out `~/.gitconfig`, so no
   `credential.helper store`, no signing and no password-manager ssh agent.
 - Throwaway `XDG_*` dirs give a fresh default profile, with no extra gitconfig and none of your
   tabs or recent repos.
 
-Nothing here touches `~/.ssh`, your ssh agent, `~/.git-credentials`, `~/.config/gitbolt` or a
+Nothing here touches `~/.ssh`, your ssh agent, `~/.git-credentials`, `~/.config/gitvolt` or a
 real repository. (This holds unless your shell's startup files set `GIT_CONFIG_GLOBAL`
-themselves: GitBolt runs git with your login shell's environment.)
+themselves: GitVolt runs git with your login shell's environment.)
 
 `scripts/fake-ssh` stands in for ssh. It asks for a key passphrase the way OpenSSH decides
 (through `SSH_ASKPASS`), then serves a local bare repo, so no sshd or key is needed. It needs a
@@ -252,7 +252,7 @@ your shell keeps its own directory and environment.
 (
   set -e
   export GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1
-  GB=~/repos/gitbolt          # your GitBolt checkout
+  GB=~/repos/gitvolt          # your GitVolt checkout
   T=/tmp/gb-askpass
   id="-c user.name=gb-test -c user.email=gb-test@example.invalid"
   rm -rf $T && mkdir -p $T
@@ -270,12 +270,12 @@ your shell keeps its own directory and environment.
 )
 ```
 
-**2. Start the throwaway instance** on that repo. Your usual GitBolt can stay open.
+**2. Start the throwaway instance** on that repo. Your usual GitVolt can stay open.
 
 ```sh
 env GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 \
   XDG_CONFIG_HOME=/tmp/gb-askpass/xdg/config XDG_CACHE_HOME=/tmp/gb-askpass/xdg/cache XDG_DATA_HOME=/tmp/gb-askpass/xdg/data \
-  just --justfile ~/repos/gitbolt/justfile run-app /tmp/gb-askpass/work &
+  just --justfile ~/repos/gitvolt/justfile run-app /tmp/gb-askpass/work &
 ```
 
 Its git sees no credential helper at all. To check, run this; it prints only the repo's own
@@ -299,7 +299,7 @@ GIT_CONFIG_GLOBAL=/dev/null GIT_CONFIG_NOSYSTEM=1 git -C /tmp/gb-askpass/work co
 agent looks like to an ssh remote:
 
 ```sh
-git -C /tmp/gb-askpass/work config core.sshCommand "$HOME/repos/gitbolt/scripts/fake-ssh --dead-agent"
+git -C /tmp/gb-askpass/work config core.sshCommand "$HOME/repos/gitvolt/scripts/fake-ssh --dead-agent"
 ```
 
 **Fetch** shows "Fetch failed: Authentication failed (fake: Permission denied (publickey).)". For a
@@ -312,7 +312,7 @@ shell can stop it), then point the repo at it:
 ```sh
 python3 -c 'import http.server as h
 class H(h.BaseHTTPRequestHandler):
-    def do_GET(s): s.send_response(401); s.send_header("WWW-Authenticate", "Basic realm=gitbolt-test"); s.send_header("Content-Length", "0"); s.end_headers()
+    def do_GET(s): s.send_response(401); s.send_header("WWW-Authenticate", "Basic realm=gitvolt-test"); s.send_header("Content-Length", "0"); s.end_headers()
     def log_message(s, *a): pass
 h.HTTPServer(("127.0.0.1", 8765), H).serve_forever()' & echo $! > /tmp/gb-askpass/server.pid
 git -C /tmp/gb-askpass/work config --unset core.sshCommand
@@ -335,7 +335,7 @@ the public key.
 Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a repo-local
 `credential.helper ""`:
 - That reset does work against `~/.gitconfig` (git 2.53, checked).
-- But GitBolt passes the active profile's extra gitconfig as `-c include.path=…`. That is read
+- But GitVolt passes the active profile's extra gitconfig as `-c include.path=…`. That is read
   after the repo's config, so a helper set there comes back.
 - With such a helper, git still calls it to `get` and, after a 401, to `erase`; `store` rewrites
   `~/.git-credentials` on erase.
@@ -348,11 +348,11 @@ Why the throwaway instance and `GIT_CONFIG_GLOBAL=/dev/null` rather than just a 
   `libgtk-3-0` the alpha CLI always adds (upstream draft: `docs/upstream/tauri-cli-cef-gtk-depends.md`).
   `scripts/check-deb.sh` verifies that, that `chrome-sandbox` is root:root 4755, and that the
   package carries the control fields, icons, desktop entry and AppStream metainfo below, and the
-  license notices and DEP-5 `copyright` file in `/usr/share/doc/gitbolt/`. It needs
+  license notices and DEP-5 `copyright` file in `/usr/share/doc/gitvolt/`. It needs
   `appstreamcli` and `desktop-file-validate` (`sudo apt install appstream desktop-file-utils`).
 - `fix-deb.sh` also writes the Debian form of the version: a SemVer pre-release's `-` becomes
   `~` (`0.1.0-alpha.1` → `0.1.0~alpha.1`), which sorts before `0.1.0`.
-- `GITBOLT_RELEASE_VERSION=<version> just package` builds the plain, unstamped version, as the
+- `GITVOLT_RELEASE_VERSION=<version> just package` builds the plain, unstamped version, as the
   release workflow does; it must equal `tauri.conf.json`'s version. See
   [releasing.md](releasing.md).
 - Before building, it generates the third-party license notices (`scripts/licenses.sh`, needs
@@ -375,7 +375,7 @@ package's AppStream file before it's installed:
   the license as `unknown` (`backends/apt/apt-job.cpp`, `emitPackageDetail`), and takes the app
   id from the shortest `.desktop` file name in the package (`file_to_app_get_files_cb`). An app
   without an icon then gets the generic `system-component-application`
-  (`lib/gs-plugin-job-file-to-app.c`). It shows the name as the package name, `git-bolt`.
+  (`lib/gs-plugin-job-file-to-app.c`). It shows the name as the package name, `gitvolt`.
 - **Ubuntu's App Center**: PackageKit's `GetDetailsLocal` only (`lib/deb/local_deb_model.dart`):
   the package name as the title, the summary and description, `Homepage`, and the license, which
   is `unknown` there too. Its local `.deb` page has no icon at all (`AppTitleBar.fromLocalDeb`).
@@ -385,50 +385,53 @@ package's AppStream file before it's installed:
 So for that page the control fields are what count: `fix-deb.sh` adds `License: MIT` (not a
 Debian field, but GNOME Software reads it), and `tauri.conf.json` sets `Homepage` and the long
 `Description`. Once installed, the software centres read
-`/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml` (the id is `tauri.conf.json`'s
+`/usr/share/metainfo/com.gitvolt.desktop.metainfo.xml` (the id is `tauri.conf.json`'s
 `identifier`):
 
 - It's generated by `scripts/package-meta.py` from
-  `crates/gitbolt-app/linux/dev.gitbolt.desktop.metainfo.xml.in`: the releases (version and date)
+  `crates/gitvolt-app/linux/com.gitvolt.desktop.metainfo.xml.in`: the releases (version and date)
   from CHANGELOG.md's dated sections, and the README screenshot by its raw GitHub URL at the
   newest release's tag.
-- Its `<pkgname>` is the package's name: `git-bolt` in the `.deb`, `gitbolt` in the Arch package
-  and the RPM (`package-arch.sh` and `package-rpm.sh` change it). App Center and Discover match an installed component to its
+- Its `<pkgname>` is the package's name, `gitvolt` in the `.deb`, the RPM and the Arch package
+  (`fix-deb.sh` renames Tauri's `git-volt`). App Center and Discover match an installed component to its
   package by it, and GNOME Software finds the package to remove that way, since no distribution
-  catalog lists GitBolt.
-- The desktop entry keeps its name, `GitBolt.desktop` (`linux/GitBolt.desktop.hbs`), so existing
+  catalog lists GitVolt.
+- Its `<replaces>` names GitBolt's id, `dev.gitbolt.desktop` (the app's name before 0.7.0), so software
+  centres carry the listing over. The packages themselves replace GitBolt's (`git-bolt` in the `.deb`,
+  `gitbolt` in the RPM and Arch package): apt, dnf, zypper and pacman remove it when GitVolt's is installed.
+- The desktop entry keeps its name, `GitVolt.desktop` (`linux/GitVolt.desktop.hbs`), so existing
   installs' dock pins and menu entries carry over; the metainfo's `<launchable>` names it.
-- The icons are installed under the app id too (`dev.gitbolt.desktop.png` at 32 to 512 px, and
-  `.svg`), which the desktop entry's `Icon=` and the metainfo name. Tauri's own `gitbolt.png` set
+- The icons are installed under the app id too (`com.gitvolt.desktop.png` at 32 to 512 px, and
+  `.svg`), which the desktop entry's `Icon=` and the metainfo name. Tauri's own `gitvolt.png` set
   stays: its bundler always installs the `bundle.icon` PNGs under the binary's name.
 - `check-deb.sh` validates it (`appstreamcli validate --pedantic --no-net`) and checks it against
   the package: file name, launchable, icon, pkgname, license, and the newest release against the
   package's version.
-- The package is `git-bolt` (about 146 MiB). It installs `/usr/share/GitBolt/` (the binary and
-  CEF, `chrome-sandbox` root:root 4755) and `/usr/bin/gitbolt` as a symlink to it.
+- The package is `gitvolt` (about 146 MiB). It installs `/usr/share/GitVolt/` (the binary and
+  CEF, `chrome-sandbox` root:root 4755) and `/usr/bin/gitvolt` as a symlink to it.
 - **Install and check:**
-  1. Quit any running GitBolt that uses your config. With the single-instance guard, a running
+  1. Quit any running GitVolt that uses your config. With the single-instance guard, a running
      one would just be focused instead of the installed app starting.
   2. Run `just uninstall-desktop`, so the dev entry doesn't duplicate or shadow the `.deb`'s
-     `GitBolt.desktop`.
-  3. Run `sudo apt install ./target/release/bundle/deb/GitBolt_*_amd64.deb`, then launch
-     GitBolt from the app menu. The file name carries a build stamp
-     (`GitBolt_0.1.0+<UTC time>.<commit>_amd64.deb`, e.g. `0.1.0+202610051325.ab4dbf9e`), and
+     `GitVolt.desktop`.
+  3. Run `sudo apt install ./target/release/bundle/deb/GitVolt_*_amd64.deb`, then launch
+     GitVolt from the app menu. The file name carries a build stamp
+     (`GitVolt_0.1.0+<UTC time>.<commit>_amd64.deb`, e.g. `0.1.0+202610051325.ab4dbf9e`), and
      `just package` deletes older packages first, so the glob matches only the new one.
-  4. Run `GITBOLT_PID=<browser pid> scripts/check-sandbox.sh`, which checks that every renderer has
-     seccomp and its own PID namespace. Then `GITBOLT_PID=<browser pid> just bench`. The browser
-     process is the `/usr/share/GitBolt/gitbolt` process without a `--type=` argument.
-- **Remove it:** `sudo apt remove git-bolt`. Then `just install-desktop` brings the dev entry back.
+  4. Run `GITVOLT_PID=<browser pid> scripts/check-sandbox.sh`, which checks that every renderer has
+     seccomp and its own PID namespace. Then `GITVOLT_PID=<browser pid> just bench`. The browser
+     process is the `/usr/share/GitVolt/gitvolt` process without a `--type=` argument.
+- **Remove it:** `sudo apt remove gitvolt`. Then `just install-desktop` brings the dev entry back.
 
 ### Arch Linux package (`just package-arch`, `just check-arch-pkg`)
 
 - `just package` ends with `just package-arch`, so one build gives both packages. It turns the
-  `.deb` into `target/release/bundle/arch/GitBolt-<ver>-1-x86_64.pkg.tar.zst` without makepkg
+  `.deb` into `target/release/bundle/arch/GitVolt-<ver>-1-x86_64.pkg.tar.zst` without makepkg
   (`scripts/package-arch.sh`; the Python helpers are in `scripts/arch-pkg.py`).
   - The payload is the `.deb`'s data member, path for path and mode for mode; the script checks
     that, and that `chrome-sandbox` is root:root 4755. The one addition is
-    `/usr/share/licenses/gitbolt`, a symlink to the license notices in `/usr/share/doc/gitbolt`,
-    and the one change is the AppStream metainfo's `<pkgname>`, which becomes `gitbolt`.
+    `/usr/share/licenses/gitvolt`, a symlink to the license notices in `/usr/share/doc/gitvolt`,
+    and the one change is the AppStream metainfo's `<pkgname>`, which becomes `gitvolt`.
   - `license` lines: MIT, then the licenses in the Rust and UI notices' summaries, CEF and
     Chromium's `BSD-3-Clause`, and the spell-check dictionary's `LicenseRef-SCOWL`
     (`arch-pkg.py licenses`).
@@ -445,26 +448,26 @@ Debian field, but GNOME Software reads it), and `tauri.conf.json` sets `Homepage
   mtree escaping, and a synthetic `.deb` through the whole script.
 - `just check-arch-pkg` installs the package in a throwaway `archlinux:latest` Docker container
   (`--rm`; it needs Docker and the network, so `just package` doesn't run it). It runs
-  `pacman -Syu`, then `pacman -U`, and checks `pacman -Qkk gitbolt`, the license notices, the
+  `pacman -Syu`, then `pacman -U`, and checks `pacman -Qkk gitvolt`, the license notices, the
   setuid `chrome-sandbox`, the AppStream metainfo (`appstreamcli validate`), desktop entry and
   icons, `ldd` on the binary and the CEF libraries, and a 20 s headless launch under `xvfb-run`.
-- `packaging/arch/PKGBUILD` is a template for a future `gitbolt-bin` AUR package that repackages
+- `packaging/arch/PKGBUILD` is a template for a future `gitvolt-bin` AUR package that repackages
   the release `.deb`. The build doesn't use it.
-- **Install on Arch:** `sudo pacman -U GitBolt-<ver>-1-x86_64.pkg.tar.zst`. **Remove:**
-  `sudo pacman -R gitbolt`.
+- **Install on Arch:** `sudo pacman -U GitVolt-<ver>-1-x86_64.pkg.tar.zst`. **Remove:**
+  `sudo pacman -R gitvolt`.
 
 ### RPM (`just package-rpm`, `just check-rpm-pkg`)
 
 - `just package` also runs `just package-rpm`, which turns the `.deb` into
-  `target/release/bundle/rpm/GitBolt-<version>-1.x86_64.rpm` for Fedora and openSUSE, without
+  `target/release/bundle/rpm/GitVolt-<version>-1.x86_64.rpm` for Fedora and openSUSE, without
   rpmbuild (`scripts/package-rpm.sh`; `scripts/rpm-pkg.py` writes the package: the lead, the
   signature header with its digests, the header, and a zstd-compressed cpio payload, as rpmbuild
   does). It reads the package back and checks it against the `.deb` before keeping it.
   - The payload is the `.deb`'s, path for path and mode for mode (`chrome-sandbox` root:root
-    4755), with the Arch package's two changes (the `/usr/share/licenses/gitbolt` symlink, and
-    `<pkgname>gitbolt</pkgname>`), `install-kind` saying `rpm`, and without the system's
-    directories (`/usr`, `/usr/bin`, the icon theme's): the package owns only `/usr/share/GitBolt`
-    and `/usr/share/doc/gitbolt`. Fedora's `/usr/bin` is mode 555, and owning a directory with
+    4755), with the Arch package's two changes (the `/usr/share/licenses/gitvolt` symlink, and
+    `<pkgname>gitvolt</pkgname>`), `install-kind` saying `rpm`, and without the system's
+    directories (`/usr`, `/usr/bin`, the icon theme's): the package owns only `/usr/share/GitVolt`
+    and `/usr/share/doc/gitvolt`. Fedora's `/usr/bin` is mode 555, and owning a directory with
     another mode is a file conflict. A `.deb` directory in neither list fails the build
     (`OWNED_DIRS` and `SYSTEM_DIRS` in `rpm-pkg.py`).
   - The license notices are `%license` files: dnf installs them even with `tsflags=nodocs`.
@@ -475,12 +478,12 @@ Debian field, but GNOME Software reads it), and `tauri.conf.json` sets `Homepage
     (`DEB_TO_RPM`); another Debian name that isn't a `lib*` one fails the build.
   - `Version` is the `.deb`'s (`0.1.0~alpha.1`, `0.1.0+202610051325.ab4dbf9e`): rpm sorts `~`
     before anything, as dpkg does, and `+` as a separator. `Release` is 1. The file name keeps
-    the SemVer form of the `.deb`'s (`GitBolt-0.1.0-alpha.1-1.x86_64.rpm`). Times as in the Arch
+    the SemVer form of the `.deb`'s (`GitVolt-0.1.0-alpha.1-1.x86_64.rpm`). Times as in the Arch
     package.
   - It isn't signed (rpm reports `Signature: (none)`); dnf says it skipped the OpenPGP check of a
     local file, and zypper wants `--allow-unsigned-rpm`.
 - `scripts/test-package-rpm.sh` (part of `just test`) checks the version and dependency mapping
-  and a synthetic `.deb` through the whole script; `GITBOLT_TEST_DOCKER=1` adds rpm's own checks
+  and a synthetic `.deb` through the whole script; `GITVOLT_TEST_DOCKER=1` adds rpm's own checks
   of the result in `fedora:latest`.
 - `just check-rpm-pkg` installs the package in a throwaway `fedora:latest` Docker container: `rpm
   -K`, `dnf install` (every Requires resolved from Fedora's repositories), `rpm -V`, the setuid
@@ -489,9 +492,9 @@ Debian field, but GNOME Software reads it), and `tauri.conf.json` sets `Homepage
 - The release's `Requires` come from the Ubuntu 24.04 runner's libraries (glibc 2.39), so it
   needs Fedora 40 or later; openSUSE Tumbleweed installs it too. RHEL 9 (glibc 2.34) and
   openSUSE Leap 15 can't.
-- **Install on Fedora:** `sudo dnf install ./GitBolt-<version>-1.x86_64.rpm`; on openSUSE,
-  `sudo zypper install --allow-unsigned-rpm ./GitBolt-<version>-1.x86_64.rpm`. **Remove:**
-  `sudo dnf remove gitbolt` (`sudo zypper remove gitbolt`).
+- **Install on Fedora:** `sudo dnf install ./GitVolt-<version>-1.x86_64.rpm`; on openSUSE,
+  `sudo zypper install --allow-unsigned-rpm ./GitVolt-<version>-1.x86_64.rpm`. **Remove:**
+  `sudo dnf remove gitvolt` (`sudo zypper remove gitvolt`).
 
 ## `just bench` (idle CPU and memory smoke)
 
@@ -502,15 +505,15 @@ each next to its budget (idle CPU < 1.5%, memory with 12 tabs < 650 MB). It neve
 number.
 
 ```
-# the browser process: a gitbolt process without --type= (CEF's helpers re-run the same binary)
-GITBOLT_PID=$(for p in $(pgrep -x gitbolt); do grep -qa -- --type= /proc/$p/cmdline || echo $p; done | head -1)
-echo "$GITBOLT_PID"; GITBOLT_PID=$GITBOLT_PID just bench
+# the browser process: a gitvolt process without --type= (CEF's helpers re-run the same binary)
+GITVOLT_PID=$(for p in $(pgrep -x gitvolt); do grep -qa -- --type= /proc/$p/cmdline || echo $p; done | head -1)
+echo "$GITVOLT_PID"; GITVOLT_PID=$GITVOLT_PID just bench
 ```
 
-`pgrep -nx gitbolt` alone isn't enough: it returns the newest `gitbolt` process, which is usually a
+`pgrep -nx gitvolt` alone isn't enough: it returns the newest `gitvolt` process, which is usually a
 renderer.
 
-- `GITBOLT_PID` is the instance's browser (main) process; it scopes the scripts to that instance
+- `GITVOLT_PID` is the instance's browser (main) process; it scopes the scripts to that instance
   and its CEF children. Start the instance yourself (`just run-app`, with any throwaway XDG dirs
   you like), open the tabs to measure, and leave the window focused and idle for the 60 s.
 - The other performance budgets (latencies) are asserted by `just e2e` (`menu-perf.spec`, the
@@ -526,20 +529,20 @@ Windows and Node.
 - **CEF:** `cef-dll-sys`'s build script downloads the Windows distribution into `CEF_PATH`
   (`cargo tauri` uses `%LOCALAPPDATA%\tauri-cef`) and copies its runtime files next to the binary.
 - **The UI:** `cd ui && npm ci && npm run build`.
-- **Debug build with the bundled UI:** `cargo build -p gitbolt-app --features tauri/custom-protocol`
+- **Debug build with the bundled UI:** `cargo build -p gitvolt-app --features tauri/custom-protocol`
   (without the feature, a debug build loads the Vite dev server, `npm run dev`).
-- **Sandboxed:** a plain debug `gitbolt.exe` runs Chromium unsandboxed, and a release one refuses
+- **Sandboxed:** a plain debug `gitvolt.exe` runs Chromium unsandboxed, and a release one refuses
   to start (SECURITY.md). The sandbox needs the app as a DLL under CEF's bootstrap, named alike:
   ```bat
-  cargo rustc -p gitbolt-app --lib --crate-type cdylib --features tauri/custom-protocol
-  copy %CEF_PATH%\152.0.6\cef_windows_x86_64\bootstrapc.exe target\debug\gitbolt_app.exe
-  target\debug\gitbolt_app.exe
+  cargo rustc -p gitvolt-app --lib --crate-type cdylib --features tauri/custom-protocol
+  copy %CEF_PATH%\152.0.6\cef_windows_x86_64\bootstrapc.exe target\debug\gitvolt_app.exe
+  target\debug\gitvolt_app.exe
   ```
   (`bootstrapc.exe` keeps a console; `bootstrap.exe` is the windowed host.)
 - **A throwaway instance, driven from another machine:** in debug builds,
-  `GITBOLT_DEV_DIRS=<absolute dir>` puts the config, cache, data and Chromium profile folders under
+  `GITVOLT_DEV_DIRS=<absolute dir>` puts the config, cache, data and Chromium profile folders under
   that folder (Windows' Known Folders ignore the environment; set `TEMP` and `TMP` too for the
-  single-instance and askpass files), and `GITBOLT_DEV_CDP_PORT=<port>` opens Chromium's DevTools
+  single-instance and askpass files), and `GITVOLT_DEV_CDP_PORT=<port>` opens Chromium's DevTools
   protocol on `127.0.0.1:<port>`. Started over SSH, the app runs in the SSH session's own window
   station, not on the desktop; `ssh -L 9333:127.0.0.1:9333 <host>` and Playwright's
   `chromium.connectOverCDP('http://127.0.0.1:9333')` then reach its page. Release builds have
@@ -547,7 +550,7 @@ Windows and Node.
 - **The installers:** `just package-windows` (or `powershell -File scripts\package-windows.ps1`)
   builds the NSIS per-user installer and the per-machine MSI into
   `target\release\bundle\windows\`, from a release build with the sandboxed layout above
-  (`GitBolt.exe` is CEF's `bootstrap.exe`, `GitBolt.dll` the app). Besides the above it needs
+  (`GitVolt.exe` is CEF's `bootstrap.exe`, `GitVolt.dll` the app). Besides the above it needs
   Python 3 (`PYTHON` picks one), cargo-about 0.9.2 (`cargo install cargo-about --version 0.9.2
   --locked --features cli`) and the .NET SDK (WiX is a .NET tool); NSIS, WiX and rcedit are
   downloaded into `target\windows-tools` on first use. docs/releasing.md has the details, the
@@ -556,17 +559,17 @@ Windows and Node.
 ## macOS
 
 The app builds and runs on macOS (Apple Silicon checked, macOS 12 or later), but only as
-`GitBolt.app`: CEF loads its framework and starts its helper processes from inside the bundle, so
-a bare `target/debug/GitBolt` can't start. Needs Xcode's command line tools, CMake, Ninja, Node
+`GitVolt.app`: CEF loads its framework and starts its helper processes from inside the bundle, so
+a bare `target/debug/GitVolt` can't start. Needs Xcode's command line tools, CMake, Ninja, Node
 and the pinned Tauri CLI (`cargo install tauri-cli --version =3.0.0-alpha.4 --locked`).
 
-- **The bundle:** `cd crates/gitbolt-app && cargo tauri build --debug --bundles app` (or without
-  `--debug`) makes `target/<profile>/bundle/macos/GitBolt.app`, with the UI embedded. The Tauri
+- **The bundle:** `cd crates/gitvolt-app && cargo tauri build --debug --bundles app` (or without
+  `--debug`) makes `target/<profile>/bundle/macos/GitVolt.app`, with the UI embedded. The Tauri
   CLI does the whole layout (`tauri.macos.conf.json` adds to `tauri.conf.json`):
-  - `Contents/MacOS/GitBolt`, the app (`mainBinaryName`, so the helpers are named after it);
+  - `Contents/MacOS/GitVolt`, the app (`mainBinaryName`, so the helpers are named after it);
   - `Contents/Frameworks/Chromium Embedded Framework.framework`, copied from the distribution
     `cef-dll-sys` downloaded into `CEF_PATH` (`~/Library/Caches/tauri-cef` by default);
-  - `Contents/Frameworks/GitBolt Helper.app` and its `(GPU)`, `(Renderer)`, `(Plugin)` and
+  - `Contents/Frameworks/GitVolt Helper.app` and its `(GPU)`, `(Renderer)`, `(Plugin)` and
     `(Alerts)` siblings: one small helper executable, which the bundler compiles against the
     app's own `cef` crate (`target/tauri-cef-helper`) and copies into each, with its
     `Info.plist`;
@@ -575,7 +578,7 @@ and the pinned Tauri CLI (`cargo install tauri-cli --version =3.0.0-alpha.4 --lo
     entitlements CEF needs (JIT, unsigned executable memory, no library validation);
   - `Info.plist` with the folder document type (`packaging/macos/Info.plist`, merged in).
 - **The package:** `just package-macos` builds the release bundle and
-  `target/release/bundle/dmg/GitBolt_<version>_aarch64.dmg`, then checks both
+  `target/release/bundle/dmg/GitVolt_<version>_aarch64.dmg`, then checks both
   (`scripts/package-macos.sh`; docs/releasing.md, "macOS disk image"). It needs cargo-about too,
   for the license notices.
 - **Folders from Finder:** macOS hands folders to the app as Apple Events (Open With, a folder
@@ -585,7 +588,7 @@ and the pinned Tauri CLI (`cargo install tauri-cli --version =3.0.0-alpha.4 --lo
 - **The sandbox:** the helpers enter Chromium's Seatbelt sandbox, ad-hoc signed as they are; a
   release build asks for it outright (`SandboxPolicy::Required`, SECURITY.md).
 - **A throwaway instance driven over CDP** (debug builds only), as on Windows:
-  `GITBOLT_DEV_DIRS=<absolute dir> GITBOLT_DEV_CDP_PORT=9333 GitBolt.app/Contents/MacOS/GitBolt
+  `GITVOLT_DEV_DIRS=<absolute dir> GITVOLT_DEV_CDP_PORT=9333 GitVolt.app/Contents/MacOS/GitVolt
   <repo>`, then `node ui/scripts/cdp-smoke.mjs 9333 <out dir> <repo>` (Playwright's
   `connectOverCDP`) opens the graph, a commit, its diff and a fetch, with a screenshot of each.
   The single-instance and askpass sockets are in `$TMPDIR`.

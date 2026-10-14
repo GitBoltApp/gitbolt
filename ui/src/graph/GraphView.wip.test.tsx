@@ -46,7 +46,7 @@ describe('WIP row draft summary (K48)', () => {
     const g = payload(wipRow('/r', null, { modified: 1 }), wipRow('/r-wt', 'wt', { added: 1 }));
     const { unmount } = render(<GraphView graph={g} repoId="/r" />);
     fireEvent.change(input(0), { target: { value: 'fix the thing' } });
-    expect(localStorage.getItem('gitbolt.wipDraft.v2')).toBeNull();
+    expect(localStorage.getItem('gitvolt.wipDraft.v2')).toBeNull();
     act(() => { vi.advanceTimersByTime(400); });
     expect(readWipDraft('/r', '/r').summary).toBe('fix the thing');
     expect(readWipDraft('/r', '/r-wt').summary).toBe('');
@@ -64,7 +64,7 @@ describe('WIP row draft summary (K48)', () => {
     expect(readWipDraft('/r', '/r').summary).toBe('abc');
     fireEvent.change(input(), { target: { value: '' } });
     fireEvent.blur(input());
-    expect(JSON.parse(localStorage.getItem('gitbolt.wipDraft.v2') ?? '{}')).toEqual({});
+    expect(JSON.parse(localStorage.getItem('gitvolt.wipDraft.v2') ?? '{}')).toEqual({});
   });
 
   it('has no length limit; the counter shows past 60 and warns past 72', () => {

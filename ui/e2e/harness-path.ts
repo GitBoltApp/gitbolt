@@ -12,4 +12,4 @@ const repoRoot = join(here, '..', '..');
 const targetDir = process.env.CARGO_TARGET_DIR
   ? (isAbsolute(process.env.CARGO_TARGET_DIR) ? process.env.CARGO_TARGET_DIR : join(repoRoot, process.env.CARGO_TARGET_DIR))
   : join(repoRoot, 'target');
-export const HARNESS_BIN = join(targetDir, 'debug', 'gitbolt-harness');
+export const HARNESS_BIN = join(targetDir, 'debug', 'gitvolt-harness');

@@ -135,8 +135,8 @@ describe('the shortcuts on macOS', () => {
     input.remove();
   });
 
-  it("the menu bar's items (crates/gitbolt-app/src/menu.rs) name registered actions, with their own shortcuts", () => {
-    const rust = readFileSync(join(__dirname, '../../../crates/gitbolt-app/src/menu.rs'), 'utf8');
+  it("the menu bar's items (crates/gitvolt-app/src/menu.rs) name registered actions, with their own shortcuts", () => {
+    const rust = readFileSync(join(__dirname, '../../../crates/gitvolt-app/src/menu.rs'), 'utf8');
     const items = [...rust.matchAll(/action\("([^"]+)", "[^"]+", (?:Some\("([^"]+)"\)|None)\)/g)].map((m) => ({ id: m[1], accel: m[2] }));
     expect(items.map((i) => i.id)).toEqual(expect.arrayContaining(['help.about', 'file.settings', 'help.checkUpdates', 'file.quit', 'help.shortcuts']));
     for (const { id, accel } of items) {

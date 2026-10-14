@@ -1,21 +1,21 @@
 # Architecture
 
-This is a map of how GitBolt is put together, for anyone about to change it. It describes what
+This is a map of how GitVolt is put together, for anyone about to change it. It describes what
 the code does today; when the two disagree, the code wins, and this file should be fixed.
 
-GitBolt is a desktop app for Linux and Windows: a Rust backend that does all the git work, a
+GitVolt is a desktop app for Linux and Windows: a Rust backend that does all the git work, a
 React UI that draws it, and Tauri 3 on its Chromium (CEF) runtime holding the two together.
 
 ```
-┌──────────────────────── gitbolt (one process tree) ────────────────────────┐
+┌──────────────────────── gitvolt (one process tree) ────────────────────────┐
 │                                                                            │
 │  ui/  React 19 + TypeScript, in Chromium (CEF)                             │
 │    invoke('api', {req})  ──►              ◄── 'gb:event' (AppEvent)        │
 │  ──────────────────────────────────────────────────────────────────────    │
-│  gitbolt-app   Tauri 3 shell: window, CEF runtime, wiring                  │
-│  gitbolt-core  Api::dispatch(Request) · event bus · reads · write pipeline │
+│  gitvolt-app   Tauri 3 shell: window, CEF runtime, wiring                  │
+│  gitvolt-core  Api::dispatch(Request) · event bus · reads · write pipeline │
 │                watcher · graph layout · settings · journal · askpass       │
-│  gitbolt-forge GitHub / GitLab providers · HTTP client · token store       │
+│  gitvolt-forge GitHub / GitLab providers · HTTP client · token store       │
 │                                                                            │
 └──────┬───────────────────────┬─────────────────────────┬───────────────────┘
        │ gix (in-process)      │ git CLI (child process) │ HTTPS
@@ -27,7 +27,7 @@ React UI that draws it, and Tauri 3 on its Chromium (CEF) runtime holding the tw
 
 The Cargo workspace has six crates under `crates/`; the UI is a separate npm project in `ui/`.
 
-**`gitbolt-core`** owns everything a git client does, with no Tauri dependency. Its entry point is
+**`gitvolt-core`** owns everything a git client does, with no Tauri dependency. Its entry point is
 `Api` (`src/api.rs`): one `Request` enum of every method the UI can call, and one `dispatch`
 function that answers it. Around that: repository reads (`walk.rs`, `snapshot.rs`, `details.rs`,
 `diff.rs`, `history.rs`, …), the graph layout (`graph/`), the write pipeline (`write/`) and its
@@ -36,12 +36,12 @@ profiles (`settings.rs`), askpass (`askpass.rs`), log files (`logging.rs`), and 
 contract (`forge/`: the normalized types the UI sees, the `ForgeProvider` trait, the hub that holds
 accounts, the cache). Core never speaks HTTP; it defines traits that the other crates implement.
 
-**`gitbolt-forge`** implements that contract for real forges: `github.rs` (GitHub REST, and GraphQL where REST lacks it),
+**`gitvolt-forge`** implements that contract for real forges: `github.rs` (GitHub REST, and GraphQL where REST lacks it),
 `gitlab.rs` (GitLab REST v4), one HTTP client per account (`http.rs`), the token store
 (`tokens.rs`), avatar and Markdown-image fetching, and Gravatar (`gravatar.rs`). It depends on core,
 never the other way round.
 
-**`gitbolt-app`** is the desktop binary (`gitbolt`). Its code is a library (`src/lib.rs`, whose
+**`gitvolt-app`** is the desktop binary (`gitvolt`). Its code is a library (`src/lib.rs`, whose
 `run` is the binary's `main` and, on Windows, the DLL entry point CEF's sandbox bootstrap calls). It
 builds the `Api` with the real
 implementations (system openers, the folder-picker portal, Gravatar, the forge connector and the
@@ -51,13 +51,13 @@ the single-instance guard, letting a running write finish before exit). `desktop
 window's desktop identity and the environment children get back; `window_state.rs` restores the
 window's size and position.
 
-**`gitbolt-harness`** serves the same `Api` over a WebSocket so the UI can run in a plain browser
+**`gitvolt-harness`** serves the same `Api` over a WebSocket so the UI can run in a plain browser
 with no Tauri, and adds a fake GitHub/GitLab, fixture repositories and test-only routes. It's what
 the Playwright suite drives; see [Testing](#testing).
 
-**`gitbolt-graph`** is the graph's pure pipeline: the walk's order, the pinned trunk, the WIP rows,
+**`gitvolt-graph`** is the graph's pure pipeline: the walk's order, the pinned trunk, the WIP rows,
 the lane layout and the labels, from plain data (`GraphInput`) to `GraphPayload`, with no gix and no
-I/O. Core reads the repository with gix and calls it (`snapshot.rs`); **`gitbolt-graph-wasm`**
+I/O. Core reads the repository with gix and calls it (`snapshot.rs`); **`gitvolt-graph-wasm`**
 compiles it to WebAssembly (`just demo-wasm`) for the website demo, whose in-browser backend
 (`ui/src/demo/`: `DemoTransport` over isomorphic-git) answers the UI's requests from repository
 bundles. The demo's parity suite compares its answers to the core's (`just demo-golden`).
@@ -75,25 +75,25 @@ other's files. Per-tab view state (selection, open diff, caches) lives in a stor
 (`app/tabStores.ts`). Monaco, Shiki and Mermaid load lazily; `ui/scripts/check-entry-chunk.mjs`
 fails the build if Monaco or Shiki reach the startup bundle.
 
-`vendor/tauri-runtime-cef/` is a patched copy of Tauri's CEF runtime; `GITBOLT-PATCH.md` there says
+`vendor/tauri-runtime-cef/` is a patched copy of Tauri's CEF runtime; `GITVOLT-PATCH.md` there says
 what changed and why. Why CEF and not WebKitGTK is in
 [docs/decisions/cef-over-webkitgtk.md](docs/decisions/cef-over-webkitgtk.md).
 
 ## The process model
 
-GitBolt runs as one Chromium process tree. CEF starts its renderer, GPU and utility helpers by
-re-running the same `gitbolt` binary with a `--type=` argument; the entry point sends those off to
+GitVolt runs as one Chromium process tree. CEF starts its renderer, GPU and utility helpers by
+re-running the same `gitvolt` binary with a `--type=` argument; the entry point sends those off to
 CEF before any app code runs. On Linux the runtime uses `SandboxPolicy::Required`: without a usable
 sandbox the app refuses to start rather than run Chromium unsandboxed (see
 [docs/dev-setup.md](docs/dev-setup.md) for the setuid helper a dev build needs).
 
 Before any window, `main` also checks two other ways the binary can be started:
-- **As askpass.** Git and ssh run `gitbolt` itself as their credential prompt (see
+- **As askpass.** Git and ssh run `gitvolt` itself as their credential prompt (see
   [Askpass](#askpass)). In that mode it asks the running app and exits.
-- **As a second launch.** One GitBolt runs per config directory, guarded by a lock and a socket
-  (`$XDG_RUNTIME_DIR/gitbolt-instance-<hash of the config dir>.{lock,sock}`). A second launch on
-  the same config dir hands its path (argv or `GITBOLT_OPEN`) to the running one, which opens it in
-  a tab and comes to the front, and exits 0. `GITBOLT_MULTI_INSTANCE=1` skips the guard (both
+- **As a second launch.** One GitVolt runs per config directory, guarded by a lock and a socket
+  (`$XDG_RUNTIME_DIR/gitvolt-instance-<hash of the config dir>.{lock,sock}`). A second launch on
+  the same config dir hands its path (argv or `GITVOLT_OPEN`) to the running one, which opens it in
+  a tab and comes to the front, and exits 0. `GITVOLT_MULTI_INSTANCE=1` skips the guard (both
   instances then write the same settings files; the last write wins).
 
 ### The request API
@@ -130,7 +130,7 @@ CLI, where git's own output is the reference: `git status --porcelain=v2`, chang
 Every git CLI run goes through one runner, `GitCli` (`git.rs`). It requires git 2.40 or newer,
 applies timeouts and cancellation, redacts secrets from what it records, and keeps the last 1000
 commands for Help → Debug. Git runs with the user's login-shell environment (captured once at
-startup, so `SSH_AUTH_SOCK` and `PATH` additions apply even when GitBolt starts from a desktop
+startup, so `SSH_AUTH_SOCK` and `PATH` additions apply even when GitVolt starts from a desktop
 launcher). A profile's extra gitconfig is passed as `-c include.path=…`.
 
 ### Writes
@@ -140,7 +140,7 @@ Every write runs the git CLI, never gix, and every write goes through one functi
 `GitInvocation::write` requires, so a read path can't build a write by accident. An API test
 (`WRITE_METHODS` in `api.rs`) checks that every method either is a declared write or never writes.
 
-Why the CLI: GitBolt should behave exactly as `git` does in a terminal. Hooks (pre-commit,
+Why the CLI: GitVolt should behave exactly as `git` does in a terminal. Hooks (pre-commit,
 commit-msg, pre-push, …) run, every kind of config applies (includes, conditional includes,
 per-repo settings), commit signing works however it's configured, and credential helpers and ssh
 agents are used as usual.
@@ -173,9 +173,9 @@ when it would leave a submodule's commits on no branch behind. Neither is journa
 
 ### Undo and redo
 
-The journal (`journal/`) records GitBolt's own operations, one file per worktree in the data dir
+The journal (`journal/`) records GitVolt's own operations, one file per worktree in the data dir
 (`<data>/journal/<hash>.json`, mode 0600), never inside `.git`. It keeps the last 50 operations. An
-entry holds the ref moves (applied back with compare-and-swap, so a change made outside GitBolt
+entry holds the ref moves (applied back with compare-and-swap, so a change made outside GitVolt
 isn't overwritten) and, where files were at risk, a snapshot: stash-shaped commits of the index,
 the worktree and the untracked files involved, built through a temporary index so the real one is
 never touched. No ref points at them, so git's default prune expiry (two weeks) keeps them, and
@@ -192,11 +192,11 @@ journaled.
 
 Git and ssh never prompt on a terminal. Network commands run with `GIT_TERMINAL_PROMPT=0`, stdin
 closed, and in their own session with no controlling terminal. `GIT_ASKPASS` and `SSH_ASKPASS`
-point at the `gitbolt` binary itself (`SSH_ASKPASS_REQUIRE=force`, so ssh uses it with or without
+point at the `gitvolt` binary itself (`SSH_ASKPASS_REQUIRE=force`, so ssh uses it with or without
 `DISPLAY`; OpenSSH 8.4+).
 
 When git runs it, the binary connects to the app's per-session Unix socket
-(`$XDG_RUNTIME_DIR/gitbolt-askpass-<pid>-<rand>.sock`, mode 0600, removed on exit), sends the
+(`$XDG_RUNTIME_DIR/gitvolt-askpass-<pid>-<rand>.sock`, mode 0600, removed on exit), sends the
 prompt with the session's random token, and prints the answer. The app checks the peer's user
 (`SO_PEERCRED`) and the token, and shows a modal only for an operation the user started. A
 background fetch that needs credentials is denied at once and reported as skipped in the status
@@ -254,7 +254,7 @@ every tracked directory (from the index) and every directory holding an untracke
 file, non-recursively, plus `.git`, `.git/worktrees`, each linked worktree's gitdir, and
 `.git/refs` recursively. Events are classified (worktree, index, refs, HEAD, stash, config,
 merge/rebase state), debounced (150 ms, at most 1 s while events keep coming), and a worktree change
-is confirmed against a digest of `git status`, so churn in ignored files and GitBolt's own reads
+is confirmed against a digest of `git status`, so churn in ignored files and GitVolt's own reads
 never reach the UI. Past 20 000 directories, or at inotify's own limit, the watch is degraded: it
 still reports what it sees, but every graph build re-reads status. During a write, the watcher is
 held and the write announces its own changes.
@@ -272,7 +272,7 @@ maintenance. A successful background fetch shows only in the activity log.
 ## Diffs
 
 **Text** diffs use Monaco's diff editor (`ui/src/diff/monaco/host.ts`): inline or side by side,
-with GitBolt's own hunk and line staging actions. Syntax highlighting is Shiki's TextMate grammars
+with GitVolt's own hunk and line staging actions. Syntax highlighting is Shiki's TextMate grammars
 bridged into Monaco (`diff/monaco/shiki.ts`, `@shikijs/monaco`), with the Oniguruma WASM loaded on
 the first diff. The core supplies changed-file lists and both sides' contents; the UI never
 re-derives which blobs to compare. A side that is a Git LFS pointer is read as its real file from
@@ -284,7 +284,7 @@ difference, with zoom. **Binary** files show in a hex view: the core makes cappe
 marked.
 
 **Rendered Markdown** (`ui/src/markdown/`) is used for `.md` files, their diffs, and MR/PR text:
-1. **Parse**: unified with `remark-parse` and `remark-gfm`, plus GitBolt's plugins for emoji,
+1. **Parse**: unified with `remark-parse` and `remark-gfm`, plus GitVolt's plugins for emoji,
    issue/MR references, heading ids and an autolink guard (`parse.ts`). A file's YAML (`---`) or
    TOML (`+++`) front matter becomes a key/value table (`remark-frontmatter`, then `yaml` or
    `smol-toml`; `plugins/frontmatter.ts`); MR/PR text keeps it as typed, as the forges do. Up to 16 KiB parses on the main
@@ -294,7 +294,7 @@ marked.
    `rehype-sanitize` with GitHub's schema, tightened (`sanitize.ts`): no `style` or form
    attributes, ids prefixed `user-content-`, links limited to http(s), mailto and relative, and
    `data:` images limited to raster formats.
-3. **Render** to React with `hast-util-to-jsx-runtime`, with GitBolt components for code blocks
+3. **Render** to React with `hast-util-to-jsx-runtime`, with GitVolt components for code blocks
    (Shiki), links, images and Mermaid diagrams.
 4. **Diff** (`markdown/diff/`): the old and new trees are aligned block by block (paragraphs,
    headings, list items, table rows), similar blocks are paired and word-diffed with `jsdiff`, and
@@ -302,7 +302,7 @@ marked.
    alignment that takes too long falls back to the source diff.
 
 **CSV and TSV** files (`ui/src/table/`) show as a table, Markdown's `Source | Rendered` control
-labelled Table with its own pick: GitBolt's own RFC 4180 parser (`csv.ts`), a grid that renders
+labelled Table with its own pick: GitVolt's own RFC 4180 parser (`csv.ts`), a grid that renders
 only the rows in view (`@tanstack/react-virtual`), and in Diff View a row diff (`rowDiff.ts`: rows
 lined up with `jsdiff`, a changed row's cells marked). Parsing is on the main thread, so the limits
 (`limits.ts`) show the source instead: over 8 MB, over 500 columns, more rows than a grid can lay
@@ -321,7 +321,7 @@ with an Open in browser action. A diff shows the old and new pages side by side.
 
 ## Forge layer
 
-GitHub and GitLab are the two providers (`gitbolt-forge`), both over personal access tokens. Core
+GitHub and GitLab are the two providers (`gitvolt-forge`), both over personal access tokens. Core
 holds the `ForgeHub` (`forge/hub.rs`): the active profile's accounts, a provider per account built
 on first use, and each account's last known status. It maps each remote to its forge project and
 answers the MR/PR badges, the sidebar list, the MR/PR view, the Create MR/PR flow, stacked
@@ -330,14 +330,14 @@ MRs/PRs and inline review comments (`forge/mrs.rs`, `forge/create.rs`, `forge/st
 drafts and their submit). The UI keeps one review session per tab (`ui/src/forge/review/`), and the
 diff view draws its threads and drafts (`ui/src/diff/review/`).
 
-**HTTP** (`gitbolt-forge/src/http.rs`): one client per account with bearer auth, an ETag cache
+**HTTP** (`gitvolt-forge/src/http.rs`): one client per account with bearer auth, an ETag cache
 (`If-None-Match`, so an unchanged answer is a cheap 304), the forges' poll-interval hints, rate
 limits (once limited, requests fail fast until the reset time), timeouts, and
-`User-Agent: GitBolt/<version>`.
+`User-Agent: GitVolt/<version>`.
 
-**Tokens** (`gitbolt-forge/src/tokens.rs`) live in the system Secret Service through the `keyring`
-crate (service `gitbolt`, account `<profile id>/<host>`). Where there's no Secret Service, they go
-to `~/.local/share/gitbolt/forge-tokens` (file 0600, directory 0700), and Settings › Accounts warns
+**Tokens** (`gitvolt-forge/src/tokens.rs`) live in the system Secret Service through the `keyring`
+crate (service `gitvolt`, account `<profile id>/<host>`). Where there's no Secret Service, they go
+to `~/.local/share/gitvolt/forge-tokens` (file 0600, directory 0700), and Settings › Accounts warns
 about it. Tokens never go in settings files, and nothing logs, prints or formats one.
 
 **Cache** (`forge/cache.rs`): per project, the last MR/PR lists and badge lookups with their ETags,
@@ -346,16 +346,16 @@ revalidates instead of downloading everything again. It holds the forge's own da
 
 **Polling** (`ui/src/forge/poller.ts`): only the active tab polls, when it becomes active, on the
 fetch timer (at most once a minute, and only while the window has the focus), when the window gets
-the focus back, and after a GitBolt forge action. While a visible MR/PR's pipeline runs, it polls
+the focus back, and after a GitVolt forge action. While a visible MR/PR's pipeline runs, it polls
 faster (20 s, backing off to 2 min). A failed poll keeps the data shown.
 
 ## Updates
 
-`gitbolt-core/src/updates/` checks GitHub Releases for a newer version (SemVer; a local build's
+`gitvolt-core/src/updates/` checks GitHub Releases for a newer version (SemVer; a local build's
 `+<stamp>` doesn't count), downloads the package for the install kind into the cache, keeps it only
 if the release's `SHA256SUMS` matches, and installs it (`pkexec apt`/`dnf`/`zypper`/`pacman` on Linux, the
-installer on Windows, a copy of the `.dmg`'s GitBolt.app over the running bundle on macOS). The
-fetching is `gitbolt-forge/src/updates.rs`, through the forge HTTP client without a token; the
+installer on Windows, a copy of the `.dmg`'s GitVolt.app over the running bundle on macOS). The
+fetching is `gitvolt-forge/src/updates.rs`, through the forge HTTP client without a token; the
 commands run through an `UpdateRunner` the app supplies (the harness only records them). The
 install kind comes from `install-kind` beside the binary (in `Contents/Resources` on macOS),
 which the packages write (docs/releasing.md). The UI's pill and dialog are in `ui/src/updates/`; progress
@@ -365,14 +365,21 @@ arrives as `updateChanged` events.
 
 | What | Where |
 |---|---|
-| App settings (fetch interval, prune, commit limit, date format, Gravatar, window geometry, …) | `$XDG_CONFIG_HOME/gitbolt/settings.json` |
-| Profiles (tabs, recent repos, repos folder, editor, extra gitconfig, host overrides, per-repo settings) | `$XDG_CONFIG_HOME/gitbolt/profiles/<id>/profile.json` |
-| Undo journal | `$XDG_DATA_HOME/gitbolt/journal/` |
-| Forge cache | `$XDG_DATA_HOME/gitbolt/forge-cache/` |
-| Forge tokens (only without a Secret Service) | `$XDG_DATA_HOME/gitbolt/forge-tokens` |
-| Log files | `$XDG_CACHE_HOME/gitbolt/logs/gitbolt.YYYY-MM-DD.log` |
-| Avatars, forge avatars, "open old version" copies, the downloaded update | `$XDG_CACHE_HOME/gitbolt/{avatars,forge-avatars,open,updates}/` |
-| Chromium profile | `$XDG_CACHE_HOME/dev.gitbolt.desktop/cef/` |
+| App settings (fetch interval, prune, commit limit, date format, Gravatar, window geometry, …) | `$XDG_CONFIG_HOME/gitvolt/settings.json` |
+| Profiles (tabs, recent repos, repos folder, editor, extra gitconfig, host overrides, per-repo settings) | `$XDG_CONFIG_HOME/gitvolt/profiles/<id>/profile.json` |
+| Undo journal | `$XDG_DATA_HOME/gitvolt/journal/` |
+| Forge cache | `$XDG_DATA_HOME/gitvolt/forge-cache/` |
+| Forge tokens (only without a Secret Service) | `$XDG_DATA_HOME/gitvolt/forge-tokens` |
+| Log files | `$XDG_CACHE_HOME/gitvolt/logs/gitvolt.YYYY-MM-DD.log` |
+| Avatars, forge avatars, "open old version" copies, the downloaded update | `$XDG_CACHE_HOME/gitvolt/{avatars,forge-avatars,open,updates}/` |
+| Chromium profile | `$XDG_CACHE_HOME/com.gitvolt.desktop/cef/` |
+
+GitVolt was called GitBolt before 0.7.0. Its first start moves GitBolt's folders (`gitbolt`, and
+Chromium's `dev.gitbolt.desktop`) to these, by a rename, or by a copy checked file by file before
+the original goes (`crates/gitvolt-core/src/migrate.rs`). A folder GitVolt already has is left
+alone, and nothing moves while GitBolt runs: a running GitBolt (its own lock, `gitbolt-instance-*`) takes the launch, and one that holds the lock but doesn't answer for 10 s refuses it (exit 1; the reason is also in `gitvolt-refused-start-<user>.txt` in the temp dir, outside every folder that moves). `GITVOLT_MULTI_INSTANCE` skips that check: such a start moves nothing. When a move fails, GitVolt's new folder is marked
+(`.gitbolt-not-moved`), and the next start sets it aside (`<folder>.not-moved-<time>`, kept) and
+tries again, for a week (the marker's age); after that GitBolt's folder stays as it is.
 
 The XDG defaults are `~/.config`, `~/.local/share` and `~/.cache`. Settings and profiles are
 written debounced and flushed once more on exit. To run a second instance without touching your
@@ -385,7 +392,7 @@ commands, the actions you ran, the activity log of fetches and clones, **Copy di
 (versions, OS, Chromium, git and the settings, with secrets removed) and **Open logs folder**.
 
 **Folder picker.** Open folder… calls xdg-desktop-portal's `FileChooser` over D-Bus
-(`crates/gitbolt-core/src/openers/folder_picker.rs`), parented to the main window, rather than a
+(`crates/gitvolt-core/src/openers/folder_picker.rs`), parented to the main window, rather than a
 GTK 3 dialog that would clash with CEF's GTK 4. Without a portal, it picks nothing and logs a
 warning.
 
@@ -394,11 +401,11 @@ warning.
 Tests live in three layers. Use the cheapest one that proves the behavior.
 
 - **Rust** (`cargo nextest run --workspace`, or `just test-rust`): unit tests next to the code, on
-  throwaway repositories from `gitbolt_core::testing` (`TestRepo`, deterministic fixtures with
+  throwaway repositories from `gitvolt_core::testing` (`TestRepo`, deterministic fixtures with
   fixed dates and an environment isolated from your git config and ssh agent). Each fixture is
   built once into `target/fixture-cache/` and copied for each test (`testing/cache.rs`). The
-  harness's integration tests are one test binary, `crates/gitbolt-harness/tests/it/`, one module
-  per area: `cargo nextest run -p gitbolt-harness -E 'test(/^forge_stacks::/)'`.
+  harness's integration tests are one test binary, `crates/gitvolt-harness/tests/it/`, one module
+  per area: `cargo nextest run -p gitvolt-harness -E 'test(/^forge_stacks::/)'`.
 - **UI unit tests** (vitest with jsdom, `just test-ui`): components and logic, next to the source
   as `*.test.ts(x)`.
 - **End to end** (Playwright, `just e2e`, `ui/e2e/`): the real UI against the real backend
@@ -407,24 +414,24 @@ Tests live in three layers. Use the cheapest one that proves the behavior.
 `testdata/` holds JSON test vectors that both the Rust and the TypeScript tests check, so the two
 sides of a shared rule can't drift.
 
-**The harness.** `gitbolt-harness serve [--port N] [--config-dir DIR]` serves `Api::dispatch`
+**The harness.** `gitvolt-harness serve [--port N] [--config-dir DIR]` serves `Api::dispatch`
 over a WebSocket (`/ws`: `{id, req}` in, `{id, ok|err}` and `{event}` out), so the UI runs in an
-ordinary browser. It uses a throwaway config dir (never `~/.config/gitbolt`), a temp home and
+ordinary browser. It uses a throwaway config dir (never `~/.config/gitvolt`), a temp home and
 runtime dir, an isolated git environment and no avatar provider. It starts with background fetch
 off, records "Open in…" launches instead of running them, and refuses writes to any repository
 that isn't a marked fixture. Test-only routes: `POST /test/reset`, `/test/emit`, `/test/next-pick`,
 `/test/write`, `GET /test/watched`, `GET /launches`, `ANY /test/auth/*` (always 401), and the fake
-forge's `/test/forge/{seed,script,requests,account}`. `gitbolt-harness fixture <name> <dir>` builds
+forge's `/test/forge/{seed,script,requests,account}`. `gitvolt-harness fixture <name> <dir>` builds
 a fixture repository (the showcase ones, for previews, submodules and LFS: [docs/playground.md](docs/playground.md)).
 
-**The fake forge** (`crates/gitbolt-harness/src/fake_forge/`) answers the subset of the GitHub and
+**The fake forge** (`crates/gitvolt-harness/src/fake_forge/`) answers the subset of the GitHub and
 GitLab REST APIs that the providers use, from a seed: ETags with 304s, each forge's rate-limit
 headers, scripted one-shot answers (429s, 500s, poll intervals), and a request log that records
 whether a valid token came but never the token. It runs on its own ephemeral port. The harness's
 connector points the real providers at it and can reach no other host, and its tokens go in a file
 in the temp dir, never the system keyring.
 
-**Fixtures** are made once per e2e run with `gitbolt-harness fixture` (a copy from the fixture
+**Fixtures** are made once per e2e run with `gitvolt-harness fixture` (a copy from the fixture
 cache) and copied for each test
 that needs a fresh one (`freshFixture` in `ui/e2e/fixtures.ts`).
 

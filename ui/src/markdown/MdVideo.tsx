@@ -44,7 +44,7 @@ export function MdVideo({ ctx, src, alt, width, height }: MdImageProps) {
     let live = true;
     const set = (v: View) => { if (live) setView(v); };
     if (source.kind === 'remote' && !consent) set({ kind: 'ask', host: source.host });
-    else if (source.kind !== 'remote' && source.kind !== 'forge') set({ kind: 'broken', why: "Not loaded: GitBolt plays videos from the forge only" });
+    else if (source.kind !== 'remote' && source.kind !== 'forge') set({ kind: 'broken', why: "Not loaded: GitVolt plays videos from the forge only" });
     else if (repo === undefined) set(failed('no repository is open'));
     else {
       set({ kind: 'loading' });

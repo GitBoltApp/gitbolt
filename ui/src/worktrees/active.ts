@@ -88,7 +88,7 @@ export function setActiveWorktree(tabId: string, path: string): void {
   // A WIP row selected: the panel follows to the new active worktree's (when it has changes).
   if (wasWip) selectCommit(tabId, `wip:${path}`);
   app.updateProfile((p) => ({ ...p, tabs: p.tabs.map((t) => (t.id === tabId ? { ...t, worktree: path } : t)) }));
-  requestAnimationFrame(() => console.info(`[gitbolt] worktree switch in ${Math.round(performance.now() - t0)} ms`));
+  requestAnimationFrame(() => console.info(`[gitvolt] worktree switch in ${Math.round(performance.now() - t0)} ms`));
   // Undo and Ctrl+Z need this worktree's journal now: load it in the background (never awaited).
   void loadJournal(rt.repo.id, path);
   void useRuntime.getState().refresh(tabId, { graphOnly: true });

@@ -269,6 +269,7 @@ export const api = {
   updateCancel: () => call<UpdateState>({ method: 'updateCancel' }),
   updateInstall: () => call<InstallOutcome>({ method: 'updateInstall' }),
   updateRestart: () => call<null>({ method: 'updateRestart' }),
+  updateRemoveLegacyBundle: () => call<null>({ method: 'updateRemoveLegacyBundle' }),
   pickFolder: (start: string | null) => call<string | null>({ method: 'pickFolder', params: { start } }),
   scanRepos: (root: string, refresh: boolean) => call<ScannedRepo[]>({ method: 'scanRepos', params: { root, refresh } }),
   /** The repos in every folder, scanned in parallel, merged and de-duplicated ("Your repos"). */
@@ -276,7 +277,7 @@ export const api = {
   /** Clones `url` into the absolute `dest` (spec §13); the op's label is `dest`. */
   clone: (url: string, dest: string) => call<RepoSummary>({ method: 'clone', params: { url, dest } }),
   suggestReposFolder: () => call<string | null>({ method: 'suggestReposFolder' }),
-  /** `git fetch --all` (spec §15), or one `remote` (a remote just added, spec #4). `background`: GitBolt's own timer, which never prompts. */
+  /** `git fetch --all` (spec §15), or one `remote` (a remote just added, spec #4). `background`: GitVolt's own timer, which never prompts. */
   fetch: (repo: number, background: boolean, remote?: string, mrHead?: MrHead) => call<FetchOutcome>({ method: 'fetch', params: remote === undefined ? { repo, background } : mrHead ? { repo, background, remote, mrHead } : { repo, background, remote } }),
   // --- 4A T12 ---
   /** Every remote with its forge project, and the remote MRs/PRs target (spec #4 §3.3). */
@@ -428,7 +429,7 @@ export const api = {
   /** Who a commit in `worktree` is made as (git's resolution); `null`: git has no identity. */
   commitIdentity: (repo: number, worktree: string) => call<CommitIdentity | null>({ method: 'commitIdentity', params: { repo, worktree } }),
   mergeAbort: (repo: number, worktree: string) => call<WriteResult<IntegrateOutcome>>({ method: 'mergeAbort', params: { repo, worktree } }),
-  /** A paused merge or rebase ended outside GitBolt: close its journal entry. */
+  /** A paused merge or rebase ended outside GitVolt: close its journal entry. */
   settlePaused: (repo: number, worktree: string) => call<WriteResult<null>>({ method: 'settlePaused', params: { repo, worktree } }),
   // --- end 2D T16 ---
   // --- 2D T17 ---

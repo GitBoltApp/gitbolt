@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const KEY = 'gitbolt.editorSettings.v1';
+const KEY = 'gitvolt.editorSettings.v1';
 
 async function fresh() {
   vi.resetModules();

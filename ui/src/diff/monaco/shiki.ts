@@ -7,7 +7,7 @@ import { memoizeUntilRejected } from './memo';
 import type { Monaco } from './setup';
 
 // The Oniguruma WASM (inlined as base64 by shiki/wasm) loads with the first diff (spec §10.3).
-// Every theme carries its GitBolt editor colours (theme.ts): `shikiToMonaco` redefines them from Shiki's
+// Every theme carries its GitVolt editor colours (theme.ts): `shikiToMonaco` redefines them from Shiki's
 // copy on every grammar load, so that copy is where they must live.
 const getHighlighter = memoizeUntilRejected(() =>
   createHighlighterCore({
@@ -54,7 +54,7 @@ async function load(monaco: Monaco, lang: string): Promise<string> {
 }
 
 /** Loads a language's grammar the first time a file of that language opens. Resolves to the
- * Monaco language id to use (`plaintext` for anything Shiki doesn't ship, or GitBolt dropped). */
+ * Monaco language id to use (`plaintext` for anything Shiki doesn't ship, or GitVolt dropped). */
 export function ensureLanguage(monaco: Monaco, lang: string): Promise<string> {
   if (!Object.hasOwn(bundledLanguages, lang)) return Promise.resolve('plaintext');
   let p = languages.get(lang);

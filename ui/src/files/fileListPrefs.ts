@@ -10,7 +10,7 @@ export interface StoredFileListPrefs { mode: FileListMode; sort: FileSort; advan
 export const DEFAULT_FILE_LIST_PREFS: StoredFileListPrefs = { mode: 'path', sort: 'path', advanceAfterStage: true };
 
 /** The one localStorage key for the file list's prefs. Bump the version if the shape changes. */
-export const FILE_LIST_PREFS_STORAGE_KEY = 'gitbolt.fileList.v1';
+export const FILE_LIST_PREFS_STORAGE_KEY = 'gitvolt.fileList.v1';
 
 const MODES: readonly FileListMode[] = ['path', 'tree'];
 const SORTS: readonly FileSort[] = ['path', 'status'];

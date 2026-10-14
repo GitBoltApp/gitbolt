@@ -30,6 +30,7 @@ const WHAT: Record<NotInDemoMethod, string> = {
   updateDownload: 'updates',
   updateInstall: 'updates',
   updateRestart: 'updates',
+  updateRemoveLegacyBundle: 'updates',
 };
 
 export const notInDemoHandlers = Object.fromEntries(

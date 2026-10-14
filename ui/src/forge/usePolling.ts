@@ -35,7 +35,7 @@ export function useForgePolling(tabId: string, repoId: number | undefined): void
   }, [tabId, repoId, intervalMs]);
 }
 
-/** After a GitBolt forge write (spec #4 §3.4): the tab's poller polls at once. */
+/** After a GitVolt forge write (spec #4 §3.4): the tab's poller polls at once. */
 export function notifyForgeWrite(tabId: string): void {
   pollers.get(tabId)?.afterWrite();
 }

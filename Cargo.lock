@@ -2035,11 +2035,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitbolt-app"
+name = "gitvolt-app"
 version = "0.6.1"
 dependencies = [
- "gitbolt-core",
- "gitbolt-forge",
+ "gitvolt-core",
+ "gitvolt-forge",
  "glib",
  "raw-window-handle",
  "serde_json",
@@ -2053,7 +2053,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitbolt-core"
+name = "gitvolt-core"
 version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
@@ -2061,11 +2061,13 @@ dependencies = [
  "dunce",
  "encoding_rs",
  "futures-util",
- "gitbolt-graph",
+ "gitvolt-graph",
  "gix",
  "insta",
  "nix",
  "notify",
+ "objc2-foundation",
+ "plist",
  "regex",
  "serde",
  "serde_json",
@@ -2084,11 +2086,11 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitbolt-forge"
+name = "gitvolt-forge"
 version = "0.6.1"
 dependencies = [
  "base64 0.23.1",
- "gitbolt-core",
+ "gitvolt-core",
  "httpdate",
  "keyring",
  "nix",
@@ -2102,7 +2104,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitbolt-graph"
+name = "gitvolt-graph"
 version = "0.6.1"
 dependencies = [
  "serde",
@@ -2111,24 +2113,24 @@ dependencies = [
 ]
 
 [[package]]
-name = "gitbolt-graph-wasm"
+name = "gitvolt-graph-wasm"
 version = "0.6.1"
 dependencies = [
- "gitbolt-graph",
+ "gitvolt-graph",
  "serde_json",
  "wasm-bindgen",
 ]
 
 [[package]]
-name = "gitbolt-harness"
+name = "gitvolt-harness"
 version = "0.6.1"
 dependencies = [
  "axum",
  "base64 0.23.1",
  "flate2",
  "futures-util",
- "gitbolt-core",
- "gitbolt-forge",
+ "gitvolt-core",
+ "gitvolt-forge",
  "serde",
  "serde_json",
  "sha2 0.11.0",
@@ -4564,6 +4566,7 @@ checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
 dependencies = [
  "bitflags 2.13.2",
  "block2",
+ "libc",
  "objc2",
  "objc2-core-foundation",
 ]

@@ -57,7 +57,7 @@ export function stackEdge(below: ForgeMr, above: ForgeMr, env: StackEnv, member:
   return env.locals.has(below.sourceBranch) || (isOpenMr(above) && member(above.sourceBranch));
 }
 
-/** Stack evidence for the edge: one of the two carries GitBolt's Stack table (`ForgeMr.stacked`). */
+/** Stack evidence for the edge: one of the two carries GitVolt's Stack table (`ForgeMr.stacked`). */
 export const stackedEdge = (below: ForgeMr, above: ForgeMr): boolean => below.stacked || above.stacked;
 
 /**

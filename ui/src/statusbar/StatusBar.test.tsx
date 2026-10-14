@@ -44,10 +44,10 @@ describe('StatusBar (spec §6.5)', () => {
     expect(screen.getByRole('button', { name: 'Zoom 200%' })).toBeInTheDocument();
   });
 
-  it('shows the git version, then GitBolt\'s, with a local build\'s stamp in its tooltip', async () => {
+  it('shows the git version, then GitVolt\'s, with a local build\'s stamp in its tooltip', async () => {
     render(<StatusBar />);
-    await waitFor(() => expect(bar()).toHaveTextContent('git 2.47.1GitBolt 0.1.0'));
-    fireEvent.mouseEnter(screen.getByText('GitBolt 0.1.0'));
+    await waitFor(() => expect(bar()).toHaveTextContent('git 2.47.1GitVolt 0.1.0'));
+    fireEvent.mouseEnter(screen.getByText('GitVolt 0.1.0'));
     expect(await screen.findByText('Build 202610072046.d1d4d7d')).toBeInTheDocument();
     // No update: no pill.
     expect(bar().querySelector('.sb-update')).toBeNull();
@@ -67,11 +67,11 @@ describe('StatusBar (spec §6.5)', () => {
     try {
       render(<StatusBar />);
       const before = bar().textContent;
-      act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: false }));
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitvolt', interactive: false }));
       act(() => useOps.getState().apply({ type: 'opProgress', op: 4, phase: 'Receiving objects', percent: 40 }));
       act(() => vi.advanceTimersByTime(SLOW_FETCH_MS * 3));
       expect(bar().textContent).toBe(before);
-      act(() => useOps.getState().apply({ type: 'opStarted', op: 5, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: true }));
+      act(() => useOps.getState().apply({ type: 'opStarted', op: 5, kind: 'fetch', repo: 1, label: 'gitvolt', interactive: true }));
       act(() => vi.advanceTimersByTime(SLOW_FETCH_MS - 100));
       expect(bar().textContent).toBe(before);
       expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull();
@@ -104,7 +104,7 @@ describe('StatusBar (spec §6.5)', () => {
 
   it('a prompt shows "Waiting for authentication…", whose Cancel cancels the op', () => {
     render(<StatusBar />);
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitbolt', interactive: true }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 4, kind: 'fetch', repo: 1, label: 'gitvolt', interactive: true }));
     act(() => useOps.getState().apply({ type: 'authWaiting', prompt: 2, op: 4, repo: 1, text: 'Username: ', secret: false }));
     expect(bar()).toHaveTextContent('Waiting for authentication…');
     expect(bar()).not.toHaveTextContent('Fetching…');

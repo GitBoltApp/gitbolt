@@ -9,7 +9,7 @@ describe('details split (feedback F13)', () => {
   });
 
   it('defaults to about 25 % header+message / 75 % files, and clamps to its range', () => {
-    expect(SPLIT).toMatchObject({ default: 0.25, min: 0.1, max: 0.75, key: 'gitbolt.detailsSplit.v1' });
+    expect(SPLIT).toMatchObject({ default: 0.25, min: 0.1, max: 0.75, key: 'gitvolt.detailsSplit.v1' });
     expect(loadSplit()).toBe(0.25);
     expect(clampSplit(0.01)).toBe(SPLIT.min);
     expect(clampSplit(0.99)).toBe(SPLIT.max);

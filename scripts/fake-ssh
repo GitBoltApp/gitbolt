@@ -1,5 +1,5 @@
 #!/bin/sh
-# fake-ssh: stands in for ssh (a repo's core.sshCommand) to try GitBolt's askpass and fetch-error
+# fake-ssh: stands in for ssh (a repo's core.sshCommand) to try GitVolt's askpass and fetch-error
 # handling without real keys, an ssh agent or an sshd (K96). It serves the bare repo named by the
 # URL's path with the local git-upload-pack: ssh://fake/<absolute path to a bare repo>.
 #
@@ -49,7 +49,7 @@ case "$mode" in
 esac
 
 # OpenSSH's readpass.c: askpass is allowed with a display (or SSH_ASKPASS_REQUIRE=force); "prefer"
-# uses it only when allowed; otherwise ssh reads the terminal, which GitBolt never gives it.
+# uses it only when allowed; otherwise ssh reads the terminal, which GitVolt never gives it.
 allow=0
 [ -n "$DISPLAY$WAYLAND_DISPLAY" ] && allow=1
 use=0

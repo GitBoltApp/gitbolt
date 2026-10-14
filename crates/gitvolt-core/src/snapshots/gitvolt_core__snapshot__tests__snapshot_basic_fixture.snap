@@ -1,0 +1,14 @@
+---
+source: crates/gitvolt-core/src/snapshot.rs
+expression: "build(&r, BuildOptions::default()).await.ascii()"
+---
+W      // WIP (main)
+: S    On main: Experiment
+: | W  // WIP wt-hotfix
+: | *  Hotfix: null check
+M-X-/  Merge branch 'feature/login' in:1,2 out:1
+* |    Fix typo
+| *    Login validation
+| *    Login form
+*-/    Add readme in:1
+*      Initial commit

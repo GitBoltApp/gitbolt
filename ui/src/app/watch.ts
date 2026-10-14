@@ -22,7 +22,7 @@ export function setWatched(repo: number, on: boolean): Promise<void> {
       try {
         await (want ? api.watchRepo(repo) : api.unwatchRepo(repo));
       } catch (e) {
-        console.warn('[gitbolt] watch update failed', e);
+        console.warn('[gitvolt] watch update failed', e);
       }
       applied = want;
     }

@@ -139,7 +139,7 @@ export class ReviewGutter {
       showTooltip(new DOMRect(box.left + info.glyphMarginLeft, top, Math.max(info.glyphMarginWidth, 16), ed.getOption(monaco.editor.EditorOption.lineHeight)), NO_COMMENT_TIP, NO_COMMENT_TIP_DELAY_MS, 'right');
     };
     this.unbars.push(unbar);
-    const widget: MonacoNs.editor.IOverlayWidget = { getId: () => `gitbolt.reviewComment.${edSide}`, getDomNode: () => btn, getPosition: () => null };
+    const widget: MonacoNs.editor.IOverlayWidget = { getId: () => `gitvolt.reviewComment.${edSide}`, getDomNode: () => btn, getPosition: () => null };
     ed.addOverlayWidget(widget);
     this.offs.push(() => { untip(); unbar(); ed.removeOverlayWidget(widget); });
     // The press is the button's: Monaco mustn't move the cursor or start a selection under it.

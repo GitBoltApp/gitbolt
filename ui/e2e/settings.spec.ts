@@ -132,7 +132,7 @@ test.describe('settings', () => {
       await dialog(page).getByRole('button', { name: 'Editor' }).click();
       const sticky = dialog(page).getByLabel('Sticky scroll in the diff viewer');
       await sticky.check();
-      await expect.poll(() => page.evaluate(() => localStorage.getItem('gitbolt.editorSettings.v1'))).toBe('{"stickyScroll":true}');
+      await expect.poll(() => page.evaluate(() => localStorage.getItem('gitvolt.editorSettings.v1'))).toBe('{"stickyScroll":true}');
       // The tooltip shows at once.
       await dialog(page).getByText('Sticky scroll in the diff viewer').hover();
       await expect(page.getByRole('tooltip')).toContainText("Sticky scroll pins the enclosing scope's first line");

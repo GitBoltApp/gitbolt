@@ -1,16 +1,32 @@
 # Changelog
 
-All notable changes to GitBolt are listed here, newest first. The format follows
+All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, newest first. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
+
+### Changed
+
+- **New name: GitVolt.** GitBolt is now GitVolt, at github.com/GitVoltApp/gitvolt and
+  https://gitvolt.com/.
+- **Settings move with it.** The first start moves GitBolt's settings, profiles, undo history,
+  forge cache, logs and the UI's saved layout and drafts to GitVolt's folders, and each forge
+  token to GitVolt's keyring entry the first time it's used. On macOS the Keychain may ask once
+  per token.
+- **Packages replace GitBolt's.** The `.deb`, RPM and Arch packages (`gitvolt`) remove GitBolt's;
+  the Windows installer and MSI remove GitBolt's install; on macOS, `GitVolt.app` replaces
+  `GitBolt.app` when the update restarts, and offers to move one left beside it to the Trash.
+- **Other names:** the command is `gitvolt`, the environment variables start with `GITVOLT_`, and
+  Dock or taskbar pins of GitBolt need pinning again.
 
 ### Fixed
 
 - Your branch's remote copy on another commit (`origin/main` after a fetch, or diverged) offers
   **Merge** and **Rebase** in its menu; its label shares your branch's name, so it offered neither.
-- **Quit** (the menu and the command palette) closes GitBolt; it failed with "Command
+- **Quit** (the menu and the command palette) closes GitVolt; it failed with "Command
   plugin:window|close not allowed by ACL".
+- A new worktree's WIP row no longer flashes absurd counts (every file added and deleted) while
+  `git worktree add` is still writing its checkout; it appears once the checkout is done.
 
 ## [0.6.1] - 2026-10-13
 

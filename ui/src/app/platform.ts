@@ -23,7 +23,7 @@ const tauriPlatform: Platform = {
     void import('@tauri-apps/api/window')
       .then(({ getCurrentWindow }) => getCurrentWindow().onFocusChanged((e) => cb(e.payload)))
       .then((unlisten) => { if (dead) unlisten(); else off = unlisten; })
-      .catch((e: unknown) => console.warn('[gitbolt] window focus events unavailable', e));
+      .catch((e: unknown) => console.warn('[gitvolt] window focus events unavailable', e));
     return () => { dead = true; off?.(); };
   },
 };

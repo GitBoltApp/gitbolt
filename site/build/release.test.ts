@@ -2,17 +2,17 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from 'vitest';
 import { checkRelease, renderDownloads, type Download, type ReleaseFile } from './release.ts';
 
-const REL = 'https://github.com/GitBoltApp/gitbolt/releases';
+const REL = 'https://github.com/GitVoltApp/gitvolt/releases';
 const dl = (os: Download['os'], kind: Download['kind'], arch: Download['arch'], file: string, n: number): Download => ({
   os, kind, arch, file, url: `${REL}/download/v1.2.3/${file}`, bytes: 1000 + n, sha256: String(n).repeat(64),
 });
 const FULL: Download[] = [
-  dl('linux', 'deb', 'x86_64', 'GitBolt_1.2.3_amd64.deb', 1),
-  dl('linux', 'rpm', 'x86_64', 'GitBolt-1.2.3-1.x86_64.rpm', 2),
-  dl('linux', 'arch', 'x86_64', 'GitBolt-1.2.3-1-x86_64.pkg.tar.zst', 3),
-  dl('macos', 'dmg', 'aarch64', 'GitBolt_1.2.3_aarch64.dmg', 4),
-  dl('windows', 'nsis', 'x86_64', 'GitBolt_1.2.3_x64-setup.exe', 5),
-  dl('windows', 'msi', 'x86_64', 'GitBolt_1.2.3_x64.msi', 6),
+  dl('linux', 'deb', 'x86_64', 'GitVolt_1.2.3_amd64.deb', 1),
+  dl('linux', 'rpm', 'x86_64', 'GitVolt-1.2.3-1.x86_64.rpm', 2),
+  dl('linux', 'arch', 'x86_64', 'GitVolt-1.2.3-1-x86_64.pkg.tar.zst', 3),
+  dl('macos', 'dmg', 'aarch64', 'GitVolt_1.2.3_aarch64.dmg', 4),
+  dl('windows', 'nsis', 'x86_64', 'GitVolt_1.2.3_x64-setup.exe', 5),
+  dl('windows', 'msi', 'x86_64', 'GitVolt_1.2.3_x64.msi', 6),
 ];
 const file = (downloads = FULL, over: Partial<NonNullable<ReleaseFile['release']>> = {}): ReleaseFile => ({
   schema: 1,
@@ -29,14 +29,14 @@ test('the cards: Linux, macOS, Windows, each file of the platform, the first one
   const html = renderDownloads(file());
   expect([...html.matchAll(/data-os="(\w+)"/g)].map((m) => m[1])).toEqual(['linux', 'macos', 'windows']);
   expect(buttons(html)).toEqual([
-    ['GitBolt_1.2.3_amd64.deb', true], ['GitBolt-1.2.3-1.x86_64.rpm', false], ['GitBolt-1.2.3-1-x86_64.pkg.tar.zst', false],
-    ['GitBolt_1.2.3_aarch64.dmg', true],
-    ['GitBolt_1.2.3_x64-setup.exe', true], ['GitBolt_1.2.3_x64.msi', false],
+    ['GitVolt_1.2.3_amd64.deb', true], ['GitVolt-1.2.3-1.x86_64.rpm', false], ['GitVolt-1.2.3-1-x86_64.pkg.tar.zst', false],
+    ['GitVolt_1.2.3_aarch64.dmg', true],
+    ['GitVolt_1.2.3_x64-setup.exe', true], ['GitVolt_1.2.3_x64.msi', false],
   ]);
   expect(html).toContain('<b>Fedora 40+, openSUSE</b>');
   expect(html).toContain('<p>12 or later, Apple Silicon</p>');
   expect(html).toContain('Ad-hoc signed, not notarized');
-  expect(html).toContain(`<code>${'4'.repeat(64)}  GitBolt_1.2.3_aarch64.dmg</code>`);
+  expect(html).toContain(`<code>${'4'.repeat(64)}  GitVolt_1.2.3_aarch64.dmg</code>`);
   expect(html).toContain(`Version 1.2.3. Needs Git 2.40 or newer on your <code>PATH</code>. <a href="${REL}/download/v1.2.3/SHA256SUMS"><code>SHA256SUMS</code></a> lists each file's checksum.`);
   expect(html.match(/<span class="youtag" hidden>Your system<\/span>/g)).toHaveLength(3);
 });
@@ -50,8 +50,8 @@ test('a release without a .dmg: macOS says so and links the release page, no dea
 });
 
 test('an Intel .dmg, if a release ever has one, comes after Apple Silicon\'s, named as such', () => {
-  const html = renderDownloads(file([...FULL.slice(0, 4), dl('macos', 'dmg', 'x86_64', 'GitBolt_1.2.3_x64.dmg', 7), ...FULL.slice(4)]));
-  expect(buttons(card(html, 'macos'))).toEqual([['GitBolt_1.2.3_aarch64.dmg', true], ['GitBolt_1.2.3_x64.dmg', false]]);
+  const html = renderDownloads(file([...FULL.slice(0, 4), dl('macos', 'dmg', 'x86_64', 'GitVolt_1.2.3_x64.dmg', 7), ...FULL.slice(4)]));
+  expect(buttons(card(html, 'macos'))).toEqual([['GitVolt_1.2.3_aarch64.dmg', true], ['GitVolt_1.2.3_x64.dmg', false]]);
   expect(html).toContain('<b>Disk image, Intel</b>');
   expect(html).toContain('<p>12 or later</p>');
 });

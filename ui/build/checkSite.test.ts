@@ -8,7 +8,8 @@ import { expect, test } from 'vitest';
 import { type Budgets, checkSite } from '../scripts/check-site.mjs';
 
 type Files = Record<string, string | Uint8Array>;
-const ROOT = '/nowhere/gitbolt-checkout';
+const ROOT = '/nowhere/gitvolt-checkout';
+const BASE = '/gitvolt/'; // a site under a path, the general case (gitvolt.com's is '/')
 const rev = (b: Uint8Array | string) => createHash('sha256').update(b).digest('hex').slice(0, 12);
 const shortSha = rev;
 const webp = (n: number) => {
@@ -30,10 +31,10 @@ function valid(extra: Files = {}): Files {
       '<img src="shots/graph.webp" width="800" height="500" alt=""><iframe src="demo/demo.html"></iframe><section id="downloads"></section></body></html>',
     'assets/site-a1b2c3d4.css': 'body{background:url(../shots/graph.webp)} i{background:url("data:image/svg+xml,%3Csvg%3E")}',
     'shots/graph.webp': webp(1000),
-    '404.html': '<!doctype html><html data-gitbolt-404><head>' + CSP + '</head><body><a href="/gitbolt/">Home</a></body></html>',
+    '404.html': '<!doctype html><html data-gitvolt-404><head>' + CSP + '</head><body><a href="/gitvolt/">Home</a></body></html>',
     'demo/demo.html': '<!doctype html><html><head>' + CSP + '<script type="module" src="./assets/demo-a1b2c3d4.js"></script></head><body></body></html>',
     'demo/assets/demo-a1b2c3d4.js': `console.log("${shortSha(MANIFEST)}")`,
-    'demo/assets/gitbolt_graph_wasm_bg.wasm-Ab12Cd34.gz': gzipSync(Buffer.from('\0asm')),
+    'demo/assets/gitvolt_graph_wasm_bg.wasm-Ab12Cd34.gz': gzipSync(Buffer.from('\0asm')),
     'demo/demo-data/manifest.json': MANIFEST,
     'demo/demo-data/orbital.gbdemo': bundle,
     ...extra,
@@ -49,10 +50,10 @@ function site(files: Files): string {
   return dir;
 }
 
-const check = (files: Files, budgets: Partial<Budgets> = {}) => checkSite(site(files), { root: ROOT, budgets }).errors;
+const check = (files: Files, budgets: Partial<Budgets> = {}) => checkSite(site(files), { root: ROOT, base: BASE, budgets }).errors;
 
 test('a complete site passes, and the report gives its sizes', () => {
-  const { errors, report } = checkSite(site(valid()), { root: ROOT });
+  const { errors, report } = checkSite(site(valid()), { root: ROOT, base: BASE });
   expect(errors).toEqual([]);
   expect(report).toEqual(expect.arrayContaining([expect.stringMatching(/^the demo's bundles: .+ of 15\.00 MB$/)]));
 });
@@ -78,12 +79,12 @@ test('internal links and fragments resolve', () => {
   const errors = check(valid({
     'index.html':
       '<!doctype html><html><head>' + CSP + '</head><body><a href="features.html">F</a><a href="#pricing">P</a><a href="/elsewhere/">E</a>' +
-      '<img src="shots/none.webp" width="1" height="1" alt=""><a href="demo/demo.html#top">D</a><a href="/gitbolt/demo/demo.html">ok</a></body></html>',
+      '<img src="shots/none.webp" width="1" height="1" alt=""><a href="demo/demo.html#top">D</a><a href="/gitvolt/demo/demo.html">ok</a></body></html>',
   }));
   expect(errors).toEqual(expect.arrayContaining([
     "index.html: features.html doesn't resolve",
     'index.html: #pricing: no id "pricing" in index.html',
-    'index.html: /elsewhere/ is outside /gitbolt/',
+    'index.html: /elsewhere/ is outside /gitvolt/',
     "index.html: shots/none.webp doesn't resolve",
     'index.html: demo/demo.html#top: no id "top" in demo/demo.html',
   ]));
@@ -91,8 +92,8 @@ test('internal links and fragments resolve', () => {
 });
 
 test('404 links are absolute: the page is served at any missing path', () => {
-  const errors = check(valid({ '404.html': '<!doctype html><html data-gitbolt-404><head>' + CSP + '</head><body><a href="index.html">Home</a><a href="/gitbolt/">Home</a></body></html>' }));
-  expect(errors).toEqual(["404.html: index.html is relative (it's served at any missing path: use /gitbolt/…)"]);
+  const errors = check(valid({ '404.html': '<!doctype html><html data-gitvolt-404><head>' + CSP + '</head><body><a href="index.html">Home</a><a href="/gitvolt/">Home</a></body></html>' }));
+  expect(errors).toEqual(["404.html: index.html is relative (it's served at any missing path: use /gitvolt/…)"]);
 });
 
 test("inline blocks need their page's Content-Security-Policy", () => {
@@ -155,22 +156,22 @@ test('an image outside the demo needs its width and height (no layout shift)', (
 test('missing pages, dotfiles, source maps, the WebAssembly and build paths', () => {
   const files = valid({ '.nojekyll': '', 'assets/a.js.map': '{}', 'assets/leak.js': `//# ${ROOT}/ui/src/x.ts` });
   delete files['404.html'];
-  delete files['demo/assets/gitbolt_graph_wasm_bg.wasm-Ab12Cd34.gz'];
+  delete files['demo/assets/gitvolt_graph_wasm_bg.wasm-Ab12Cd34.gz'];
   const errors = check(files);
   expect(errors).toEqual(expect.arrayContaining([
     '404.html: missing',
     '.nojekyll: a dotfile (upload-pages-artifact leaves it out)',
     'assets/a.js.map: a source map (not published)',
-    'demo/: no gzipped WebAssembly under a hashed name (gitbolt_graph_wasm_bg.wasm-<hash>.gz)',
+    'demo/: no gzipped WebAssembly under a hashed name (gitvolt_graph_wasm_bg.wasm-<hash>.gz)',
     `assets/leak.js: contains the build machine's path ${ROOT}`,
   ]));
   expect(errors).toHaveLength(5);
 });
 
-test('the real 404 page passes', () => {
+test('the real 404 page passes, at the domain root by default', () => {
   const real = readFileSync(fileURLToPath(new URL('../../site/404.html', import.meta.url)), 'utf8');
-  expect(real).toContain('data-gitbolt-404');
-  expect(check(valid({ '404.html': real }))).toEqual([]);
+  expect(real).toContain('data-gitvolt-404');
+  expect(checkSite(site(valid({ '404.html': real })), { root: ROOT }).errors).toEqual([]);
 });
 
 test('every page needs a Content-Security-Policy with no host or scheme source', () => {
@@ -198,7 +199,7 @@ test('inline styles and style attributes load nothing from another site; <base> 
     'demo/demo.html: <base href="/elsewhere/"> isn\'t on the site',
   ]));
   expect(errors).toHaveLength(5);
-  expect(check(valid({ 'demo/demo.html': '<!doctype html><html><head>' + CSP + '<base href="/gitbolt/demo/"></head><body></body></html>' }))).toEqual([]);
+  expect(check(valid({ 'demo/demo.html': '<!doctype html><html><head>' + CSP + '<base href="/gitvolt/demo/"></head><body></body></html>' }))).toEqual([]);
 });
 
 test("the manifest's rev is compiled into the demo's code", () => {

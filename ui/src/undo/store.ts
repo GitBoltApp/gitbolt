@@ -25,7 +25,7 @@ export async function loadJournal(repo: number, worktree: string): Promise<void>
     // A journalChanged (or a write's result) that arrived meanwhile is newer than this response.
     if (useJournal.getState().states[key] === before) useJournal.getState().set(repo, worktree, s);
   } catch (e) {
-    console.warn('[gitbolt] journal state', e);
+    console.warn('[gitvolt] journal state', e);
   }
 }
 

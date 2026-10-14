@@ -22,7 +22,7 @@ export const openUrl = (path: string) => `/?repo=${encodeURIComponent(path)}`;
 /** The harness's HTTP side (same port rule as playwright.config.ts): `GET /launches` lists the
  * "Open in…" launches it recorded instead of running, `POST /test/reset` (run before every test
  * by `./test`) forgets all state, and `POST /test/emit` puts a JSON `AppEvent` on the bus. */
-export const harnessHttp = `http://127.0.0.1:${process.env.GITBOLT_E2E_PORT_BASE ? Number(process.env.GITBOLT_E2E_PORT_BASE) : 7433}`;
+export const harnessHttp = `http://127.0.0.1:${process.env.GITVOLT_E2E_PORT_BASE ? Number(process.env.GITVOLT_E2E_PORT_BASE) : 7433}`;
 /** The harness's WebSocket (what the UI talks to). */
 export const harnessWs = `${harnessHttp.replace(/^http/, 'ws')}/ws`;
 
@@ -33,7 +33,7 @@ type FixtureName = 'basic' | 'unborn' | 'long_labels' | 'wide' | 'details' | 'lo
 const TEMPLATE_READY = '.template-ready';
 
 /** The run's one built copy of fixture `name` (`<fixture root>/templates/<name>/<name>`), made by
- * `gitbolt-harness fixture` the first time a test asks for it. */
+ * `gitvolt-harness fixture` the first time a test asks for it. */
 function template(name: FixtureName): { dir: string; repo: string } {
   const dir = join(fixtures.notRepo, 'templates', name);
   const ready = join(dir, TEMPLATE_READY);
@@ -123,7 +123,7 @@ export const touch = (path: string): void => writeFileSync(path, '');
 // --- end 2D T17 ---
 
 // --- 4A T14 ---
-/** The harness's fake forge (crates/gitbolt-harness/src/fake_forge): GitLab's token for Ada in its
+/** The harness's fake forge (crates/gitvolt-harness/src/fake_forge): GitLab's token for Ada in its
  * default seed (`GITLAB_TOKEN`). Tests reach the fake only through the harness port. */
 export const E2E_GITLAB_TOKEN = 'glpat-FAKE-e2e-ada';
 export type ForgeSeed = { gitlab: { projects: Array<Record<string, unknown>> } & Record<string, unknown> } & Record<string, unknown>;

@@ -1,6 +1,6 @@
 /** File History's list column width (px): persisted in localStorage like the other panel prefs,
  * every access in try/catch (storage may be unavailable). */
-export const LIST_W = { min: 220, max: 640, default: 360, key: 'gitbolt.historyListWidth.v1' } as const;
+export const LIST_W = { min: 220, max: 640, default: 360, key: 'gitvolt.historyListWidth.v1' } as const;
 
 export const clampListW = (w: number) => Math.max(LIST_W.min, Math.min(LIST_W.max, Math.round(w)));
 

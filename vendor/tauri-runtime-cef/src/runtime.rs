@@ -149,7 +149,7 @@ pub enum SecretStorage {
 /// **Whatever this policy says, a plain Windows executable runs unsandboxed.** CEF wants
 /// a sandbox broker pointer that, since Chromium M138, only a binary built with
 /// Chromium's own toolchain can create; CEF supplies prebuilt `bootstrap.exe` hosts for
-/// that, and they load the application as a DLL. GitBolt patch: a DLL entry point that
+/// that, and they load the application as a DLL. GitVolt patch: a DLL entry point that
 /// passes the bootstrap's pointer to [`crate::set_windows_sandbox_info`] gets the sandbox.
 /// Without it CEF sets `no_sandbox` itself, so this policy only decides whether the
 /// runtime warns about it ([`Self::Auto`]) or refuses to start ([`Self::Required`]).
@@ -1025,7 +1025,7 @@ impl Cef {
     self
   }
 
-  /// A spell-check dictionary the application ships (GitBolt patch), in Chromium's own
+  /// A spell-check dictionary the application ships (GitVolt patch), in Chromium's own
   /// `.bdic` format and named as Chromium names it (`en-US-10-1.bdic`).
   ///
   /// Chromium reads dictionaries from `Dictionaries/` in [`Self::root_cache_path`] and
@@ -3168,7 +3168,7 @@ impl<T: UserEvent> CefRuntime<T> {
     // becomes of such a profile, is the `downgrade` module; it must run before the first
     // CEF call that opens anything in the directory, which is `cef::initialize` below.
     crate::downgrade::prepare_root_cache_path(&cache_path, downgrade_policy);
-    // GitBolt patch: after the downgrade handling above (which may move the profile aside)
+    // GitVolt patch: after the downgrade handling above (which may move the profile aside)
     // and before `cef::initialize`, which starts the spell checker.
     for dictionary in &bundled_dictionaries {
       let dir = cache_path.join(crate::dictionaries::DIR);
@@ -3458,8 +3458,8 @@ impl<T: UserEvent> CefRuntime<T> {
       // Diagnostic-only visibility for the CEF #3002 workaround: a plain eprintln!, so it shows
       // even when the application has no logger installed (or filters this crate out). Browser
       // process only: helper processes return from `cef_entry_point` long before this code.
-      // Documented in vendor/tauri-runtime-cef/GITBOLT-PATCH.md.
-      if std::env::var_os("GITBOLT_PUMP_LOG").is_some() {
+      // Documented in vendor/tauri-runtime-cef/GITVOLT-PATCH.md.
+      if std::env::var_os("GITVOLT_PUMP_LOG").is_some() {
         eprintln!("[tauri-runtime-cef patch] destroyed {destroyed} Chromium GLib work source(s) (CEF #3002)");
       }
     }
@@ -3773,7 +3773,7 @@ mod configuration_tests {
 
   #[test]
   fn bundled_dictionaries_are_kept_in_order() {
-    // GitBolt patch: copied into `<root cache path>/Dictionaries` at startup (dictionaries.rs).
+    // GitVolt patch: copied into `<root cache path>/Dictionaries` at startup (dictionaries.rs).
     assert!(Cef::default().bundled_dictionaries.is_empty());
     let cef = Cef::default()
       .bundled_dictionary("/opt/app/dictionaries/en-US-10-1.bdic")
@@ -3790,7 +3790,7 @@ mod configuration_tests {
 
   #[test]
   fn disabling_component_updates_appends_the_switch() {
-    // K31: GitBolt is a git client with no route to `update.googleapis.com` that matters to
+    // K31: GitVolt is a git client with no route to `update.googleapis.com` that matters to
     // it; left on, the component updater (cert revocation sets, the CT log list, download
     // file-type policies) tries to memory-map a temp file every run and, under a
     // restrictive sandbox, fails loudly (`puffin/src/puffpatch.cc`). The switch is only

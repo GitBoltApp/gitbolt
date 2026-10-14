@@ -36,7 +36,7 @@ describe('Toolbar (spec §6.3)', () => {
     useRuntime.setState({ tabs: {} });
     useRuntime.getState().patch('t', {
       status: 'ready',
-      repo: { id: 4, path: '/r', name: 'gitbolt', worktree: '/r' },
+      repo: { id: 4, path: '/r', name: 'gitvolt', worktree: '/r' },
       graph: { rows: [], labels: [], maxLanes: 0, pinnedRefs: [], head: { branch: 'refs/heads/main', target: 'aaaaaaaaaa', detached: false, unborn: false }, truncated: false, worktrees: [] },
       sidebar: { locals: [branch('main', 'aaaaaaaaaa', { isHead: true }), branch('feature/login', 'bbbbbbbbbb', { ahead: 2, behind: 1 })], remotes: [], worktrees: [], stashes: [], tags: [] },
     });
@@ -54,7 +54,7 @@ describe('Toolbar (spec §6.3)', () => {
 
   it('shows the repository and its current branch', () => {
     renderToolbar();
-    expect(screen.getByRole('toolbar', { name: 'Repository toolbar' })).toHaveTextContent('gitbolt');
+    expect(screen.getByRole('toolbar', { name: 'Repository toolbar' })).toHaveTextContent('gitvolt');
     expect(screen.getByRole('button', { name: 'Branch: main' })).toBeInTheDocument();
   });
 
@@ -80,14 +80,14 @@ describe('Toolbar (spec §6.3)', () => {
     renderToolbar();
     act(() => useOps.getState().apply({ type: 'opStarted', op: 1, kind: 'fetch', repo: 9, label: 'other', interactive: true }));
     expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 2, kind: 'fetch', repo: 4, label: 'gitbolt', interactive: true }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 2, kind: 'fetch', repo: 4, label: 'gitvolt', interactive: true }));
     expect(screen.getByRole('button', { name: 'Fetch' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Fetch' })).toHaveAttribute('aria-busy', 'true');
   });
 
   it('a background fetch leaves Fetch alone, until a user\'s Fetch waits on it (K30)', () => {
     renderToolbar();
-    act(() => useOps.getState().apply({ type: 'opStarted', op: 3, kind: 'fetch', repo: 4, label: 'gitbolt', interactive: false }));
+    act(() => useOps.getState().apply({ type: 'opStarted', op: 3, kind: 'fetch', repo: 4, label: 'gitvolt', interactive: false }));
     expect(screen.getByRole('button', { name: 'Fetch' })).toBeEnabled();
     expect(screen.getByRole('button', { name: 'Fetch' })).not.toHaveAttribute('aria-busy');
     act(() => useOps.getState().showOp(3));

@@ -4,7 +4,7 @@
  * try/catch (storage may be unavailable); Path/Tree is not here, it's the file list's own pref.
  */
 export interface WipPanelPrefs { ratio: number; collapsed: { unstaged: boolean; staged: boolean; conflicted: boolean } }
-export const WIP_PANEL = { key: 'gitbolt.wipPanel.v1', defaultRatio: 0.5, step: 0.05, minRows: 3, chromePx: 64 } as const;
+export const WIP_PANEL = { key: 'gitvolt.wipPanel.v1', defaultRatio: 0.5, step: 0.05, minRows: 3, chromePx: 64 } as const;
 export const DEFAULT_WIP_PANEL: WipPanelPrefs = { ratio: WIP_PANEL.defaultRatio, collapsed: { unstaged: false, staged: false, conflicted: false } };
 
 /** The ratio's range: each section keeps its header and toolbar (`chromePx`) plus `minRows` rows

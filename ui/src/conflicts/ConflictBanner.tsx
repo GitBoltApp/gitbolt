@@ -20,7 +20,7 @@ const shown = new Set<string>();
  * draws nothing: the operation's status and its Continue, Skip and Abort live in the commit
  * panel (ux round 1: a window-wide bar pushed the whole interface down). It
  * - once per stop, selects the WIP row (so that panel shows) and opens its first conflicted file;
- * - settles a paused entry whose operation ended outside GitBolt;
+ * - settles a paused entry whose operation ended outside GitVolt;
  * - adds MERGE_MSG to the WIP draft once per merge (§8.2).
  * It waits while a merge, rebase or pull op of the repo runs (those states are transient).
  */
@@ -41,7 +41,7 @@ export function ConflictBanner({ tab }: TabSlotProps) {
   const wipId = graph.rows.find((r) => r.wip?.worktreePath === worktree)?.id ?? null;
   const onWip = useRepoView((s) => s.selection?.kind === 'wip' && s.selection.worktree === worktree);
 
-  // Deviation 4: the operation ended outside GitBolt while its journal entry is paused → settle
+  // Deviation 4: the operation ended outside GitVolt while its journal entry is paused → settle
   // once per entry (it restores the autostash).
   useEffect(() => {
     if (!ctx || busy || !none || !paused) return;

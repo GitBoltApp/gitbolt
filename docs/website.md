@@ -1,6 +1,6 @@
 # The website
 
-[gitboltapp.github.io/gitbolt](https://gitboltapp.github.io/gitbolt/) is static files on GitHub
+[gitvolt.com](https://gitvolt.com/) is static files on GitHub
 Pages: the landing page (`site/`), the live demo (`ui/demo.html`, built with
 `vite build --mode demo` over the committed bundles in `site/demo-data/`) and a 404 page. Two
 workflows publish it; nothing else does. It loads nothing from other hosts
@@ -10,10 +10,10 @@ workflows publish it; nothing else does. It loads nothing from other hosts
 
 - **Site** (`.github/workflows/site.yml`) runs on a push to main that changes one of:
   `site/`, `ui/src/demo/`, `ui/demo.html`, `ui/build/`, `ui/scripts/check-site.mjs`,
-  `ui/vite.config.ts`, `crates/gitbolt-graph/`, `crates/gitbolt-graph-wasm/`,
+  `ui/vite.config.ts`, `crates/gitvolt-graph/`, `crates/gitvolt-graph-wasm/`,
   `scripts/site-pages.sh`, `.github/workflows/site.yml`, `README.md` (the features),
   `about.toml` (the font license check), `justfile`, `ui/src/security/csp.ts` and
-  `crates/gitbolt-app/tauri.conf.json` (the demo page's CSP). It also runs by hand: Actions, Site,
+  `crates/gitvolt-app/tauri.conf.json` (the demo page's CSP). It also runs by hand: Actions, Site,
   Run workflow.
 - **Jobs:** build (`contents: read`) builds the graph's WebAssembly (`just demo-wasm`), the
   landing page and the demo, and checks them (`just site-pages`, below), then uploads the
@@ -60,15 +60,15 @@ The format, `schema` 1 (`release` is `null` while there's no published release):
     "tag": "v0.6.0",
     "prerelease": false,
     "published": "2026-10-13T03:04:03Z",
-    "url": "https://github.com/GitBoltApp/gitbolt/releases/tag/v0.6.0",
-    "sums": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/SHA256SUMS",
+    "url": "https://github.com/GitVoltApp/gitvolt/releases/tag/v0.6.0",
+    "sums": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.6.0/SHA256SUMS",
     "downloads": [
       {
         "os": "linux",
         "kind": "deb",
         "arch": "x86_64",
         "file": "GitBolt_0.6.0_amd64.deb",
-        "url": "https://github.com/GitBoltApp/gitbolt/releases/download/v0.6.0/GitBolt_0.6.0_amd64.deb",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.6.0/GitBolt_0.6.0_amd64.deb",
         "bytes": 165800042,
         "sha256": "264c81a9…"
       }
@@ -104,7 +104,7 @@ GitHub Pages sends every file with `Cache-Control: max-age=600` and has no setti
 - **No third-party requests:** every script, stylesheet, image, frame, font and icon a page or
   stylesheet loads is on the site. Links to other sites are fine.
 - **Links:** internal links and `#fragments` resolve. The 404 page's links follow
-  `GITBOLT_SITE_BASE` (`/gitbolt/` by default; `scripts/site-pages.sh` rewrites them), since Pages
+  `GITVOLT_SITE_BASE` (`/` by default; `scripts/site-pages.sh` rewrites them), since Pages
   serves it at any missing path.
 - **CSP:** every page has a Content-Security-Policy `<meta>` with no host or scheme source (only
   `'self'`, `'none'`, hashes, nonces, `data:`, `blob:`, `'unsafe-inline'`, `'wasm-unsafe-eval'`),
@@ -126,11 +126,10 @@ GitHub Pages sends every file with `Cache-Control: max-age=600` and has no setti
 | Each image outside the demo | 500 KB |
 | The site outside the demo | 10 MB |
 
-To browse it as Pages serves it, under `/gitbolt/`:
+To browse it as Pages serves it:
 
 ```sh
-mkdir -p /tmp/gitbolt-pages && ln -sfn "$PWD/site/dist" /tmp/gitbolt-pages/gitbolt
-python3 -m http.server -d /tmp/gitbolt-pages 8000   # http://localhost:8000/gitbolt/
+python3 -m http.server -d site/dist 8000   # http://localhost:8000/
 ```
 
 ## Security
@@ -155,9 +154,17 @@ python3 -m http.server -d /tmp/gitbolt-pages 8000   # http://localhost:8000/gitb
 4. Optional check: Actions, Site downloads, Run workflow on main, tag empty. It reports
    "release.json is up to date" when the committed file already matches the newest release: no
    commit, no redeploy.
+5. Set the domain as under **The domain**, then run Site again: its last step checks the deployed address.
 
-## A custom domain
+## The domain
 
-None. To add one: set it in Settings, Pages (a deploy from Actions needs no `CNAME` file), build
-with `GITBOLT_SITE_BASE=/` (an `env:` entry on the build job in `.github/workflows/site.yml`),
-and update the address here and in PRIVACY.md.
+The site is at https://gitvolt.com/: Settings, Pages, Custom domain, with Enforce HTTPS (a
+deploy from Actions needs no `CNAME` file). The organization's Settings, Pages, Verified domains
+holds gitvolt.com, so no other account can claim it. DNS at the registrar: `A` records
+185.199.108.153, 185.199.109.153, 185.199.110.153 and 185.199.111.153; `AAAA` records
+2606:50c0:8000::153, 2606:50c0:8001::153, 2606:50c0:8002::153 and 2606:50c0:8003::153; `www` a
+`CNAME` to gitvoltapp.github.io. gitvoltapp.github.io/gitvolt/ redirects to the domain.
+
+`GITVOLT_SITE_BASE` is the path the site is served under: `/`, the default. To serve it under a
+path instead (Pages without the domain: `/gitvolt/`), set it as an `env:` entry on the build job
+in `.github/workflows/site.yml`.

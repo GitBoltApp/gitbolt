@@ -1,15 +1,15 @@
 # Usage: powershell -File scripts/package-windows.ps1   (`just package-windows`, on Windows)
 #
 # The Windows installers, from one release build packaged twice: an NSIS per-user installer
-# (GitBolt_<version>_x64-setup.exe) and a per-machine MSI (GitBolt_<version>_x64.msi), in
+# (GitVolt_<version>_x64-setup.exe) and a per-machine MSI (GitVolt_<version>_x64.msi), in
 # target\release\bundle\windows\. Steps:
 #   1. the license notices (scripts/licenses.sh, in Git for Windows' bash), then the UI build;
-#   2. gitbolt-app as a DLL, release, with the UI embedded;
-#   3. the staged layout, target\release\windows\GitBolt\: CEF's bootstrap.exe as GitBolt.exe
+#   2. gitvolt-app as a DLL, release, with the UI embedded;
+#   3. the staged layout, target\release\windows\GitVolt\: CEF's bootstrap.exe as GitVolt.exe
 #      (from the same CEF build as the one linked: checked) with our icon, version information
-#      and manifest, the DLL as GitBolt.dll (the bootstrap loads <its name>.dll and runs it
+#      and manifest, the DLL as GitVolt.dll (the bootstrap loads <its name>.dll and runs it
 #      sandboxed), the CEF runtime files, the spell-check dictionary and the notices in licenses\;
-#   4. the installers from that folder (packaging\windows\gitbolt.nsi and gitbolt.wxs).
+#   4. the installers from that folder (packaging\windows\gitvolt.nsi and gitvolt.wxs).
 # The packaging tools (NSIS, WiX, rcedit) are pinned and downloaded into target\windows-tools on
 # first use; nothing is installed system-wide. Needs Rust, Node with ui\node_modules (npm ci),
 # Git for Windows, Python 3 ($env:PYTHON, else python3 or python on PATH), cargo-about 0.9.2,
@@ -17,13 +17,13 @@
 # (the CEF wrapper).
 #
 # Versions follow scripts/package-version.sh: tauri.conf.json's version with a build stamp
-# (<version>+<UTC YYYYMMDDHHMM>.<commit>), or GITBOLT_RELEASE_VERSION for a release, which must
+# (<version>+<UTC YYYYMMDDHHMM>.<commit>), or GITVOLT_RELEASE_VERSION for a release, which must
 # equal it. Windows' numeric versions (the MSI's ProductVersion, the files' FILEVERSION) are
 # X.Y.Z.0 for all of them: see docs/releasing.md.
 #
-# Signing (none yet): set GITBOLT_SIGN_COMMAND to a command that signs the file path appended to
+# Signing (none yet): set GITVOLT_SIGN_COMMAND to a command that signs the file path appended to
 # it in place, e.g. `signtool sign /fd sha256 /tr <timestamp url> /td sha256 /f <cert>`. It then
-# signs GitBolt.exe and GitBolt.dll (the bootstrap only loads a DLL signed with its own
+# signs GitVolt.exe and GitVolt.dll (the bootstrap only loads a DLL signed with its own
 # certificate once it is signed itself), the NSIS installer and its uninstaller, and the MSI.
 [CmdletBinding()]
 param()
@@ -34,9 +34,9 @@ $ProgressPreference = 'SilentlyContinue' # Expand-Archive's progress bar slows i
 $root = Split-Path -Parent $PSScriptRoot
 $target = if ($env:CARGO_TARGET_DIR) { $env:CARGO_TARGET_DIR } else { Join-Path $root 'target' }
 $tools = Join-Path $target 'windows-tools'
-$stage = Join-Path $target 'release\windows\GitBolt'
+$stage = Join-Path $target 'release\windows\GitVolt'
 $out = Join-Path $target 'release\bundle\windows'
-$conf = Get-Content -Raw (Join-Path $root 'crates\gitbolt-app\tauri.conf.json') | ConvertFrom-Json
+$conf = Get-Content -Raw (Join-Path $root 'crates\gitvolt-app\tauri.conf.json') | ConvertFrom-Json
 
 function Fail([string]$msg) { throw "package-windows: $msg" }
 
@@ -133,10 +133,10 @@ function Get-Python {
 
 $python = Get-Python
 $base = $conf.version
-if ($env:GITBOLT_RELEASE_VERSION) {
-  Run $python (Join-Path $root 'scripts\version.py') check $env:GITBOLT_RELEASE_VERSION
-  if ($env:GITBOLT_RELEASE_VERSION -ne $base) {
-    Fail "GITBOLT_RELEASE_VERSION=$env:GITBOLT_RELEASE_VERSION doesn't match tauri.conf.json's $base"
+if ($env:GITVOLT_RELEASE_VERSION) {
+  Run $python (Join-Path $root 'scripts\version.py') check $env:GITVOLT_RELEASE_VERSION
+  if ($env:GITVOLT_RELEASE_VERSION -ne $base) {
+    Fail "GITVOLT_RELEASE_VERSION=$env:GITVOLT_RELEASE_VERSION doesn't match tauri.conf.json's $base"
   }
   $version = $base
 } else {
@@ -160,7 +160,7 @@ if ($lock -notmatch 'name = "cef"\r?\nversion = "[^+"]*\+([^"]+)"') { Fail "no C
 $cefVersion = $Matches[1]
 if (-not $env:CEF_PATH) { $env:CEF_PATH = Join-Path $env:LOCALAPPDATA 'tauri-cef' }
 $cefDir = Join-Path $env:CEF_PATH "$cefVersion\cef_windows_x86_64"
-Write-Host "GitBolt $version (Windows $numeric), CEF $cefVersion"
+Write-Host "GitVolt $version (Windows $numeric), CEF $cefVersion"
 
 # A CARGO_INCREMENTAL=0 from the caller would override the release profile's (Cargo.toml).
 Remove-Item Env:CARGO_INCREMENTAL -ErrorAction SilentlyContinue
@@ -188,14 +188,14 @@ Step 'UI build (npm run build)'
 Push-Location (Join-Path $root 'ui')
 try { Run npm.cmd run build } finally { Pop-Location }
 
-Step 'gitbolt-app as a DLL, release, with the UI embedded'
+Step 'gitvolt-app as a DLL, release, with the UI embedded'
 # The version the app shows and compares updates against (the status bar, the update check).
-$env:GITBOLT_BUILD_VERSION = $version
+$env:GITVOLT_BUILD_VERSION = $version
 Push-Location $root
 try {
-  Run cargo rustc -p gitbolt-app --lib --release --locked --crate-type cdylib --features tauri/custom-protocol
+  Run cargo rustc -p gitvolt-app --lib --release --locked --crate-type cdylib --features tauri/custom-protocol
 } finally { Pop-Location }
-$dll = Join-Path $target 'release\gitbolt_app.dll'
+$dll = Join-Path $target 'release\gitvolt_app.dll'
 if (-not (Test-Path $dll)) { Fail "the build made no $dll" }
 
 # --- Stage --------------------------------------------------------------------------------------
@@ -210,15 +210,15 @@ if ($bootVer -ne $libVer -or -not $libVer.StartsWith("$cefVersion+")) {
 }
 if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
 New-Item -ItemType Directory -Force $stage, (Join-Path $stage 'dictionaries'), (Join-Path $stage 'licenses') | Out-Null
-Copy-Item (Join-Path $cefDir 'bootstrap.exe') (Join-Path $stage 'GitBolt.exe')
-Copy-Item $dll (Join-Path $stage 'GitBolt.dll')
+Copy-Item (Join-Path $cefDir 'bootstrap.exe') (Join-Path $stage 'GitVolt.exe')
+Copy-Item $dll (Join-Path $stage 'GitVolt.dll')
 # CEF's runtime: its DLLs, resources and locales; not its headers, wrapper sources, import
 # library, bootstrap executables or credits (those ship as notices).
 Get-ChildItem $cefDir -File | Where-Object {
   $_.Extension -in '.dll', '.pak', '.dat', '.bin' -or $_.Name -eq 'vk_swiftshader_icd.json'
 } | Copy-Item -Destination $stage
 Copy-Item -Recurse (Join-Path $cefDir 'locales') $stage
-Copy-Item (Join-Path $root 'crates\gitbolt-app\dictionaries\en-US-10-1.bdic') (Join-Path $stage 'dictionaries')
+Copy-Item (Join-Path $root 'crates\gitvolt-app\dictionaries\en-US-10-1.bdic') (Join-Path $stage 'dictionaries')
 $licenses = Join-Path $target 'licenses'
 foreach ($f in 'LICENSE', 'THIRD-PARTY-NOTICES-rust.txt', 'CEF-LICENSE.txt', 'CHROMIUM-CREDITS.html.gz', 'DICTIONARY-en-US-LICENSE.txt') {
   Copy-Item (Join-Path $licenses $f) (Join-Path $stage 'licenses')
@@ -228,7 +228,7 @@ Get-ChildItem (Join-Path $stage 'licenses') | ForEach-Object { if ($_.Length -eq
 
 Step 'resources: icon, version information, manifest'
 $rcedit = Get-Rcedit
-$icon = Join-Path $root 'crates\gitbolt-app\icons\icon.ico'
+$icon = Join-Path $root 'crates\gitvolt-app\icons\icon.ico'
 $common = @(
   '--set-file-version', $numeric, '--set-product-version', $numeric,
   '--set-version-string', 'ProductName', $product,
@@ -238,28 +238,28 @@ $common = @(
   '--set-version-string', 'LegalCopyright', $copyright,
   '--set-version-string', 'Comments', $conf.bundle.shortDescription
 )
-Run $rcedit (Join-Path $stage 'GitBolt.exe') @common --set-icon $icon `
+Run $rcedit (Join-Path $stage 'GitVolt.exe') @common --set-icon $icon `
   --set-version-string FileDescription $product `
-  --set-version-string InternalName GitBolt --set-version-string OriginalFilename GitBolt.exe `
-  --application-manifest (Join-Path $root 'packaging\windows\GitBolt.exe.manifest')
-Run $rcedit (Join-Path $stage 'GitBolt.dll') @common `
+  --set-version-string InternalName GitVolt --set-version-string OriginalFilename GitVolt.exe `
+  --application-manifest (Join-Path $root 'packaging\windows\GitVolt.exe.manifest')
+Run $rcedit (Join-Path $stage 'GitVolt.dll') @common `
   --set-version-string FileDescription "$product application library" `
-  --set-version-string InternalName GitBolt --set-version-string OriginalFilename GitBolt.dll
+  --set-version-string InternalName GitVolt --set-version-string OriginalFilename GitVolt.dll
 
 function Invoke-Sign([string]$path) {
-  if (-not $env:GITBOLT_SIGN_COMMAND) { return }
+  if (-not $env:GITVOLT_SIGN_COMMAND) { return }
   Write-Host "signing $path"
-  & cmd.exe /d /c "$env:GITBOLT_SIGN_COMMAND `"$path`""
-  if ($LASTEXITCODE -ne 0) { Fail "GITBOLT_SIGN_COMMAND failed on $path" }
+  & cmd.exe /d /c "$env:GITVOLT_SIGN_COMMAND `"$path`""
+  if ($LASTEXITCODE -ne 0) { Fail "GITVOLT_SIGN_COMMAND failed on $path" }
 }
 # The same certificate for both: a signed bootstrap refuses a DLL signed by another.
-Invoke-Sign (Join-Path $stage 'GitBolt.exe')
-Invoke-Sign (Join-Path $stage 'GitBolt.dll')
+Invoke-Sign (Join-Path $stage 'GitVolt.exe')
+Invoke-Sign (Join-Path $stage 'GitVolt.dll')
 
 # --- Installers ---------------------------------------------------------------------------------
 
 New-Item -ItemType Directory -Force $out | Out-Null
-Get-ChildItem $out -Filter 'GitBolt_*' | Remove-Item -Force
+Get-ChildItem $out -Filter 'GitVolt_*' | Remove-Item -Force
 $files = Get-ChildItem -Recurse -File $stage
 $size = ($files | Measure-Object -Sum Length).Sum
 
@@ -272,26 +272,26 @@ $dirs = Get-ChildItem -Recurse -Directory $stage | Sort-Object { $_.FullName.Len
 foreach ($d in $dirs) { $list += "RMDir `"`$INSTDIR\$($d.FullName.Substring($stage.Length + 1))`"" }
 $uninstallList = Join-Path $work 'uninstall-files.nsh'
 [IO.File]::WriteAllLines($uninstallList, $list, (New-Object Text.UTF8Encoding $true))
-$setup = Join-Path $out "GitBolt_${version}_x64-setup.exe"
+$setup = Join-Path $out "GitVolt_${version}_x64-setup.exe"
 $nsisArgs = @(
   '/V2', '/INPUTCHARSET', 'UTF8',
   "/DVERSION=$version", "/DVERSION_NUMERIC=$numeric", "/DPUBLISHER=$publisher", "/DCOPYRIGHT=$copyright",
   "/DSTAGE=$stage", "/DUNINSTALL_LIST=$uninstallList", "/DICON=$icon", "/DOUTFILE=$setup",
   "/DESTIMATED_SIZE_KB=$([math]::Ceiling($size / 1KB))"
 )
-if ($env:GITBOLT_SIGN_COMMAND) { $nsisArgs += "/DSIGN_COMMAND=$env:GITBOLT_SIGN_COMMAND" }
-Run (Get-Nsis) @nsisArgs (Join-Path $root 'packaging\windows\gitbolt.nsi')
+if ($env:GITVOLT_SIGN_COMMAND) { $nsisArgs += "/DSIGN_COMMAND=$env:GITVOLT_SIGN_COMMAND" }
+Run (Get-Nsis) @nsisArgs (Join-Path $root 'packaging\windows\gitvolt.nsi')
 Invoke-Sign $setup
 
 Step 'MSI (per machine)'
-$msi = Join-Path $out "GitBolt_${version}_x64.msi"
+$msi = Join-Path $out "GitVolt_${version}_x64.msi"
 Run (Get-Wix) build -nologo -arch x64 -d "Version=$numeric" -d "DisplayVersion=$version" `
   -d "Publisher=$publisher" -d "Icon=$icon" -d "InstallKind=$(Join-Path $root 'packaging\windows\install-kind-msi')" -bindpath "stage=$stage" `
-  -intermediatefolder (Join-Path $work 'wix') -o $msi (Join-Path $root 'packaging\windows\gitbolt.wxs')
+  -intermediatefolder (Join-Path $work 'wix') -o $msi (Join-Path $root 'packaging\windows\gitvolt.wxs')
 Remove-Item -Force -ErrorAction SilentlyContinue ([IO.Path]::ChangeExtension($msi, '.wixpdb'))
 # Windows Installer's own consistency checks (ICE). ICE61 only notes AllowSameVersionUpgrades.
 Run (Get-Wix) msi validate -nologo -sice ICE61 $msi
-# The update check finds its installer by the MSI's install-kind file (crates/gitbolt-core/src/updates/install.rs).
+# The update check finds its installer by the MSI's install-kind file (crates/gitvolt-core/src/updates/install.rs).
 $decompiled = Join-Path $work 'decompiled.wxs'
 Run (Get-Wix) msi decompile $msi -o $decompiled
 if (-not (Select-String -Quiet -SimpleMatch 'Name="install-kind"' $decompiled)) { Fail "the MSI has no install-kind file" }
@@ -299,4 +299,4 @@ Invoke-Sign $msi
 
 Step 'done'
 Write-Host ("staged: {0} files, {1:N0} MB" -f $files.Count, ($size / 1MB))
-Get-ChildItem $out -Filter 'GitBolt_*' | ForEach-Object { Write-Host ("{0}  {1:N1} MB" -f $_.FullName, ($_.Length / 1MB)) }
+Get-ChildItem $out -Filter 'GitVolt_*' | ForEach-Object { Write-Host ("{0}  {1:N1} MB" -f $_.FullName, ($_.Length / 1MB)) }

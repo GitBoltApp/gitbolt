@@ -7,7 +7,7 @@ import { useToast } from '../ui/toastStore';
 import { runWrite, type WriteCtx } from '../write/client';
 
 /** After a submodule side was taken: the submodule is still checked out elsewhere, and a
- * stage-all would stage that commit back (GitBolt never moves it). */
+ * stage-all would stage that commit back (GitVolt never moves it). */
 export function submoduleBehindMessage(b: SubmoduleBehind): string {
   return `Submodule ${b.path} is still checked out at ${shortSha(b.head)}: update it to ${shortSha(b.taken)} before committing`;
 }

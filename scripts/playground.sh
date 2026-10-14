@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Build (or reset) the try-out playground: one folder whose direct children are the repos, so
-# "Add a folder" in GitBolt lists them all. Their local bare remotes and helper clones live in
+# "Add a folder" in GitVolt lists them all. Their local bare remotes and helper clones live in
 # .remotes/ and linked worktrees in .worktrees/ (hidden folders, which the folder scan skips).
 #
 #   scripts/playground.sh HARNESS DIR
 #
 # Resetting deletes only what this script made: DIR must be empty, missing, or carry the
-# .gitbolt-playground marker.
+# .gitvolt-playground marker.
 set -euo pipefail
 harness=$1
 dir=${2/#\~/$HOME}
@@ -14,15 +14,15 @@ fixtures=(orbital basic sync conflicts stack wip_staging rebase_lab previews sub
 # A fixture's folder name: rebase_lab is the playground's rebase-lab.
 folder() { case "$1" in rebase_lab) echo rebase-lab ;; *) echo "$1" ;; esac; }
 
-if [ -e "$dir" ] && [ -n "$(ls -A "$dir")" ] && [ ! -f "$dir/.gitbolt-playground" ]; then
-  echo "$dir isn't empty and isn't a playground (no .gitbolt-playground marker); leaving it alone" >&2
+if [ -e "$dir" ] && [ -n "$(ls -A "$dir")" ] && [ ! -f "$dir/.gitvolt-playground" ]; then
+  echo "$dir isn't empty and isn't a playground (no .gitvolt-playground marker); leaving it alone" >&2
   exit 1
 fi
 mkdir -p "$dir"
 for f in "${fixtures[@]}"; do rm -rf "${dir:?}/$(folder "$f")"; done
 rm -rf "${dir:?}/.remotes" "${dir:?}/.worktrees" "${dir:?}/.staging"
 mkdir -p "$dir/.remotes" "$dir/.worktrees" "$dir/.staging"
-touch "$dir/.gitbolt-playground"
+touch "$dir/.gitvolt-playground"
 
 for f in "${fixtures[@]}"; do
   n=$(folder "$f")
@@ -90,9 +90,9 @@ for f in "${fixtures[@]}"; do
 done
 rmdir "$dir/.staging"
 cat > "$dir/README.md" <<'EOF'
-# GitBolt playground
+# GitVolt playground
 
-Add this folder in GitBolt ("Add a folder") to list every repo. What to try in each:
+Add this folder in GitVolt ("Add a folder") to list every repo. What to try in each:
 
 - **orbital**: a 2D space-trading game in Rust, two years and over a thousand commits by six people. Scroll the graph; open any commit; every preview type is in its history (sprites, the HUD font, sounds, the design PDF, the press kit, tables, the save file). `balance/fuel-rework` conflicts with main (text, table, image); `feature/hud-polish` is set up for an interactive rebase onto main; `feature/autopilot` is ahead of origin, `feature/station-ui` behind, `feature/trade-routes` diverged; two stashes; main has staged and unstaged changes. `git -C .remotes/orbital-origin.git update-ref refs/heads/main refs/demo/teammate` plays the teammate's push, then Fetch.
 - **basic**: the game's website: a small history with a merged branch, a tag, a stash and a dirty linked worktree.

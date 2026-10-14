@@ -16,7 +16,7 @@ afterEach(() => { if (root) rmSync(root, { recursive: true, force: true }); });
 /** <root>/repo with a commit, a bare <root>/origin.git as its origin, a linked <root>/wt-x. With
  *  `alternates`, origin.git borrows the repo's objects instead of holding its own. */
 function tinyFixture(alternates = false, originOnly = false): string {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'gitbolt-pack-')));
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'gitvolt-pack-')));
   const repo = join(root, 'repo');
   mkdirSync(repo);
   gitIn(repo, 'init', '-q', '-b', 'main');
@@ -104,7 +104,7 @@ describe('packFixture', () => {
   test('objects only a borrowing origin reaches survive the repo’s compaction', () => {
     const dir = tinyFixture(true, true);
     const b = parseBundle(new Uint8Array(gunzipSync(packFixture(dir, 'tiny'))));
-    const out = realpathSync(mkdtempSync(join(tmpdir(), 'gitbolt-unpacked-')));
+    const out = realpathSync(mkdtempSync(join(tmpdir(), 'gitvolt-unpacked-')));
     for (const f of b.files) {
       mkdirSync(join(out, f.path, '..'), { recursive: true });
       writeFileSync(join(out, f.path), f.data);
@@ -165,7 +165,7 @@ describe('scrubIndexStat', () => {
   const names = ['a', 'bb', 'ccccccccc', 'dddddddddd', 'sub/dir/file.txt', 'sub/x'];
 
   function repoWithIndex(): string {
-    root = realpathSync(mkdtempSync(join(tmpdir(), 'gitbolt-scrub-')));
+    root = realpathSync(mkdtempSync(join(tmpdir(), 'gitvolt-scrub-')));
     gitIn(root, 'init', '-q', '-b', 'main');
     for (const n of names) {
       mkdirSync(join(root, n, '..'), { recursive: true });

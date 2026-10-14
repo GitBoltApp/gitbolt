@@ -164,7 +164,7 @@ describe('the rendered Markdown diff in Diff View (5C)', () => {
     fireEvent.click(button('Split'));
     expect(md).toHaveAttribute('data-split', 'yes');
     expect(button('Split')).toHaveAttribute('aria-pressed', 'true');
-    expect(localStorage.getItem('gitbolt.diffPrefs.v1')).toContain('"mode":"split"');
+    expect(localStorage.getItem('gitvolt.diffPrefs.v1')).toContain('"mode":"split"');
     fireEvent.click(button('Inline'));
     expect(md).toHaveAttribute('data-split', 'no');
   });

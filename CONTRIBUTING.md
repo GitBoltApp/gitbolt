@@ -1,4 +1,4 @@
-# Contributing to GitBolt
+# Contributing to GitVolt
 
 Thanks for helping. This file covers how to build and test a change, the rules every change
 follows, and how to report a bug. For how the code is organized, read
@@ -15,7 +15,7 @@ dependencies once with `cd ui && npm ci`.
 | Command | What it does |
 |---|---|
 | `just dev [repo]` | Runs the app in development mode (the Vite dev server plus a debug build), optionally opening `repo` |
-| `just playground` | Builds throwaway repositories to try the app on (Orbital, basic, sync, conflicts, …) in `~/gitbolt-playground`; more in [docs/playground.md](docs/playground.md) |
+| `just playground` | Builds throwaway repositories to try the app on (Orbital, basic, sync, conflicts, …) in `~/gitvolt-playground`; more in [docs/playground.md](docs/playground.md) |
 | `just test` | The Rust tests, the UI unit tests, the website demo's and the website's tests (needs the wasm toolchain, see [docs/dev-setup.md](docs/dev-setup.md)) and the packaging and release script tests |
 | `just test-rust` | The Rust tests, with cargo-nextest when it's installed |
 | `just test-ui` | All the UI unit tests (vitest) |
@@ -36,13 +36,13 @@ dependencies once with `cd ui && npm ci`.
 | `just gen-types` | Regenerates the TypeScript types in `ui/src/api/gen/` and `ui/src/demo/gen/` from the Rust types |
 
 With [cargo-nextest](https://nexte.st) installed, you can run part of the Rust suite:
-`cargo nextest run -p gitbolt-core`, or one area of the harness's integration tests with
-`cargo nextest run -p gitbolt-harness -E 'test(/^forge_stacks::/)'`.
+`cargo nextest run -p gitvolt-core`, or one area of the harness's integration tests with
+`cargo nextest run -p gitvolt-harness -E 'test(/^forge_stacks::/)'`.
 
-**Fixture repositories are cached.** Each named fixture (`gitbolt_core::testing::fixtures`) is
+**Fixture repositories are cached.** Each named fixture (`gitvolt_core::testing::fixtures`) is
 built once into `target/fixture-cache/`, keyed on the `testing` module's source and the git
-version, and every test (and `gitbolt-harness fixture`) gets a copy of it. Set
-`GITBOLT_FIXTURE_CACHE=0` to build them fresh, for instance while you debug a fixture.
+version, and every test (and `gitvolt-harness fixture`) gets a copy of it. Set
+`GITVOLT_FIXTURE_CACHE=0` to build them fresh, for instance while you debug a fixture.
 
 **Pick the cheapest test layer that proves the behavior.** A rule in the core gets a Rust unit
 test; a component's logic or rendering gets a vitest test; a Playwright test is for a real flow
@@ -70,7 +70,7 @@ plus the e2e specs for the areas you changed.
 - **Tests never touch the real keyring or a real forge.** Forge tests talk only to the harness's
   fake GitHub/GitLab, and tokens go in a token store inside a temporary directory, never the
   system Secret Service. Git in tests runs with the isolated environment from
-  `gitbolt_core::testing`, never your own config, credentials or ssh agent.
+  `gitvolt_core::testing`, never your own config, credentials or ssh agent.
 - **Tokens never appear** in logs, error messages, the UI, test output, snapshots or committed
   fixtures. Use obviously fake tokens (`glpat-FAKE-…`, `ghp_FAKE-…`), or build real-looking ones at
   run time.
@@ -88,7 +88,7 @@ plus the e2e specs for the areas you changed.
   `tsc --noEmit`. `just lint` runs both.
 - Every write to a repository goes through the write pipeline (`run_write`, see
   [ARCHITECTURE.md](ARCHITECTURE.md#writes)). A new write method is listed in `WRITE_METHODS` in
-  `crates/gitbolt-core/src/api.rs`; a new read gets a sample in the API test that checks reads
+  `crates/gitvolt-core/src/api.rs`; a new read gets a sample in the API test that checks reads
   never write.
 
 ## Commit messages
@@ -106,7 +106,7 @@ version rules and the dry run.
 
 ## Licensing
 
-GitBolt is MIT licensed (see [LICENSE](LICENSE)). By contributing, you agree that your
+GitVolt is MIT licensed (see [LICENSE](LICENSE)). By contributing, you agree that your
 contribution is licensed under the same terms.
 
 The packages ship the license notices of the third-party code they bundle (Rust crates, npm
@@ -117,16 +117,16 @@ notices in the same change, and check the new dependency's license.
 
 Open an issue on GitHub with:
 - what you did, what you expected, and what happened instead;
-- your distribution and desktop, how you installed GitBolt (`.deb`, `.rpm`, Arch package, or built from
+- your distribution and desktop, how you installed GitVolt (`.deb`, `.rpm`, Arch package, or built from
   source), and your git version;
 - the diagnostics: Help → Debug…, then **Copy diagnostics**, and paste the text. It holds the
-  GitBolt, Chromium, git and OS versions and your settings, with secrets removed;
+  GitVolt, Chromium, git and OS versions and your settings, with secrets removed;
 - for a crash or an error, the relevant part of the log file. Logs are in
-  `~/.cache/gitbolt/logs/` (under `$XDG_CACHE_HOME` if you set it); **Open logs folder** in the
+  `~/.cache/gitvolt/logs/` (under `$XDG_CACHE_HOME` if you set it); **Open logs folder** in the
   Debug dialog opens it. For more detail, turn on Settings › Advanced › Debug logging and
   reproduce the problem.
 
-GitBolt keeps tokens out of its logs and diagnostics, but they can contain repository paths,
+GitVolt keeps tokens out of its logs and diagnostics, but they can contain repository paths,
 branch names and remote URLs. Read them before you post, and remove anything you don't want public.
 
 Please report security issues privately, not as public issues.

@@ -377,7 +377,7 @@ export class ReviewZones {
   }
 
   private glyph(icon: Icon): void {
-    const id = `gitbolt.reviewIcon.${++this.iconSeq}`;
+    const id = `gitvolt.reviewIcon.${++this.iconSeq}`;
     const range = { startLineNumber: icon.line, startColumn: 1, endLineNumber: icon.line, endColumn: 1 };
     const widget: MonacoNs.editor.IGlyphMarginWidget = {
       getId: () => id,

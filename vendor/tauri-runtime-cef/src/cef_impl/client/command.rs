@@ -142,14 +142,14 @@ const ZOOM_COMMANDS: &[&CStr] = &[
   cef::resources::IDC_ZOOM_NORMAL,
 ];
 
-/// GitBolt patch: Chrome accelerators upstream 3.0.0-alpha.5 still leaves live that have
+/// GitVolt patch: Chrome accelerators upstream 3.0.0-alpha.5 still leaves live that have
 /// no place in an app window. Always blocked for the app's own browser (`owns()`),
 /// never for a DevTools window, and not subject to `allowed_chrome_commands`.
 ///
 /// None of these keys is reserved except the close/exit ones, so the page still sees
 /// the keydown first: F7 (next change), Ctrl+F and Esc (close the diff) keep working
 /// in the page, and only a key the page leaves unhandled is swallowed here.
-const GITBOLT_BLOCKED_COMMANDS: &[&CStr] = &[
+const GITVOLT_BLOCKED_COMMANDS: &[&CStr] = &[
   // F7: the "Turn on caret browsing?" tab-modal dialog, which leaves the window
   // dimmed for good (the modal overlay is never cleared in a hosted child view).
   cef::resources::IDC_CARET_BROWSING_TOGGLE,
@@ -177,33 +177,33 @@ const GITBOLT_BLOCKED_COMMANDS: &[&CStr] = &[
   cef::resources::IDC_EXIT,
 ];
 
-/// GitBolt patch: reload (F5, Ctrl+R, Shift+F5, Ctrl+Shift+R, Ctrl+F5) throws away
+/// GitVolt patch: reload (F5, Ctrl+R, Shift+F5, Ctrl+Shift+R, Ctrl+F5) throws away
 /// all UI state. Blocked in release builds only; it's handy in development.
-const GITBOLT_RELEASE_BLOCKED_COMMANDS: &[&CStr] = &[
+const GITVOLT_RELEASE_BLOCKED_COMMANDS: &[&CStr] = &[
   cef::resources::IDC_RELOAD,
   cef::resources::IDC_RELOAD_BYPASSING_CACHE,
   cef::resources::IDC_RELOAD_CLEARING_CACHE,
 ];
 
-/// GitBolt patch: whether this build may log keys at all. Debug builds only, so a
+/// GitVolt patch: whether this build may log keys at all. Debug builds only, so a
 /// release build never writes keystrokes anywhere, whatever the environment says.
 const fn key_log_allowed() -> bool {
   cfg!(debug_assertions)
 }
 
-/// GitBolt patch: whether the opt-in key diagnostic is on: a debug build with
-/// `GITBOLT_KEY_LOG` set.
+/// GitVolt patch: whether the opt-in key diagnostic is on: a debug build with
+/// `GITVOLT_KEY_LOG` set.
 ///
 /// When it is, `on_chrome_command` and `keyboard.rs`'s `on_pre_key_event` print every
 /// Chrome command and raw keydown the app's browser sees to stderr, so whether a key
 /// reached the page before Chrome's accelerator can be checked in the real window.
-/// Off by default; never read by `gitbolt-app` itself.
-pub(crate) fn gitbolt_key_log() -> bool {
+/// Off by default; never read by `gitvolt-app` itself.
+pub(crate) fn gitvolt_key_log() -> bool {
   static ON: OnceLock<bool> = OnceLock::new();
-  *ON.get_or_init(|| key_log_allowed() && std::env::var_os("GITBOLT_KEY_LOG").is_some())
+  *ON.get_or_init(|| key_log_allowed() && std::env::var_os("GITVOLT_KEY_LOG").is_some())
 }
 
-/// GitBolt patch: the IDC name of `command_id`, among the names this module knows.
+/// GitVolt patch: the IDC name of `command_id`, among the names this module knows.
 /// For the diagnostic only: resolves every name on each call.
 fn command_name(command_id: c_int) -> Option<&'static CStr> {
   [
@@ -214,8 +214,8 @@ fn command_name(command_id: c_int) -> Option<&'static CStr> {
     BROWSER_SURFACE_COMMANDS,
     DEVTOOLS_COMMANDS,
     ZOOM_COMMANDS,
-    GITBOLT_BLOCKED_COMMANDS,
-    GITBOLT_RELEASE_BLOCKED_COMMANDS,
+    GITVOLT_BLOCKED_COMMANDS,
+    GITVOLT_RELEASE_BLOCKED_COMMANDS,
   ]
   .iter()
   .flat_map(|names| names.iter())
@@ -223,12 +223,12 @@ fn command_name(command_id: c_int) -> Option<&'static CStr> {
   .find(|name| unsafe { cef::sys::cef_id_for_command_id_name(name.as_ptr()) } == command_id)
 }
 
-/// GitBolt patch: the IDC names GitBolt blocks in a debug (`release == false`) or a
+/// GitVolt patch: the IDC names GitVolt blocks in a debug (`release == false`) or a
 /// release build.
-fn gitbolt_blocked_names(release: bool) -> Vec<&'static CStr> {
-  let mut names = GITBOLT_BLOCKED_COMMANDS.to_vec();
+fn gitvolt_blocked_names(release: bool) -> Vec<&'static CStr> {
+  let mut names = GITVOLT_BLOCKED_COMMANDS.to_vec();
   if release {
-    names.extend_from_slice(GITBOLT_RELEASE_BLOCKED_COMMANDS);
+    names.extend_from_slice(GITVOLT_RELEASE_BLOCKED_COMMANDS);
   }
   names
 }
@@ -254,8 +254,8 @@ struct BlockedCommands {
   groups: Vec<(ChromeCommandGroup, Vec<c_int>)>,
   devtools: Vec<c_int>,
   zoom: Vec<c_int>,
-  /// GitBolt patch: [`gitbolt_blocked_names`] for this build profile.
-  gitbolt: Vec<c_int>,
+  /// GitVolt patch: [`gitvolt_blocked_names`] for this build profile.
+  gitvolt: Vec<c_int>,
 }
 
 fn blocked_commands() -> &'static BlockedCommands {
@@ -267,7 +267,7 @@ fn blocked_commands() -> &'static BlockedCommands {
       .collect(),
     devtools: command_ids(&[DEVTOOLS_COMMANDS]),
     zoom: command_ids(&[ZOOM_COMMANDS]),
-    gitbolt: command_ids(&[&gitbolt_blocked_names(!cfg!(debug_assertions))]),
+    gitvolt: command_ids(&[&gitvolt_blocked_names(!cfg!(debug_assertions))]),
   })
 }
 
@@ -316,9 +316,9 @@ wrap_with_args! {
       }
 
       let blocked = self.blocks(command_id);
-      if gitbolt_key_log() {
+      if gitvolt_key_log() {
         eprintln!(
-          "[gitbolt-keys] chrome command {command_id} ({}) {}",
+          "[gitvolt-keys] chrome command {command_id} ({}) {}",
           command_name(command_id).map_or("?".into(), |n| n.to_string_lossy()),
           if blocked { "blocked" } else { "runs" },
         );
@@ -416,7 +416,7 @@ impl TauriCefCommandHandler {
       .any(|(_, ids)| ids.contains(&command_id))
       || (!self.devtools_enabled && commands.devtools.contains(&command_id))
       || (!self.zoom_hotkeys_enabled && commands.zoom.contains(&command_id))
-      || commands.gitbolt.contains(&command_id)
+      || commands.gitvolt.contains(&command_id)
   }
 }
 
@@ -425,9 +425,9 @@ mod tests {
   use super::*;
 
   #[test]
-  fn gitbolt_blocks_caret_browsing_and_the_other_live_chrome_accelerators() {
+  fn gitvolt_blocks_caret_browsing_and_the_other_live_chrome_accelerators() {
     for release in [false, true] {
-      let names = gitbolt_blocked_names(release);
+      let names = gitvolt_blocked_names(release);
       for name in [
         cef::resources::IDC_CARET_BROWSING_TOGGLE,
         cef::resources::IDC_FOCUS_NEXT_PANE,
@@ -448,9 +448,9 @@ mod tests {
   }
 
   #[test]
-  fn gitbolt_blocks_reload_in_release_builds_only() {
-    let debug = gitbolt_blocked_names(false);
-    let release = gitbolt_blocked_names(true);
+  fn gitvolt_blocks_reload_in_release_builds_only() {
+    let debug = gitvolt_blocked_names(false);
+    let release = gitvolt_blocked_names(true);
     for name in [
       cef::resources::IDC_RELOAD,
       cef::resources::IDC_RELOAD_BYPASSING_CACHE,
@@ -462,12 +462,12 @@ mod tests {
   }
 
   #[test]
-  fn every_gitbolt_name_resolves_to_a_command_id_in_this_cef_build() {
+  fn every_gitvolt_name_resolves_to_a_command_id_in_this_cef_build() {
     // The lookup works offline, without CEF initialized; an unknown name is -1.
     let _lookup = super::super::context_menu::NAME_LOOKUP.lock().unwrap_or_else(|e| e.into_inner());
     super::super::context_menu::load_cef_for_tests();
     assert_eq!(unsafe { cef::sys::cef_id_for_command_id_name(c"IDC_NOT_A_COMMAND".as_ptr()) }, -1);
-    for name in gitbolt_blocked_names(true) {
+    for name in gitvolt_blocked_names(true) {
       let id = unsafe { cef::sys::cef_id_for_command_id_name(name.as_ptr()) };
       assert_ne!(id, -1, "{name:?} is unknown to this CEF build");
     }
@@ -479,14 +479,14 @@ mod tests {
   }
 
   #[test]
-  fn gitbolt_never_blocks_clipboard_or_fullscreen() {
+  fn gitvolt_never_blocks_clipboard_or_fullscreen() {
     for name in [
       cef::resources::IDC_COPY,
       cef::resources::IDC_CUT,
       cef::resources::IDC_PASTE,
       cef::resources::IDC_FULLSCREEN,
     ] {
-      assert!(!gitbolt_blocked_names(true).contains(&name), "{name:?} blocked");
+      assert!(!gitvolt_blocked_names(true).contains(&name), "{name:?} blocked");
     }
   }
 }

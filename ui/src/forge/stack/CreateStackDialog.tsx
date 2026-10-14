@@ -79,7 +79,7 @@ function Form({ req }: { req: Req }) {
         <h2 id="stack-create-title">Create stack {noun}s</h2>
         {view && (
           <p className="stack-create-intro">
-            {view.mode === 'native' ? `Each ${noun} targets the branch below it. GitLab shows them as a stack.` : `Each ${noun} targets the branch below it. GitBolt keeps a Stack table in every description up to date.`}
+            {view.mode === 'native' ? `Each ${noun} targets the branch below it. GitLab shows them as a stack.` : `Each ${noun} targets the branch below it. GitVolt keeps a Stack table in every description up to date.`}
           </p>
         )}
         {!view && !error && <p className="stack-create-intro">Loading the stack's {noun}s…</p>}

@@ -1,6 +1,6 @@
 # cargo-about's configuration for the Rust notices (scripts/licenses.sh, `just licenses`).
 #
-# `accepted` is GitBolt's license allow-list, for the Rust crates and (read from this file by
+# `accepted` is GitVolt's license allow-list, for the Rust crates and (read from this file by
 # ui/build/licenses.ts) the npm packages in the UI bundle alike. A dependency under any other
 # license fails the build, so a copyleft (GPL, LGPL, AGPL) or unknown license never ships
 # unnoticed: review it, then add it here or drop the dependency. For a choice ("MIT OR
@@ -27,7 +27,7 @@ accepted = [
   "Unlicense",
   "CDLA-Permissive-2.0",
 ]
-# The app's graph only: what gitbolt-app links on Linux, not dev-only, build-time or harness crates.
+# The app's graph only: what gitvolt-app links on Linux, not dev-only, build-time or harness crates.
 targets = ["x86_64-unknown-linux-gnu"]
 ignore-build-dependencies = true
 ignore-dev-dependencies = true

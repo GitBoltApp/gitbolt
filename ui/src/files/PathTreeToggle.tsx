@@ -2,7 +2,7 @@ import { List, ListTree } from 'lucide-react';
 import { HoverTooltip } from '../ui/HoverTooltip';
 import { useFileListPrefs } from './fileListPrefs';
 
-/** Path/Tree, the file lists' one persisted view mode (`gitbolt.fileList.v1`): in a list's own
+/** Path/Tree, the file lists' one persisted view mode (`gitvolt.fileList.v1`): in a list's own
  * toolbar, or (WIP, K36) once for both of its lists. */
 export function PathTreeToggle() {
   const mode = useFileListPrefs((s) => s.mode);

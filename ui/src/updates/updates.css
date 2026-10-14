@@ -24,7 +24,7 @@
 }
 @media (prefers-reduced-motion: reduce) { .sb-update { animation: none; } .sb-update-bar > span { transition: none; } }
 
-/* GitBolt's own version, right of git's. */
+/* GitVolt's own version, right of git's. */
 .sb-version { cursor: default; }
 
 /* The update dialog. */
@@ -50,3 +50,13 @@
 .update-dialog .modal-actions { flex-wrap: wrap; }
 .update-dialog .modal-actions .update-link { margin-right: auto; }
 .update-about { display: flex; flex-direction: column; gap: 6px; }
+
+/* The one-time "GitBolt.app is still installed" notice: bottom left, over the status bar's edge. */
+.legacy-notice {
+  position: fixed; left: 12px; bottom: 32px; z-index: 800; box-sizing: border-box; max-width: min(420px, calc(100vw - 24px));
+  padding: 10px 12px; display: flex; flex-direction: column; gap: 8px;
+  background: var(--panel-bg1); border: 1px solid var(--section-border); border-radius: 8px; box-shadow: 0 8px 24px var(--shadow-popup);
+  color: var(--text-normal); font-size: 12.5px; line-height: 1.45;
+}
+.legacy-notice p { margin: 0; }
+.legacy-notice .modal-actions { justify-content: flex-end; gap: 6px; }

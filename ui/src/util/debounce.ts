@@ -19,7 +19,7 @@ export function debounce<A extends unknown[]>(fn: (...args: A) => unknown, ms: n
   const d = ((...args: A) => {
     pending = args;
     clearTimeout(timer);
-    timer = setTimeout(() => { run().catch((e) => console.warn('[gitbolt] debounced call failed', e)); }, ms);
+    timer = setTimeout(() => { run().catch((e) => console.warn('[gitvolt] debounced call failed', e)); }, ms);
   }) as Debounced<A>;
   d.flush = run;
   d.cancel = () => { clearTimeout(timer); timer = undefined; pending = undefined; };

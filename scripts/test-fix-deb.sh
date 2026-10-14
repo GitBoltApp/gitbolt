@@ -7,12 +7,12 @@ command -v dpkg-shlibdeps >/dev/null || { echo "test-fix-deb: skipped (dpkg-dev 
 here=$(cd "$(dirname "$0")" && pwd)
 work=$(mktemp -d); trap 'rm -rf "$work"' EXIT
 pkg="$work/pkg"
-mkdir -p "$pkg/DEBIAN" "$pkg/usr/share/GitBolt"
-cp /usr/bin/true "$pkg/usr/share/GitBolt/gitbolt"
-printf '#!/bin/sh\n' > "$pkg/usr/share/GitBolt/chrome-sandbox"
-chmod 4755 "$pkg/usr/share/GitBolt/chrome-sandbox"
+mkdir -p "$pkg/DEBIAN" "$pkg/usr/share/GitVolt"
+cp /usr/bin/true "$pkg/usr/share/GitVolt/gitvolt"
+printf '#!/bin/sh\n' > "$pkg/usr/share/GitVolt/chrome-sandbox"
+chmod 4755 "$pkg/usr/share/GitVolt/chrome-sandbox"
 cat > "$pkg/DEBIAN/control" <<'EOT'
-Package: gitbolt
+Package: git-volt
 Version: 0.1.0
 Architecture: amd64
 Maintainer: fix-deb self-test <test@example.invalid>
@@ -35,6 +35,7 @@ eq() { [ "$2" = "$3" ] || fail "$1: expected '$3', got '$2'"; }
 eq version-plain "$(dpkg-deb -f "$work/t.deb" Version)" 0.1.0
 eq license "$(dpkg-deb -f "$work/t.deb" License)" MIT
 eq description "$(dpkg-deb -f "$work/t.deb" Description)" 'fix-deb self-test'
+eq package "$(dpkg-deb -f "$work/t.deb" Package)" gitvolt
 # A SemVer pre-release becomes a Debian one: '~' sorts before the final release, '-' wouldn't.
 for v in '0.1.0-alpha.1:0.1.0~alpha.1' '0.1.0-rc.2+202610051325.ab4dbf9e:0.1.0~rc.2+202610051325.ab4dbf9e' \
          '0.1.0+202610051325.ab4dbf9e:0.1.0+202610051325.ab4dbf9e'; do

@@ -10,7 +10,7 @@ const offs = [
   registerAppSlot('overlay', 'updates.dialog', UpdateDialog),
   registerActions([
     {
-      id: 'help.checkUpdates', label: 'Check for updates', group: 'Help', icon: RefreshCw, tooltip: "Ask GitHub for a newer GitBolt release (GitBolt's own; nothing about your repositories)",
+      id: 'help.checkUpdates', label: 'Check for updates', group: 'Help', icon: RefreshCw, tooltip: "Ask GitHub for a newer GitVolt release (GitVolt's own; nothing about your repositories)",
       run: () => {
         useAbout.getState().setOpen(true);
         void useUpdates.getState().check();

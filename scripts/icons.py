@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Renders the app's icon set (crates/gitbolt-app/icons) from its three sources.
+"""Renders the app's icon set (crates/gitvolt-app/icons) from its three sources.
 
 `source.svg` (thin lanes) makes every size through Tauri's own generator (`cargo tauri icon`).
 Every output of 64 px or less is then replaced by a render of `source-mid.svg` (the same mark
@@ -18,7 +18,7 @@ from pathlib import Path
 
 from PIL import Image
 
-ICONS = Path(__file__).resolve().parent.parent / "crates" / "gitbolt-app" / "icons"
+ICONS = Path(__file__).resolve().parent.parent / "crates" / "gitvolt-app" / "icons"
 SMALL = (16, 24)
 MID_MAX = 64
 

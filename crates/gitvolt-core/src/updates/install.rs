@@ -1,0 +1,571 @@
+//! How this GitVolt was installed, and the commands that install an update over it.
+//!
+//! Each package says how it was installed in a one-word file beside the binary, `install-kind`,
+//! read at run time: one build goes into every package of a platform, so the binary can't know.
+//! - Linux: the `.deb` ships `deb` (crates/gitvolt-app/tauri.conf.json), and
+//!   `scripts/package-arch.sh` and `scripts/package-rpm.sh` rewrite it to `arch` in the Arch
+//!   package and `rpm` in the RPM.
+//! - Windows: the NSIS installer writes `nsis` beside `GitVolt.exe` (packaging/windows/gitvolt.nsi),
+//!   and the MSI installs a file saying `msi` (gitvolt.wxs).
+//! - macOS: `GitVolt.app` carries `dmg` in `Contents/Resources` (tauri.macos.conf.json), the
+//!   bundle's place for its files; the app looks there instead of beside the binary.
+//!
+//! No file: a build from source, which only links to the release page.
+//!
+//! The commands are built here and run by an `UpdateRunner` (the app's runs them; tests and the
+//! harness only record them).
+
+use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
+use ts_rs::TS;
+
+/// The file beside the binary that names the install kind.
+pub const INSTALL_KIND_FILE: &str = "install-kind";
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum InstallKind {
+    Deb,
+    Arch,
+    /// The RPM (Fedora, RHEL, openSUSE): dnf, else zypper, else plain rpm installs the update.
+    Rpm,
+    Nsis,
+    Msi,
+    /// GitVolt.app from the `.dmg`: an update replaces the bundle in place.
+    Dmg,
+    /// A build from source: no package to update, only the release page.
+    #[serde(rename = "none")]
+    Unpackaged,
+}
+
+impl InstallKind {
+    pub fn parse(s: &str) -> Option<Self> {
+        match s.trim() {
+            "deb" => Some(Self::Deb),
+            "arch" => Some(Self::Arch),
+            "rpm" => Some(Self::Rpm),
+            "nsis" => Some(Self::Nsis),
+            "msi" => Some(Self::Msi),
+            "dmg" => Some(Self::Dmg),
+            "none" => Some(Self::Unpackaged),
+            _ => None,
+        }
+    }
+
+    /// Windows installers replace the running app's files, so GitVolt quits once one starts.
+    pub fn quits_to_install(self) -> bool {
+        matches!(self, Self::Nsis | Self::Msi)
+    }
+}
+
+/// The install kind: `install-kind` in `dir` (the running binary's folder, or a macOS bundle's
+/// `Contents/Resources`), else a build from source. An unknown word counts as none.
+pub fn detect_install_kind(dir: Option<&Path>) -> InstallKind {
+    let file = dir.and_then(|d| std::fs::read_to_string(d.join(INSTALL_KIND_FILE)).ok());
+    file.as_deref().and_then(InstallKind::parse).unwrap_or(InstallKind::Unpackaged)
+}
+
+/// How an Arch install updates (the dialog asks once, and remembers).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "lowercase")]
+#[ts(export)]
+pub enum ArchMethod {
+    /// `pkexec pacman -U` on the downloaded package.
+    Pacman,
+    /// The user's AUR helper: GitVolt only shows its command.
+    Aur,
+}
+
+/// What installs an RPM here: the first of dnf (Fedora, RHEL) and zypper (openSUSE) that is
+/// installed, else rpm itself, which can't fetch missing dependencies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RpmTool {
+    Dnf,
+    Zypper,
+    Rpm,
+}
+
+impl RpmTool {
+    /// The tool on this system, looked up on PATH and in the system's bin folders (pkexec runs
+    /// it with its own PATH).
+    pub fn detect() -> Self {
+        let mut dirs: Vec<PathBuf> = std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
+        dirs.extend(["/usr/bin", "/usr/sbin", "/bin", "/sbin"].map(PathBuf::from));
+        Self::pick(|name| dirs.iter().any(|d| d.join(name).is_file()))
+    }
+
+    fn pick(installed: impl Fn(&str) -> bool) -> Self {
+        if installed("dnf") {
+            Self::Dnf
+        } else if installed("zypper") {
+            Self::Zypper
+        } else {
+            Self::Rpm
+        }
+    }
+
+    /// The install as root: `dnf install -y <file>`; `zypper --non-interactive install
+    /// --allow-unsigned-rpm <file>` (zypper refuses an unsigned package unless told, and GitVolt
+    /// has already checked it against `SHA256SUMS`); `rpm -U <file>`.
+    fn install_args(self, file: &str) -> Vec<&str> {
+        match self {
+            Self::Dnf => vec!["dnf", "install", "-y", file],
+            Self::Zypper => vec!["zypper", "--non-interactive", "install", "--allow-unsigned-rpm", file],
+            Self::Rpm => vec!["rpm", "-U", file],
+        }
+    }
+
+    /// The same for the user to run with sudo (it asks before it installs); `file` is quoted.
+    fn manual(self, file: &str) -> String {
+        match self {
+            Self::Dnf => format!("sudo dnf install {file}"),
+            Self::Zypper => format!("sudo zypper install --allow-unsigned-rpm {file}"),
+            Self::Rpm => format!("sudo rpm -U {file}"),
+        }
+    }
+}
+
+/// A program and its arguments, never a shell line; `cwd` when it needs one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct InstallCommand {
+    pub program: String,
+    pub args: Vec<String>,
+    pub cwd: Option<PathBuf>,
+}
+
+impl InstallCommand {
+    fn new(program: &str, args: &[&str]) -> Self {
+        Self { program: program.into(), args: args.iter().map(|a| a.to_string()).collect(), cwd: None }
+    }
+
+    /// The command as a shell line, for the log and to copy.
+    pub fn display(&self) -> String {
+        std::iter::once(self.program.as_str()).chain(self.args.iter().map(String::as_str)).map(quote).collect::<Vec<_>>().join(" ")
+    }
+}
+
+/// `s` quoted for a POSIX shell when it needs it.
+pub fn quote(s: &str) -> String {
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_./=+:@%,".contains(&b)) {
+        s.to_string()
+    } else {
+        format!("'{}'", s.replace('\'', r"'\''"))
+    }
+}
+
+fn text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
+}
+
+/// What installs `file` (a verified download) for `kind`:
+/// - deb: `pkexec apt install -y <absolute file>` (polkit asks for the password). Absolute: pkexec
+///   doesn't keep the working directory, and apt only takes a path that starts with `/` or `./`
+///   as a file to install;
+/// - arch: `pkexec pacman -U --noconfirm <file>`;
+/// - rpm: [`rpm_install_command`] with this system's [`RpmTool`];
+/// - nsis: the installer itself, with its normal UI; msi: `msiexec /i <file>` (UAC asks);
+/// - dmg: [`DMG_INSTALL`] over `bundle`, the running app's `.app` (none outside one);
+/// - none for a build from source.
+pub fn install_command(kind: InstallKind, file: &Path, bundle: Option<&Path>) -> Option<InstallCommand> {
+    file.file_name()?;
+    match kind {
+        InstallKind::Deb if file.is_absolute() => Some(InstallCommand::new("pkexec", &["apt", "install", "-y", &text(file)])),
+        InstallKind::Deb => None,
+        InstallKind::Arch => Some(InstallCommand::new("pkexec", &["pacman", "-U", "--noconfirm", &text(file)])),
+        InstallKind::Rpm => rpm_install_command(file, RpmTool::detect()),
+        InstallKind::Nsis => Some(InstallCommand::new(&text(file), &[])),
+        InstallKind::Msi => Some(InstallCommand::new("msiexec", &["/i", &text(file)])),
+        InstallKind::Dmg => Some(InstallCommand::new("/bin/sh", &["-c", DMG_INSTALL, "gitvolt-update", &text(file), &text(bundle?)])),
+        InstallKind::Unpackaged => None,
+    }
+}
+
+/// `pkexec <tool's install> <absolute file>`: absolute, since pkexec doesn't keep the working
+/// directory, and dnf and zypper take only a path (not a bare name) as a file to install.
+pub fn rpm_install_command(file: &Path, tool: RpmTool) -> Option<InstallCommand> {
+    if !file.is_absolute() || file.file_name().is_none() {
+        return None;
+    }
+    let file = text(file);
+    Some(InstallCommand::new("pkexec", &tool.install_args(&file)))
+}
+
+/// A `.dmg` update, as a script of its two arguments (never spliced into it): the verified image
+/// and the running app's bundle. It mounts the image read-only, unbrowsed (no Finder window, no
+/// volume on the desktop), copies its `GitVolt.app` with `ditto` (signature and attributes kept)
+/// beside the bundle under a hidden name, swaps the two with renames in the same folder, and
+/// detaches. The running process keeps its open files; the new bundle takes effect on Restart.
+/// GitVolt's own downloads carry no quarantine flag (it isn't sandboxed and doesn't ask for
+/// `LSFileQuarantineEnabled`), so the copy doesn't either.
+pub const DMG_INSTALL: &str = r#"set -eu
+dmg=$1 app=${2%/}
+dir=${app%/*} name=${app##*/}
+new="$dir/.$name.new.$$" old="$dir/.$name.old.$$"
+mnt=$(mktemp -d "${TMPDIR:-/tmp}/gitvolt-update.XXXXXX")
+finish() { rm -rf "$new"; hdiutil detach -quiet "$mnt" 2>/dev/null || hdiutil detach -quiet -force "$mnt" 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true; }
+trap finish EXIT
+hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
+[ -d "$mnt/GitVolt.app" ] || { echo "The disk image has no GitVolt.app." >&2; exit 1; }
+ditto "$mnt/GitVolt.app" "$new"
+mv "$app" "$old"
+mv "$new" "$app" || { mv "$old" "$app"; exit 1; }
+rm -rf "$old""#;
+
+/// The `.app` bundle `exe` runs from (`<bundle>/Contents/MacOS/<exe>`), if it is in one.
+pub fn app_bundle(exe: &Path) -> Option<PathBuf> {
+    let contents = exe.parent().filter(|d| d.file_name().is_some_and(|n| n == "MacOS"))?.parent()?;
+    let bundle = contents.parent().filter(|_| contents.file_name().is_some_and(|n| n == "Contents"))?;
+    bundle.extension().is_some_and(|e| e == "app").then(|| bundle.to_path_buf())
+}
+
+/// GitVolt's bundle; the `.dmg` holds it at its top level.
+pub const BUNDLE_NAME: &str = "GitVolt.app";
+
+/// The `GitBolt.app` left beside the running `GitVolt.app` (a 0.6.1 user quit instead of pressing
+/// Restart, which would have removed it), when it's safe to offer to remove it: a real folder (no
+/// symlink) of exactly that name, whose `Info.plist` names GitBolt's identifier, in a folder this
+/// user can write to. Anything else is left alone.
+pub fn leftover_legacy_bundle(exe: &Path) -> Option<PathBuf> {
+    let bundle = app_bundle(exe).filter(|b| b.file_name().is_some_and(|n| n == BUNDLE_NAME))?;
+    let old = bundle.with_file_name(crate::legacy::BUNDLE_NAME);
+    let real = |p: &Path, dir: bool| std::fs::symlink_metadata(p).is_ok_and(|m| if dir { m.is_dir() } else { m.is_file() });
+    let plist = old.join("Contents/Info.plist");
+    let named = real(&old, true) && real(&old.join("Contents"), true) && real(&plist, false) && std::fs::read(&plist).is_ok_and(|b| bundle_identifier(&b).as_deref() == Some(crate::legacy::IDENTIFIER));
+    (named && bundle_replaceable(&old)).then_some(old)
+}
+
+/// `CFBundleIdentifier` of an `Info.plist`, XML or binary.
+fn bundle_identifier(plist: &[u8]) -> Option<String> {
+    let value = plist::Value::from_reader(std::io::Cursor::new(plist)).ok()?;
+    value.as_dictionary()?.get("CFBundleIdentifier")?.as_string().map(str::to_string)
+}
+
+/// Whether the update can replace `bundle`: the bundle and its folder are writable by this user.
+/// No (`/Applications` without admin rights, a translocated or mounted copy): the manual steps.
+#[cfg(unix)]
+pub fn bundle_replaceable(bundle: &Path) -> bool {
+    use nix::unistd::{access, AccessFlags};
+    let writable = |p: &Path| access(p, AccessFlags::W_OK).is_ok();
+    bundle.is_dir() && writable(bundle) && bundle.parent().is_some_and(writable)
+}
+
+#[cfg(not(unix))]
+pub fn bundle_replaceable(_bundle: &Path) -> bool {
+    false
+}
+
+/// The command to run by hand when the privileged one couldn't (no `pkexec`, the password
+/// prompt was cancelled): `sudo apt install <file>`, `sudo pacman -U <file>`, the RPM's with this
+/// system's [`RpmTool`] (`sudo dnf install <file>`); for a `.dmg`,
+/// `open <file>`, which shows the image's GitVolt and an Applications link to drag it to.
+/// Absolute paths, so it works from any folder.
+pub fn manual_command(kind: InstallKind, file: &Path) -> Option<String> {
+    let f = quote(&text(file));
+    match kind {
+        InstallKind::Deb => Some(format!("sudo apt install {f}")),
+        InstallKind::Arch => Some(format!("sudo pacman -U {f}")),
+        InstallKind::Rpm => Some(RpmTool::detect().manual(&f)),
+        InstallKind::Dmg => Some(format!("open {f}")),
+        _ => None,
+    }
+}
+
+/// Starts `exe` again once process `pid` (this one) has exited: the single-instance guard is
+/// free by then, so the new version starts on its own instead of handing over to the old one.
+/// `exe` and `pid` are arguments to the script, never part of it.
+pub fn relaunch_command(exe: &Path, pid: u32) -> InstallCommand {
+    InstallCommand::new("/bin/sh", &["-c", r#"while kill -0 "$1" 2>/dev/null; do sleep 0.2; done; exec "$2""#, "gitvolt-relaunch", &pid.to_string(), &text(exe)])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `<dir>/<name>/Contents/Info.plist` holding `id`, and `<dir>/GitVolt.app/Contents/MacOS/GitVolt`.
+    fn bundles(dir: &Path, legacy: &str, id: &str) -> PathBuf {
+        let old = dir.join(legacy);
+        std::fs::create_dir_all(old.join("Contents")).unwrap();
+        std::fs::write(old.join("Contents/Info.plist"), format!("<?xml version=\"1.0\" encoding=\"UTF-8\"?><plist version=\"1.0\"><dict><key>CFBundleIdentifier</key><string>{id}</string></dict></plist>")).unwrap();
+        let exe = dir.join("GitVolt.app/Contents/MacOS/GitVolt");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        exe
+    }
+
+    #[test]
+    fn a_gitbolt_app_beside_gitvolt_app_is_offered_for_removal_only_when_it_is_gitbolts() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = bundles(dir.path(), "GitBolt.app", "dev.gitbolt.desktop");
+        assert_eq!(leftover_legacy_bundle(&exe), Some(dir.path().join("GitBolt.app")));
+        // A binary plist holds the identifier as plain bytes too.
+        let mut dict = plist::Dictionary::new();
+        dict.insert("CFBundleIdentifier".into(), "dev.gitbolt.desktop".into());
+        plist::Value::Dictionary(dict.clone()).to_file_binary(dir.path().join("GitBolt.app/Contents/Info.plist")).unwrap();
+        assert!(leftover_legacy_bundle(&exe).is_some());
+        // Only the identifier's own key counts, and exactly.
+        dict.insert("CFBundleIdentifier".into(), "dev.gitbolt.desktop.helper".into());
+        dict.insert("CFBundleName".into(), "dev.gitbolt.desktop".into());
+        plist::Value::Dictionary(dict).to_file_xml(dir.path().join("GitBolt.app/Contents/Info.plist")).unwrap();
+        assert_eq!(leftover_legacy_bundle(&exe), None);
+        // Another app's bundle of that name.
+        std::fs::write(dir.path().join("GitBolt.app/Contents/Info.plist"), "<string>com.example.other</string>").unwrap();
+        assert_eq!(leftover_legacy_bundle(&exe), None);
+        // Not running from GitVolt.app (a copy the user renamed, or a build elsewhere).
+        let other = dir.path().join("My GitVolt.app/Contents/MacOS/GitVolt");
+        std::fs::create_dir_all(other.parent().unwrap()).unwrap();
+        assert_eq!(leftover_legacy_bundle(&other), None);
+        assert_eq!(leftover_legacy_bundle(Path::new("/usr/share/GitVolt/gitvolt")), None);
+    }
+
+    #[test]
+    fn a_renamed_or_missing_or_odd_gitbolt_bundle_is_left_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = bundles(dir.path(), "My GitBolt.app", "dev.gitbolt.desktop");
+        assert_eq!(leftover_legacy_bundle(&exe), None, "a name the user chose");
+        std::fs::remove_dir_all(dir.path().join("My GitBolt.app")).unwrap();
+        assert_eq!(leftover_legacy_bundle(&exe), None, "nothing beside it");
+        // A file, a symlink to a real GitBolt bundle, and a bundle with a symlinked plist.
+        std::fs::write(dir.path().join("GitBolt.app"), "x").unwrap();
+        assert_eq!(leftover_legacy_bundle(&exe), None);
+        std::fs::remove_file(dir.path().join("GitBolt.app")).unwrap();
+        #[cfg(unix)]
+        {
+            let elsewhere = tempfile::tempdir().unwrap();
+            bundles(elsewhere.path(), "GitBolt.app", "dev.gitbolt.desktop");
+            std::os::unix::fs::symlink(elsewhere.path().join("GitBolt.app"), dir.path().join("GitBolt.app")).unwrap();
+            assert_eq!(leftover_legacy_bundle(&exe), None, "a symlinked bundle");
+            std::fs::remove_file(dir.path().join("GitBolt.app")).unwrap();
+            std::fs::create_dir_all(dir.path().join("GitBolt.app/Contents")).unwrap();
+            std::os::unix::fs::symlink(elsewhere.path().join("GitBolt.app/Contents/Info.plist"), dir.path().join("GitBolt.app/Contents/Info.plist")).unwrap();
+            assert_eq!(leftover_legacy_bundle(&exe), None, "a symlinked plist");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_read_only_folder_cannot_have_its_gitbolt_bundle_removed() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let exe = bundles(dir.path(), "GitBolt.app", "dev.gitbolt.desktop");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o555)).unwrap();
+        let writable = nix::unistd::access(dir.path(), nix::unistd::AccessFlags::W_OK).is_ok();
+        let got = leftover_legacy_bundle(&exe);
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o755)).unwrap();
+        // As root the folder stays writable: nothing to prove then.
+        if !writable {
+            assert_eq!(got, None);
+        }
+    }
+
+    #[test]
+    fn reads_the_kind_from_the_file_beside_the_binary() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(detect_install_kind(Some(dir.path())), InstallKind::Unpackaged, "no file: a build from source");
+        assert_eq!(detect_install_kind(None), InstallKind::Unpackaged);
+        // What each package writes: the .deb's and Arch's with a newline, NSIS's with CRLF.
+        for (text, kind) in [("deb\n", InstallKind::Deb), ("arch\n", InstallKind::Arch), ("rpm\n", InstallKind::Rpm), ("nsis\r\n", InstallKind::Nsis), ("msi\n", InstallKind::Msi), ("msi", InstallKind::Msi), ("dmg\n", InstallKind::Dmg), ("snap", InstallKind::Unpackaged), ("", InstallKind::Unpackaged)] {
+            std::fs::write(dir.path().join(INSTALL_KIND_FILE), text).unwrap();
+            assert_eq!(detect_install_kind(Some(dir.path())), kind, "{text:?}");
+        }
+        // The files the packaging ships, as they are in the repository.
+        let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+        for (file, kind) in [("crates/gitvolt-app/packaging/install-kind-deb", InstallKind::Deb), ("packaging/windows/install-kind-msi", InstallKind::Msi), ("crates/gitvolt-app/packaging/install-kind-dmg", InstallKind::Dmg)] {
+            let text = std::fs::read_to_string(repo.join(file)).unwrap();
+            assert_eq!(InstallKind::parse(&text), Some(kind), "{file}");
+        }
+        assert_eq!(serde_json::to_value(InstallKind::Unpackaged).unwrap(), "none");
+    }
+
+    #[test]
+    fn builds_each_kinds_install_command() {
+        let deb = Path::new("/home/u/.cache/gitvolt/updates/GitVolt_0.3.0_amd64.deb");
+        let c = install_command(InstallKind::Deb, deb, None).unwrap();
+        assert_eq!(c.display(), "pkexec apt install -y /home/u/.cache/gitvolt/updates/GitVolt_0.3.0_amd64.deb", "absolute: pkexec doesn't keep the working directory");
+        assert_eq!(c.cwd, None);
+        assert!(install_command(InstallKind::Deb, Path::new("GitVolt_0.3.0_amd64.deb"), None).is_none(), "apt would read a bare name as a package name");
+        assert_eq!(manual_command(InstallKind::Deb, deb).unwrap(), "sudo apt install /home/u/.cache/gitvolt/updates/GitVolt_0.3.0_amd64.deb");
+
+        let pkg = Path::new("/home/u/.cache/gitvolt/updates/GitVolt-0.3.0-1-x86_64.pkg.tar.zst");
+        let c = install_command(InstallKind::Arch, pkg, None).unwrap();
+        assert_eq!((c.program.as_str(), c.args.clone()), ("pkexec", vec!["pacman".to_string(), "-U".into(), "--noconfirm".into(), pkg.display().to_string()]));
+        assert_eq!(manual_command(InstallKind::Arch, pkg).unwrap(), "sudo pacman -U /home/u/.cache/gitvolt/updates/GitVolt-0.3.0-1-x86_64.pkg.tar.zst");
+
+        let exe = Path::new(r"C:\Users\u\AppData\Local\gitvolt\updates\GitVolt_0.3.0_x64-setup.exe");
+        let c = install_command(InstallKind::Nsis, exe, None).unwrap();
+        assert_eq!((c.program.as_str(), c.args.len()), (exe.to_str().unwrap(), 0));
+        let msi = Path::new(r"C:\Users\u\AppData\Local\gitvolt\updates\GitVolt_0.3.0_x64.msi");
+        let c = install_command(InstallKind::Msi, msi, None).unwrap();
+        assert_eq!((c.program.as_str(), c.args.clone()), ("msiexec", vec!["/i".to_string(), msi.to_str().unwrap().into()]));
+        assert_eq!(manual_command(InstallKind::Msi, msi), None);
+        assert_eq!(install_command(InstallKind::Unpackaged, deb, None), None);
+
+        let dmg = Path::new("/Users/u/Library/Caches/GitVolt/updates/GitVolt_0.3.0_aarch64.dmg");
+        let app = Path::new("/Applications/GitVolt.app");
+        let c = install_command(InstallKind::Dmg, dmg, Some(app)).unwrap();
+        assert_eq!((c.program.as_str(), c.args[1].as_str()), ("/bin/sh", DMG_INSTALL));
+        assert_eq!(c.args[2..], ["gitvolt-update".to_string(), dmg.display().to_string(), "/Applications/GitVolt.app".into()], "the paths are arguments, never part of the script");
+        assert_eq!(install_command(InstallKind::Dmg, dmg, None), None, "not running from a bundle");
+        assert_eq!(manual_command(InstallKind::Dmg, dmg).unwrap(), "open /Users/u/Library/Caches/GitVolt/updates/GitVolt_0.3.0_aarch64.dmg");
+    }
+
+    #[test]
+    fn an_rpm_installs_with_dnf_else_zypper_else_rpm() {
+        let rpm = Path::new("/home/u/.cache/gitvolt/updates/GitVolt-0.3.0-1.x86_64.rpm");
+        let f = rpm.display().to_string();
+        assert_eq!(RpmTool::pick(|t| t == "dnf" || t == "zypper"), RpmTool::Dnf);
+        assert_eq!(RpmTool::pick(|t| t == "zypper"), RpmTool::Zypper);
+        assert_eq!(RpmTool::pick(|_| false), RpmTool::Rpm);
+        for (tool, args, manual) in [
+            (RpmTool::Dnf, vec!["dnf", "install", "-y", &f], format!("sudo dnf install {f}")),
+            (RpmTool::Zypper, vec!["zypper", "--non-interactive", "install", "--allow-unsigned-rpm", &f], format!("sudo zypper install --allow-unsigned-rpm {f}")),
+            (RpmTool::Rpm, vec!["rpm", "-U", &f], format!("sudo rpm -U {f}")),
+        ] {
+            let c = rpm_install_command(rpm, tool).unwrap();
+            assert_eq!((c.program.as_str(), c.args.clone()), ("pkexec", args.iter().map(|a| a.to_string()).collect()), "{tool:?}: an argument list, the path one argument");
+            assert_eq!(c.cwd, None);
+            assert_eq!(tool.manual(&quote(&f)), manual);
+        }
+        assert!(rpm_install_command(Path::new("GitVolt-0.3.0-1.x86_64.rpm"), RpmTool::Dnf).is_none(), "pkexec doesn't keep the working directory");
+        // install_command and manual_command take this system's tool.
+        let tool = RpmTool::detect();
+        assert_eq!(install_command(InstallKind::Rpm, rpm, None), rpm_install_command(rpm, tool));
+        assert_eq!(manual_command(InstallKind::Rpm, rpm), Some(tool.manual(&f)));
+        let spaced = Path::new("/home/o'neil/my cache/GitVolt-0.3.0-1.x86_64.rpm");
+        assert_eq!(RpmTool::Dnf.manual(&quote(&spaced.display().to_string())), r"sudo dnf install '/home/o'\''neil/my cache/GitVolt-0.3.0-1.x86_64.rpm'");
+        assert_eq!(rpm_install_command(spaced, RpmTool::Dnf).unwrap().args[3], spaced.display().to_string(), "unquoted: no shell");
+    }
+
+    #[test]
+    fn finds_the_bundle_the_binary_runs_from() {
+        assert_eq!(app_bundle(Path::new("/Applications/GitVolt.app/Contents/MacOS/GitVolt")), Some(PathBuf::from("/Applications/GitVolt.app")));
+        assert_eq!(app_bundle(Path::new("/Users/u/Apps/My GitVolt.app/Contents/MacOS/GitVolt")), Some(PathBuf::from("/Users/u/Apps/My GitVolt.app")));
+        for not in ["/usr/share/GitVolt/gitvolt", "/x/target/debug/GitVolt", "/x/GitVolt/Contents/MacOS/GitVolt", "/x/GitVolt.app/Contents/Frameworks/GitVolt"] {
+            assert_eq!(app_bundle(Path::new(not)), None, "{not}");
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_bundle_is_replaceable_only_where_this_user_can_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let app = dir.path().join("GitVolt.app");
+        assert!(!bundle_replaceable(&app), "no bundle");
+        std::fs::create_dir(&app).unwrap();
+        assert!(bundle_replaceable(&app));
+        crate::platform::fs::set_mode(dir.path(), 0o555).unwrap();
+        let root = nix::unistd::geteuid().is_root();
+        assert_eq!(bundle_replaceable(&app), root, "a read-only folder (root writes anyway)");
+        crate::platform::fs::set_mode(dir.path(), 0o755).unwrap();
+    }
+
+    /// The real install on a real disk image: the old bundle is replaced by the image's, nothing is
+    /// left beside it or mounted, and the copy carries no quarantine flag.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_dmg_update_replaces_the_bundle_and_detaches() {
+        use std::process::Command;
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(src.join("GitVolt.app/Contents/MacOS")).unwrap();
+        std::fs::write(src.join("GitVolt.app/Contents/MacOS/GitVolt"), "new").unwrap();
+        let dmg = dir.path().join("GitVolt_0.3.0_aarch64.dmg");
+        let made = Command::new("hdiutil").args(["create", "-quiet", "-fs", "HFS+", "-format", "UDZO", "-volname", "GitVolt", "-srcfolder"]).arg(&src).arg(&dmg).status().unwrap();
+        assert!(made.success());
+        let apps = dir.path().join("Applications");
+        let app = apps.join("GitVolt.app");
+        std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+        std::fs::write(app.join("Contents/MacOS/GitVolt"), "old").unwrap();
+        std::fs::write(app.join("Contents/stale"), "only in the old one").unwrap();
+        assert!(bundle_replaceable(&app));
+
+        let c = install_command(InstallKind::Dmg, &dmg, Some(&app)).unwrap();
+        let out = Command::new(&c.program).args(&c.args).env("TMPDIR", dir.path()).output().unwrap();
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(std::fs::read_to_string(app.join("Contents/MacOS/GitVolt")).unwrap(), "new");
+        assert!(!app.join("Contents/stale").exists(), "replaced, not merged");
+        let left: Vec<_> = std::fs::read_dir(&apps).unwrap().map(|e| e.unwrap().file_name()).collect();
+        assert_eq!(left, ["GitVolt.app"], "no staging copy left beside it");
+        let mounts = String::from_utf8_lossy(&Command::new("hdiutil").arg("info").output().unwrap().stdout).into_owned();
+        assert!(!mounts.contains("gitvolt-update."), "detached: {mounts}");
+        assert!(!std::fs::read_dir(dir.path()).unwrap().any(|e| e.unwrap().file_name().to_string_lossy().starts_with("gitvolt-update.")), "its mount point removed");
+        let xattrs = Command::new("xattr").arg("-r").arg(&app).output().unwrap();
+        let xattrs = String::from_utf8_lossy(&xattrs.stdout);
+        println!("xattr -r of the installed bundle: {xattrs:?}");
+        assert!(!xattrs.contains("com.apple.quarantine"), "{xattrs}");
+
+        // A broken image leaves the installed bundle as it was.
+        std::fs::write(&dmg, "not a disk image").unwrap();
+        let out = Command::new(&c.program).args(&c.args).env("TMPDIR", dir.path()).output().unwrap();
+        assert!(!out.status.success());
+        assert_eq!(std::fs::read_to_string(app.join("Contents/MacOS/GitVolt")).unwrap(), "new");
+    }
+
+    /// The script's own steps, `hdiutil` and `ditto` stood in for (the image is a folder, so it
+    /// runs on any unix): a GitVolt image's `GitVolt.app` replaces the bundle; an image under the
+    /// old name leaves it as it was; and a swap that fails puts the bundle back.
+    #[cfg(unix)]
+    #[test]
+    fn a_dmg_update_takes_the_images_gitvolt_app_only() {
+        let dir = tempfile::tempdir().unwrap();
+        let bin = dir.path().join("bin");
+        let failing = dir.path().join("failing-mv");
+        std::fs::create_dir(&bin).unwrap();
+        std::fs::create_dir(&failing).unwrap();
+        // `attach ... -mountpoint <mnt> <image>`: the image folder's contents copied into <mnt>.
+        let hdiutil = "#!/bin/sh\n[ \"$1\" = attach ] || exit 0\nfor a; do last=$a; done\nwhile [ \"$1\" != -mountpoint ]; do shift; done\ncp -R \"$last\"/. \"$2\"\n";
+        // A `mv` that can't move the new copy into place.
+        let mv = "#!/bin/sh\ncase \"$1\" in *.new.*) echo \"mv: refused\" >&2; exit 1;; esac\nexec /bin/mv \"$@\"\n";
+        for (at, body) in [(bin.join("hdiutil"), hdiutil), (bin.join("ditto"), "#!/bin/sh\ncp -R \"$1\" \"$2\"\n"), (failing.join("mv"), mv)] {
+            std::fs::write(&at, body).unwrap();
+            crate::platform::fs::set_mode(&at, 0o755).unwrap();
+        }
+        let path = format!("{}:{}", bin.display(), std::env::var("PATH").unwrap_or_default());
+        let path_failing = format!("{}:{path}", failing.display());
+        let apps = dir.path().join("Applications");
+        let app = apps.join("GitVolt.app");
+        std::fs::create_dir_all(app.join("Contents/MacOS")).unwrap();
+        std::fs::write(app.join("Contents/MacOS/GitVolt"), "old").unwrap();
+        let run = |image: &Path, path: &str| {
+            let c = install_command(InstallKind::Dmg, image, Some(&app)).unwrap();
+            std::process::Command::new(&c.program).args(&c.args).env("PATH", path).env("TMPDIR", dir.path()).output().unwrap()
+        };
+        let installed = || std::fs::read_to_string(app.join("Contents/MacOS/GitVolt")).unwrap();
+        let left = || -> Vec<_> { std::fs::read_dir(&apps).unwrap().map(|e| e.unwrap().file_name()).collect() };
+        for (image, inside) in [("old-name", "GitBolt.app"), ("new", "GitVolt.app")] {
+            let img = dir.path().join(image);
+            std::fs::create_dir_all(img.join(inside).join("Contents/MacOS")).unwrap();
+            std::fs::write(img.join(inside).join("Contents/MacOS/GitVolt"), image).unwrap();
+        }
+        let out = run(&dir.path().join("old-name"), &path);
+        assert!(!out.status.success() && String::from_utf8_lossy(&out.stderr).contains("The disk image has no GitVolt.app."));
+        assert_eq!(installed(), "old", "an image under the old name leaves the bundle as it was");
+        // The swap fails: the bundle is put back, and nothing is left beside it.
+        let out = run(&dir.path().join("new"), &path_failing);
+        assert!(!out.status.success() && String::from_utf8_lossy(&out.stderr).contains("mv: refused"));
+        assert_eq!(installed(), "old", "restored");
+        assert_eq!(left(), ["GitVolt.app"], "no staging copy left beside it");
+        let out = run(&dir.path().join("new"), &path);
+        assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+        assert_eq!(installed(), "new");
+        assert_eq!(left(), ["GitVolt.app"], "no staging copy left beside it");
+    }
+
+    #[test]
+    fn a_path_with_spaces_or_quotes_is_quoted_for_the_shell() {
+        let f = Path::new("/home/o'neil/my cache/GitVolt_0.3.0_amd64.deb");
+        assert_eq!(manual_command(InstallKind::Deb, f).unwrap(), r"sudo apt install '/home/o'\''neil/my cache/GitVolt_0.3.0_amd64.deb'");
+    }
+
+    #[test]
+    fn relaunch_waits_for_this_process_then_starts_the_installed_binary() {
+        let c = relaunch_command(Path::new("/usr/share/GitVolt/gitvolt"), 4242);
+        assert_eq!(c.program, "/bin/sh");
+        assert_eq!(c.args[2..], ["gitvolt-relaunch".to_string(), "4242".into(), "/usr/share/GitVolt/gitvolt".into()]);
+        // The script waits for the pid, then execs the binary; neither is spliced into it.
+        assert!(c.args[1].contains(r#"kill -0 "$1""#) && c.args[1].ends_with(r#"exec "$2""#));
+        #[cfg(unix)]
+        let out = std::process::Command::new(&c.program).args(&c.args[..2]).args(["x", "999999999", "true"]).output().unwrap();
+        #[cfg(unix)]
+        assert!(out.status.success());
+    }
+}

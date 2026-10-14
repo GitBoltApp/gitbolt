@@ -6,6 +6,8 @@
 # package's control member:
 #   Depends = what dpkg-shlibdeps finds for every shipped ELF file
 #           + tauri.conf.json's extra deps (libgtk-4-1, git), minus libgtk-3-0
+#   Package = gitvolt, not Tauri's kebab-case of the product name (git-volt): the command's name, and
+#             the RPM's and Arch package's
 #   Version = the SemVer version as a Debian one (scripts/version.py deb): 0.1.0-alpha.1 becomes
 #             0.1.0~alpha.1, which sorts before 0.1.0 (Tauri only takes SemVer)
 #   License = MIT (LICENSE). Not a Debian field, but GNOME Software shows a local .deb's license
@@ -30,7 +32,7 @@ tar -xf "$data" -C payload --no-same-owner
 mapfile -t elfs < <(find payload -type f -exec sh -c 'head -c 4 "$1" | grep -q ELF' _ {} \; -print | sort)
 [ ${#elfs[@]} -gt 0 ] || { echo "fix-deb: no ELF files in $deb" >&2; exit 1; }
 mapfile -t libdirs < <(printf '%s\n' "${elfs[@]}" | xargs -n1 dirname | sort -u)
-printf 'Source: gitbolt\n\nPackage: gitbolt\nArchitecture: any\n' > debian/control
+printf 'Source: gitvolt\n\nPackage: gitvolt\nArchitecture: any\n' > debian/control
 if ! shlib=$(dpkg-shlibdeps -O --ignore-missing-info "${libdirs[@]/#/-l}" "${elfs[@]/#/-e}" 2>shlibdeps.log | sed -n 's/^shlibs:Depends=//p'); then
   cat shlibdeps.log >&2
   exit 1
@@ -43,6 +45,7 @@ new=$(printf '%s\n%s\n' "$shlib" "$orig" | tr ',' '\n' | sed 's/^ *//; s/ *$//' 
   END { for (i = 1; i <= n; i++) printf "%s%s", (i > 1 ? ", " : ""), seen[order[i]] }')
 debver=$(python3 "$here/version.py" deb "$(sed -n 's/^Version: //p' control/control)")
 awk -v d="Depends: $new" -v v="Version: $debver" -v l="License: $license" '
+  /^Package:/ { print "Package: gitvolt"; next }
   /^License:/ { next }
   /^Depends:/ { print l; print d; done = 1; next }
   /^Version:/ { print v; next }
@@ -61,4 +64,4 @@ mv "$ctrl.new" "$ctrl"
 rm -f "$deb.tmp"
 ar rc "$deb.tmp" debian-binary "$ctrl" "$data" # member order matters to dpkg
 mv "$deb.tmp" "$deb"
-echo "fix-deb: Version: $debver; License: $license; Depends: $new"
+echo "fix-deb: Package: gitvolt; Version: $debver; License: $license; Depends: $new"

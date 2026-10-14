@@ -19,6 +19,7 @@ import { Select } from '../ui/Select';
 import { AppearanceSection } from '../theme/AppearanceSection';
 import { AccountsSection } from '../forge/AccountsSection';
 import { EditorPicker } from './EditorPicker';
+import { LegacyBundleRow } from '../updates/LegacyBundle';
 import { Row } from './Row';
 import { clampFetchInterval, useSettingsUi, type SettingsSection } from './schema';
 import './settings.css';
@@ -178,7 +179,7 @@ function SettingsDialog() {
   const resetAll = async () => {
     const ok = await confirmAction({
       title: 'Reset settings to their defaults?',
-      body: 'Date format, commits loaded, density, avatars, background fetch, pruning and sticky scroll go back to how GitBolt ships. Your editor, git config and host settings stay.',
+      body: 'Date format, commits loaded, density, avatars, background fetch, pruning and sticky scroll go back to how GitVolt ships. Your editor, git config and host settings stay.',
       confirmLabel: 'Reset',
       arm: 'Click again to reset every setting here to its default',
       danger: true,
@@ -261,6 +262,7 @@ function SettingsDialog() {
                 {s === 'Updates' && <>
                   <Row id="updateCheck"><input id="input-updateCheck" type="checkbox" checked={settings.updateCheck} onChange={(e) => setSettings({ updateCheck: e.target.checked })} /></Row>
                   <Row id="updatePrereleases"><input id="input-updatePrereleases" type="checkbox" checked={settings.updatePrereleases} onChange={(e) => setSettings({ updatePrereleases: e.target.checked })} /></Row>
+                  <LegacyBundleRow />
                 </>}
                 {s === 'Advanced' && (
                   <Row id="debugLogging"><input id="input-debugLogging" type="checkbox" checked={settings.debugLogging} onChange={(e) => setSettings({ debugLogging: e.target.checked })} /></Row>

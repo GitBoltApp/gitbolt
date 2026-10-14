@@ -18,8 +18,8 @@ const FILES: Record<string, string> = {
     ],
   }),
   'licenses/LICENSE.txt': 'MIT License\n\nCopyright (c) 2026 Francis Lavoie',
-  'licenses/THIRD-PARTY-NOTICES-rust.txt': 'GitBolt: third-party notices for the Rust crates',
-  'licenses/THIRD-PARTY-NOTICES-ui.txt': 'GitBolt: third-party notices for the UI',
+  'licenses/THIRD-PARTY-NOTICES-rust.txt': 'GitVolt: third-party notices for the Rust crates',
+  'licenses/THIRD-PARTY-NOTICES-ui.txt': 'GitVolt: third-party notices for the UI',
   'licenses/CEF-LICENSE.txt': 'Marshall A. Greenblatt',
   'licenses/DICTIONARY-en-US-LICENSE.txt': 'Copyright 2000-2018 by Kevin Atkinson',
 };
@@ -55,7 +55,7 @@ describe('About > Open source licenses', () => {
     const list = await screen.findByRole('list', { name: 'License files' });
     const names = [...list.querySelectorAll('button')].map((b) => b.textContent);
     expect(names).toEqual([
-      expect.stringContaining('GitBolt'),
+      expect.stringContaining('GitVolt'),
       expect.stringContaining('Interface'),
       expect.stringContaining('Rust crates'),
       expect.stringContaining('Chromium Embedded Framework'),
@@ -64,10 +64,10 @@ describe('About > Open source licenses', () => {
     // The first file is shown right away.
     expect(await screen.findByText(/Copyright \(c\) 2026 Francis Lavoie/)).toBeTruthy();
     // Chromium's credits (about 20 MB) aren't in the app: where the package installs them.
-    expect(screen.getByText(/\/usr\/share\/doc\/gitbolt\/CHROMIUM-CREDITS\.html\.gz/)).toBeTruthy();
+    expect(screen.getByText(/\/usr\/share\/doc\/gitvolt\/CHROMIUM-CREDITS\.html\.gz/)).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: /Rust crates/ }));
-    expect(await screen.findByText('GitBolt: third-party notices for the Rust crates')).toBeTruthy();
+    expect(await screen.findByText('GitVolt: third-party notices for the Rust crates')).toBeTruthy();
     expect(screen.getByRole('button', { name: /Rust crates/ }).getAttribute('aria-current')).toBe('true');
     fireEvent.click(screen.getByRole('button', { name: /Spell-check dictionary/ }));
     expect(await screen.findByText('Copyright 2000-2018 by Kevin Atkinson')).toBeTruthy();
@@ -96,7 +96,7 @@ describe('About > Open source licenses', () => {
       render(<About />);
       act(() => useAbout.getState().setOpen(true));
       fireEvent.click(screen.getByRole('button', { name: 'Open source licenses' }));
-      expect(await screen.findByText('GitBolt.app/Contents/Resources/licenses/CHROMIUM-CREDITS.html.gz')).toBeTruthy();
+      expect(await screen.findByText('GitVolt.app/Contents/Resources/licenses/CHROMIUM-CREDITS.html.gz')).toBeTruthy();
       expect(screen.queryByText(/\/usr\/share\/doc/)).toBeNull();
     } finally {
       vi.restoreAllMocks();

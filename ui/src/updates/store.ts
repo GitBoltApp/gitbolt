@@ -45,7 +45,7 @@ export const useUpdates = create<UpdatesStore>((set, get) => {
       if (listening) return;
       listening = true;
       onEvent((ev) => { if (ev.type === 'updateChanged') get().setState(ev.state); });
-      Promise.resolve().then(() => api.updateStatus()).then((s) => get().setState(s), (e: unknown) => console.warn('[gitbolt] update status', errorMessage(e)));
+      Promise.resolve().then(() => api.updateStatus()).then((s) => get().setState(s), (e: unknown) => console.warn('[gitvolt] update status', errorMessage(e)));
     },
     async check() {
       set({ checkError: null });

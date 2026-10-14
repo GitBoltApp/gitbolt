@@ -36,7 +36,7 @@ describe('Create stack MRs (spec #4 §4 4D)', () => {
     act(() => openCreateStack('t', stack));
     const dialog = await screen.findByRole('dialog', { name: 'Create stack MRs' });
     expect(load).toHaveBeenCalledWith(1, ['feature/a', 'feature/b'], 'main', 'refs/remotes/origin/main');
-    expect(await screen.findByText('Each MR targets the branch below it. GitBolt keeps a Stack table in every description up to date.')).toBeInTheDocument();
+    expect(await screen.findByText('Each MR targets the branch below it. GitVolt keeps a Stack table in every description up to date.')).toBeInTheDocument();
     expect(dialog).toHaveTextContent('feature/a → main');
     expect(dialog).toHaveTextContent('!1 is open');
     const title = screen.getByRole('textbox', { name: 'Title for feature/b' });

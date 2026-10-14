@@ -44,7 +44,7 @@ describe('MdLink (spec #5 §4.1)', () => {
     expect(api.openUrl).toHaveBeenCalledWith('mailto:ada@example.com');
   });
 
-  it('opens an MR reference in GitBolt; Ctrl+click opens it in the browser', () => {
+  it('opens an MR reference in GitVolt; Ctrl+click opens it in the browser', () => {
     render(<MdReference ctx={ctx} node={{ type: 'reference', refKind: 'mr', project: null, number: 5, sha: null, user: null, value: '!5' }} />);
     const link = screen.getByRole('link', { name: '!5' });
     fireEvent.click(link);
@@ -53,16 +53,16 @@ describe('MdLink (spec #5 §4.1)', () => {
     expect(api.openUrl).toHaveBeenCalledWith('https://gitlab.example.com/group/project/-/merge_requests/5');
   });
 
-  it('offers Open in GitBolt, Open in browser, Copy link and Copy text on a right-click', () => {
+  it('offers Open in GitVolt, Open in browser, Copy link and Copy text on a right-click', () => {
     render(<MdReference ctx={ctx} node={{ type: 'reference', refKind: 'mr', project: null, number: 5, sha: null, user: null, value: '!5' }} />);
     fireEvent.contextMenu(screen.getByRole('link', { name: '!5' }));
-    expect(labels()).toEqual(['Open in GitBolt', 'Open in browser', '---', 'Copy link', 'Copy text']);
+    expect(labels()).toEqual(['Open in GitVolt', 'Open in browser', '---', 'Copy link', 'Copy text']);
     const copyText = useMenu.getState().rows!.find((r) => r.kind === 'action' && r.label === 'Copy text');
     if (copyText?.kind === 'action') copyText.run();
     expect(copy.copyText).toHaveBeenCalledWith('!5');
   });
 
-  it('an external link’s menu has no Open in GitBolt; a script link is plain text', () => {
+  it('an external link’s menu has no Open in GitVolt; a script link is plain text', () => {
     render(<><MdLink ctx={ctx} href="https://example.org/a">site</MdLink><MdLink ctx={ctx} href="javascript:alert(1)">bad</MdLink></>);
     fireEvent.contextMenu(screen.getByRole('link', { name: 'site' }));
     expect(labels()).toEqual(['Open in browser', '---', 'Copy link', 'Copy text']);

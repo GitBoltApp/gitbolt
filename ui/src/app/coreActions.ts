@@ -80,7 +80,7 @@ const off = registerActions([
   // Only in the real app (Tauri): quitting a plain browser tab isn't a thing the harness can do,
   // and the hamburger must list only working actions.
   {
-    id: 'file.quit', label: 'Quit', group: 'File', icon: LogOut, tooltip: 'Quit GitBolt',
+    id: 'file.quit', label: 'Quit', group: 'File', icon: LogOut, tooltip: 'Quit GitVolt',
     when: () => inTauri(),
     run: async () => {
       await flushSaves();
@@ -128,7 +128,7 @@ const off = registerActions([
     },
   },
   {
-    id: 'help.about', label: 'About GitBolt', group: 'Help', icon: Info, tooltip: 'Version information',
+    id: 'help.about', label: 'About GitVolt', group: 'Help', icon: Info, tooltip: 'Version information',
     run: () => useAbout.getState().setOpen(true),
   },
 ]);

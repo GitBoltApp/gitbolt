@@ -23,7 +23,7 @@
 // HTML is read with regular expressions: enough for the pages Vite and site/ produce (an attribute
 // value holding '>' would end its tag early).
 //
-//   node ui/scripts/check-site.mjs [--base /gitbolt/] <dist>
+//   node ui/scripts/check-site.mjs [--base /] <dist>
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync } from 'node:fs';
 import { dirname, join, posix, resolve } from 'node:path';
@@ -52,7 +52,7 @@ const LOADS = {
 // <link rel> values that load their href (canonical, alternate and the like don't).
 const LINK_LOADS = new Set(['stylesheet', 'preload', 'modulepreload', 'prefetch', 'icon', 'apple-touch-icon', 'mask-icon', 'manifest', 'preconnect', 'dns-prefetch']);
 const DATA = 'demo/demo-data';
-const WASM = /(^|\/)gitbolt_graph_wasm_bg\.wasm-[\w-]{6,}\.gz$/;
+const WASM = /(^|\/)gitvolt_graph_wasm_bg\.wasm-[\w-]{6,}\.gz$/;
 
 const ext = (p) => posix.extname(p).toLowerCase();
 const sha256 = (bytes, encoding) => createHash('sha256').update(bytes).digest(encoding);
@@ -157,7 +157,7 @@ function locate(url, from, base) {
   return { kind: 'site', path: p, frag, relative: path !== '' && !path.startsWith('/') };
 }
 
-export function checkSite(dist, { base = '/gitbolt/', root = REPO_ROOT, budgets = {} } = {}) {
+export function checkSite(dist, { base = '/', root = REPO_ROOT, budgets = {} } = {}) {
   const max = { ...BUDGETS, ...budgets };
   const errors = [];
   const report = [];
@@ -266,7 +266,7 @@ export function checkSite(dist, { base = '/gitbolt/', root = REPO_ROOT, budgets 
     if (!built) errors.push(`${DATA}/manifest.json: its rev ${mrev} isn't in demo/assets/*.js (the build compiles it in)`);
   }
   const wasm = all.filter((p) => p.startsWith('demo/') && WASM.test(p));
-  if (!wasm.length) errors.push('demo/: no gzipped WebAssembly under a hashed name (gitbolt_graph_wasm_bg.wasm-<hash>.gz)');
+  if (!wasm.length) errors.push('demo/: no gzipped WebAssembly under a hashed name (gitvolt_graph_wasm_bg.wasm-<hash>.gz)');
   for (const p of wasm) if (!isGzip(read(p))) errors.push(`${p}: not gzip`);
 
   // Sizes, and the build machine's path.
@@ -306,7 +306,7 @@ export function checkSite(dist, { base = '/gitbolt/', root = REPO_ROOT, budgets 
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
   const args = process.argv.slice(2);
-  let base = '/gitbolt/';
+  let base = '/';
   const i = args.indexOf('--base');
   if (i >= 0) {
     base = args[i + 1] ?? '';

@@ -4,7 +4,7 @@ import './licenses.css';
 
 /** The notices the production build puts in dist/licenses/ (ui/build/licenses.ts), by file name. */
 const KNOWN: Record<string, { label: string; detail: string }> = {
-  'LICENSE.txt': { label: 'GitBolt', detail: 'MIT license' },
+  'LICENSE.txt': { label: 'GitVolt', detail: 'MIT license' },
   'THIRD-PARTY-NOTICES-ui.txt': { label: 'Interface', detail: 'npm packages, Shiki grammars and themes' },
   'THIRD-PARTY-NOTICES-rust.txt': { label: 'Rust crates', detail: "the app's native code" },
   'CEF-LICENSE.txt': { label: 'Chromium Embedded Framework', detail: 'CEF' },
@@ -15,7 +15,7 @@ const url = (name: string) => new URL(`licenses/${name}`, document.baseURI).href
 
 type Index = { name: string; size: number }[];
 
-/** Help > About GitBolt > Open source licenses: the notices bundled with the UI, one at a time. */
+/** Help > About GitVolt > Open source licenses: the notices bundled with the UI, one at a time. */
 export default function Licenses() {
   const [files, setFiles] = useState<Index | null | 'missing'>(null);
   const [current, setCurrent] = useState<string | null>(null);
@@ -66,18 +66,18 @@ export default function Licenses() {
         </ul>
         {osKind() === 'windows' ? (
           <p className="licenses-note">
-            Chromium&apos;s own credits are installed with GitBolt, gzipped (extract them to open in a browser), in its install folder:
+            Chromium&apos;s own credits are installed with GitVolt, gzipped (extract them to open in a browser), in its install folder:
             <code>licenses\CHROMIUM-CREDITS.html.gz</code>
           </p>
         ) : osKind() === 'macos' ? (
           <p className="licenses-note">
             Chromium&apos;s own credits are inside the app, gzipped (view them with `zcat` or extract them to open in a browser):
-            <code>GitBolt.app/Contents/Resources/licenses/CHROMIUM-CREDITS.html.gz</code>
+            <code>GitVolt.app/Contents/Resources/licenses/CHROMIUM-CREDITS.html.gz</code>
           </p>
         ) : (
           <p className="licenses-note">
             Chromium&apos;s own credits are installed with the package, gzipped (view them with `zcat` or extract them to open in a browser):
-            <code>/usr/share/doc/gitbolt/CHROMIUM-CREDITS.html.gz</code>
+            <code>/usr/share/doc/gitvolt/CHROMIUM-CREDITS.html.gz</code>
           </p>
         )}
       </div>

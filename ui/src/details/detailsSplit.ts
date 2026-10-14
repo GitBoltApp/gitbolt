@@ -8,7 +8,7 @@
  * - Persisted in localStorage (`key`), like the diff prefs: per browser profile, surviving a
  *   reload, with every access in try/catch (storage may be unavailable).
  */
-export const SPLIT = { default: 0.25, min: 0.1, max: 0.75, step: 0.02, topExtraPx: 56, bottomPx: 160, key: 'gitbolt.detailsSplit.v1' } as const;
+export const SPLIT = { default: 0.25, min: 0.1, max: 0.75, step: 0.02, topExtraPx: 56, bottomPx: 160, key: 'gitvolt.detailsSplit.v1' } as const;
 
 export const clampSplit = (r: number) => Math.max(SPLIT.min, Math.min(SPLIT.max, r));
 

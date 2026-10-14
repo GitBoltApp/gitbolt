@@ -137,7 +137,7 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
       try {
         if (opts.handle?.(err)) return null;
       } catch (he) {
-        console.error('[gitbolt] a write failure handler threw', he);
+        console.error('[gitvolt] a write failure handler threw', he);
         useToast.getState().show(`Couldn't handle the failure: ${toGbError(he).message}`, { error: true });
         return null;
       }
@@ -154,7 +154,7 @@ export async function runWrite<T>(ctx: WriteCtx, send: (confirmed: boolean, aske
     try {
       await opts.onSuccess?.(outcome);
     } catch (e) {
-      console.error('[gitbolt] follow-up after a write failed', e);
+      console.error('[gitvolt] follow-up after a write failed', e);
       useToast.getState().show(`Done, but the view didn't update: ${toGbError(e).message}`, { error: true });
     }
     return outcome;

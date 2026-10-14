@@ -43,7 +43,7 @@
 //! Chromium's own toolchain, so CEF ships prebuilt `bootstrap.exe` / `bootstrapc.exe`
 //! hosts that load the application as a DLL exporting `RunWinMain` or `RunConsoleMain`
 //! (named like the renamed host: `app.exe` loads `app.dll`) and hand it the pointer.
-//! GitBolt patch: such an entry point passes it to [`set_windows_sandbox_info`] before
+//! GitVolt patch: such an entry point passes it to [`set_windows_sandbox_info`] before
 //! anything else, and the runtime hands it to every `CefExecuteProcess` and
 //! `CefInitialize` call, so the renderer, GPU and utility processes run sandboxed.
 //!
@@ -70,13 +70,13 @@ pub(crate) fn windows_sandbox_unavailable() -> bool {
   cfg!(windows) && windows_sandbox_info().is_null()
 }
 
-/// GitBolt patch: the sandbox broker `bootstrap.exe` passed to the application DLL's
+/// GitVolt patch: the sandbox broker `bootstrap.exe` passed to the application DLL's
 /// `RunWinMain`/`RunConsoleMain`, or null.
 #[cfg(windows)]
 static WINDOWS_SANDBOX_INFO: std::sync::atomic::AtomicPtr<u8> =
   std::sync::atomic::AtomicPtr::new(std::ptr::null_mut());
 
-/// GitBolt patch: hands the runtime the sandbox broker CEF's `bootstrap.exe` gave the
+/// GitVolt patch: hands the runtime the sandbox broker CEF's `bootstrap.exe` gave the
 /// application DLL's entry point, so every `CefExecuteProcess` and `CefInitialize` gets it
 /// and the processes run sandboxed. Call it first in `RunWinMain`/`RunConsoleMain`, before
 /// the CEF entry point runs.

@@ -4,7 +4,7 @@ import { fixtures, openUrl } from './fixtures';
 // App zoom (spec §12.2). The browser harness has no Tauri webview to zoom, so `setZoom` is a no-op
 // here; `html[data-zoom]` is the step the app would apply. Each test starts at the default: the
 // saved step is cleared on the test's first page load only, so a reload keeps it.
-const ZOOM_KEY = 'gitbolt.zoom.v1';
+const ZOOM_KEY = 'gitvolt.zoom.v1';
 const zoom = (page: import('@playwright/test').Page) => page.evaluate(() => document.documentElement.dataset.zoom);
 
 test.beforeEach(async ({ page }) => {
@@ -49,7 +49,7 @@ test('Ctrl+wheel is cancelled, so the webview never zooms itself', async ({ page
 // Acceptance at 100/150/200% (spec 12.2 / 17.2). Browser zoom Z shrinks the CSS viewport by Z and
 // raises devicePixelRatio to Z, which is the state the CEF app has at that step.
 test.describe('zoom acceptance screenshots', () => {
-  test.skip(!process.env.GITBOLT_E2E_SHOTS, 'pixel baselines run with GITBOLT_E2E_SHOTS=1 (just e2e-shots)');
+  test.skip(!process.env.GITVOLT_E2E_SHOTS, 'pixel baselines run with GITVOLT_E2E_SHOTS=1 (just e2e-shots)');
   test.skip(({ browserName }) => browserName !== 'chromium', 'device-scale emulation baselines are Chromium-only');
   for (const z of [1, 1.5, 2]) {
     test.describe(`zoom ${z * 100}%`, () => {

@@ -66,7 +66,7 @@ function sideRead<T>(what: string, p: Promise<T>): Promise<T | undefined> {
     const msg = `${what}: ${errorMessage(e)}`;
     if (!warned.has(msg)) {
       warned.add(msg);
-      console.warn(`[gitbolt] ${msg}`);
+      console.warn(`[gitvolt] ${msg}`);
     }
     return undefined;
   });
@@ -183,7 +183,7 @@ export const useRuntime = create<RuntimeState>((set, get) => ({
         get().patch(tabId, { repo, worktree });
         // Plain: an unwatched repo's graph re-reads status anyway (the watch comes from RepoTab).
         await get().refresh(tabId);
-        requestAnimationFrame(() => console.info(`[gitbolt] graph ready in ${Math.round(performance.now() - t0)} ms (${get().tabs[tabId]?.graph?.rows.length ?? 0} rows)`));
+        requestAnimationFrame(() => console.info(`[gitvolt] graph ready in ${Math.round(performance.now() - t0)} ms (${get().tabs[tabId]?.graph?.rows.length ?? 0} rows)`));
       } catch (e) {
         // Only for a tab that's still there: a closed one's runtime is gone for good.
         if (tabOpen(tabId)) get().patch(tabId, { status: 'error', error: errorMessage(e) });

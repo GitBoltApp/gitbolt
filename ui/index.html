@@ -3,14 +3,14 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GitBolt</title>
+    <title>GitVolt</title>
     <!-- Plan 1D R3 / review I1: the saved theme's background and colour scheme, from its
          localStorage mirror (theme/apply.ts writeThemeMirror), before any CSS paints. The module
          script then applies the whole theme (theme/bind.ts). Kept tiny; theme/firstPaint.test.ts. -->
     <script id="theme-first-paint">
       (function () {
         try {
-          var m = JSON.parse(localStorage.getItem('gitbolt.theme.v1') || 'null');
+          var m = JSON.parse(localStorage.getItem('gitvolt.theme.v1') || 'null');
           if (!m || typeof m.id !== 'string') return;
           var r = document.documentElement;
           r.dataset.theme = m.id;

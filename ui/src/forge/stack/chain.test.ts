@@ -8,7 +8,7 @@ const mr = (number: number, source: string, target: string, state: ForgeMr['stat
   sourceProject: 'group/project', sourceBranch: source, targetProject: 'group/project', targetBranch: target, headSha: `head${number}`,
   webUrl: '', pipeline: null, review: { decision: 'none', approvals: 0, approvalsRequired: null, reviews: [] }, conflicts: false, labels: [], labelColors: {}, updatedAt: number, autoMerge: null, stacked: true, ...over,
 });
-/** An MR no GitBolt stack table is in (long-lived branches, MRs made elsewhere). */
+/** An MR no GitVolt stack table is in (long-lived branches, MRs made elsewhere). */
 const plain = (number: number, source: string, target: string, state: ForgeMr['state'] = 'open') => mr(number, source, target, state, { stacked: false });
 const lookup = (...mrs: ForgeMr[]) => (b: string) => mrs.filter((m) => m.sourceBranch === b).sort((x, y) => y.number - x.number)[0] ?? null;
 const stack = (...branches: string[]): Stack => ({ branches, base: 'refs/remotes/origin/main', leftBehind: [] });
@@ -146,7 +146,7 @@ describe('long-lived branches (real-world layouts)', () => {
     expect(mrChain(f, dflt)).toBeNull();
   });
 
-  it("the same GitFlow layout with GitBolt's stack table on the feature MR: it was stacked on develop, so it prompts", () => {
+  it("the same GitFlow layout with GitVolt's stack table on the feature MR: it was stacked on develop, so it prompts", () => {
     const release = plain(20, 'develop', 'main', 'merged');
     const f = mr(21, 'feature/login', 'develop');
     const flow = envOf({ mrs: [release, f], locals: ['main', 'develop', 'feature/login'], tips: { develop: 'head20' } });

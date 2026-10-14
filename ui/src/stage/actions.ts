@@ -93,7 +93,7 @@ export async function loadStaging(repo: number, worktree: string): Promise<void>
   try {
     useStaging.getState().set(repo, worktree, await api.stagingState(repo, worktree));
   } catch (e) {
-    console.warn('[gitbolt] staging state', e);
+    console.warn('[gitvolt] staging state', e);
   }
 }
 

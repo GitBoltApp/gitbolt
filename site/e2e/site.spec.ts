@@ -40,13 +40,13 @@ test.describe('desktop', () => {
       const hrefs = await page.locator('#downloads .fbtn').evaluateAll((links) => links.map((a) => a.getAttribute('href')));
       expect(hrefs).toHaveLength(release.downloads.length);
       for (const h of hrefs) expect(release.downloads.map((d) => d.url)).toContain(h);
-      await expect(page.getByRole('heading', { name: `Download GitBolt ${release.version}` })).toBeVisible();
+      await expect(page.getByRole('heading', { name: `Download GitVolt ${release.version}` })).toBeVisible();
     });
 
     const hero = page.locator('.hero-demo');
     await test.step('the live demo boots in its frame, then the still steps aside', async () => {
       await expect(hero).toHaveAttribute('data-state', 'ready', { timeout: 90_000 });
-      await expect(page.frameLocator('iframe[title="GitBolt live demo"]').getByRole('grid', { name: 'Commit graph' })).toBeVisible();
+      await expect(page.frameLocator('iframe[title="GitVolt live demo"]').getByRole('grid', { name: 'Commit graph' })).toBeVisible();
       await expect(hero.locator('.still')).toBeHidden();
       await expect(hero.getByRole('status')).toHaveText('Live demo');
     });

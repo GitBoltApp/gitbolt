@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-//! GitBolt patch: spell-check dictionaries the application ships, installed where Chromium
+//! GitVolt patch: spell-check dictionaries the application ships, installed where Chromium
 //! looks for them.
 //!
 //! Chromium reads its Hunspell dictionaries (`<language>-<version>.bdic`) from `Dictionaries/`

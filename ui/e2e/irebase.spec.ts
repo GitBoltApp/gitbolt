@@ -38,7 +38,7 @@ test.describe('interactive rebase (spec #3 §7)', () => {
     expect(git(repo, 'rev-list', '--merges', 'main..feature/c')).toBe('');
   });
 
-  // UX L: GitBolt's Edit stop is "about to commit": the commit's changes staged, its message in the
+  // UX L: GitVolt's Edit stop is "about to commit": the commit's changes staged, its message in the
   // box. Splitting it is unstage some, Commit, commit the rest, Continue.
   test('flow 2: an Edit stop is about to commit: unstage part, Commit, commit the rest, Continue', async ({ page }) => {
     const repo = await openEditor(page);

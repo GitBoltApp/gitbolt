@@ -4,8 +4,8 @@ import { expect, test } from 'vitest';
 const read = (p: string) => readFileSync(new URL(p, import.meta.url), 'utf8');
 
 test("the icon and the favicon are the app's (concept 2), byte for byte", () => {
-  expect(read('./art/icon.svg')).toBe(read('../../crates/gitbolt-app/icons/source.svg'));
-  expect(read('./art/favicon.svg')).toBe(read('../../crates/gitbolt-app/icons/source-small.svg'));
+  expect(read('./art/icon.svg')).toBe(read('../../crates/gitvolt-app/icons/source.svg'));
+  expect(read('./art/favicon.svg')).toBe(read('../../crates/gitvolt-app/icons/source-small.svg'));
 });
 
 test.each(['hero-lanes', 'bands', 'divider-1', 'divider-2', 'divider-3', 'divider-4'])('%s.svg is a standalone drawing with nothing the CSP or an <img> would drop', (name) => {

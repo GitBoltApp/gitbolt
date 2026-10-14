@@ -81,12 +81,12 @@ const BROWSER_ONLY_COMMANDS: &[&CStr] = &[
   resources::IDC_CONTENT_CONTEXT_SHARING_SUBMENU,
   resources::IDC_CONTENT_CONTEXT_GENERATE_QR_CODE,
   resources::IDC_ROUTE_MEDIA,
-  // GitBolt patch (H19): Chrome's text-fragment links. "Copy link to highlight" hands the user
+  // GitVolt patch (H19): Chrome's text-fragment links. "Copy link to highlight" hands the user
   // a `http://tauri.localhost/#:~:text=…` URL, which means nothing outside the app window.
   resources::IDC_CONTENT_CONTEXT_COPYLINKTOTEXT,
   resources::IDC_CONTENT_CONTEXT_RESHARELINKTOTEXT,
   resources::IDC_CONTENT_CONTEXT_REMOVELINKTOTEXT,
-  // GitBolt patch (H19): Chrome's AI, reading and sharing services, which hand the page to
+  // GitVolt patch (H19): Chrome's AI, reading and sharing services, which hand the page to
   // Google or to the user's other devices.
   resources::IDC_CONTENT_CONTEXT_GLIC,
   resources::IDC_CONTENT_CONTEXT_GLICSHAREIMAGE,
@@ -100,7 +100,7 @@ const BROWSER_ONLY_COMMANDS: &[&CStr] = &[
   resources::IDC_CONTENT_CONTEXT_SEND_TAB_TO_SELF_MANAGE_DEVICES,
   resources::IDC_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_TOGGLE,
   resources::IDC_CONTENT_CONTEXT_ACCESSIBILITY_LABELS_TOGGLE_ONCE,
-  // GitBolt patch (H19): password and address autofill; the app has no web forms.
+  // GitVolt patch (H19): password and address autofill; the app has no web forms.
   resources::IDC_CONTENT_CONTEXT_SHOWALLSAVEDPASSWORDS,
   resources::IDC_CONTENT_CONTEXT_GENERATEPASSWORD,
   resources::IDC_CONTENT_CONTEXT_USE_PASSKEY_FROM_ANOTHER_DEVICE,
@@ -112,9 +112,9 @@ const BROWSER_ONLY_COMMANDS: &[&CStr] = &[
   resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_PASSWORDS_USE_PASSKEY_FROM_ANOTHER_DEVICE,
   resources::IDC_CONTENT_CONTEXT_AUTOFILL_FALLBACK_AT_MEMORY,
   resources::IDC_CONTENT_CONTEXT_PROTOCOL_HANDLER_SETTINGS,
-  // GitBolt patch (H19): an image's address is a `blob:` URL; Copy image stays.
+  // GitVolt patch (H19): an image's address is a `blob:` URL; Copy image stays.
   resources::IDC_CONTENT_CONTEXT_COPYIMAGELOCATION,
-  // GitBolt patch (spell check): "Use enhanced spell check" hands the text to Google's spelling
+  // GitVolt patch (spell check): "Use enhanced spell check" hands the text to Google's spelling
   // service, and "Language settings" opens a `chrome://settings` tab. The suggestions and
   // add-to-dictionary stay; the dictionary is the one the app bundles.
   resources::IDC_CONTENT_CONTEXT_SPELLING_TOGGLE,
@@ -325,7 +325,7 @@ wrap_context_menu_handler! {
 
       // Removing a command this menu does not carry is a no-op, so the whole
       // policy can be applied to every menu without first asking `params` which
-      // kind of menu it is. `remove_recursive` also reaches into submenus (GitBolt
+      // kind of menu it is. `remove_recursive` also reaches into submenus (GitVolt
       // patch, deferred minor #15): some of these entries are nested one level
       // down, where a plain `remove` would silently miss them.
       let command_ids = command_ids();
@@ -347,13 +347,13 @@ wrap_context_menu_handler! {
   }
 }
 
-/// GitBolt patch (tests only): CEF builds its IDC name table lazily on the first lookup, and two
+/// GitVolt patch (tests only): CEF builds its IDC name table lazily on the first lookup, and two
 /// first lookups on different threads race (a name then resolves to -1). The app only looks names
 /// up on CEF's UI thread; tests that do, on the harness's threads, hold this lock.
 #[cfg(test)]
 pub(crate) static NAME_LOOKUP: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
-/// GitBolt patch (tests only): on macOS nothing links CEF's framework (the app loads it from its
+/// GitVolt patch (tests only): on macOS nothing links CEF's framework (the app loads it from its
 /// bundle at startup), and a call into CEF before that is a null function pointer. A test that
 /// looks a name up loads it first, from the distribution the build used (build.rs). A no-op
 /// elsewhere, where the test binary links libcef.
@@ -363,7 +363,7 @@ pub(crate) fn load_cef_for_tests() {
   {
     static LOADED: std::sync::Once = std::sync::Once::new();
     LOADED.call_once(|| {
-      let dir = option_env!("GITBOLT_TEST_CEF_DIR").expect("the CEF distribution (build.rs)");
+      let dir = option_env!("GITVOLT_TEST_CEF_DIR").expect("the CEF distribution (build.rs)");
       let framework = format!("{dir}/Chromium Embedded Framework.framework/Chromium Embedded Framework");
       let path = std::ffi::CString::new(framework.as_str()).unwrap();
       // SAFETY: a NUL-terminated path that outlives the call. The framework stays loaded.
@@ -377,11 +377,11 @@ pub(crate) fn load_cef_for_tests() {
 mod tests {
   use super::*;
 
-  /// GitBolt patch (H19): what the app's text menu must not offer. "Copy link to highlight"
+  /// GitVolt patch (H19): what the app's text menu must not offer. "Copy link to highlight"
   /// (a `#:~:text=` link to `tauri.localhost`) and its siblings, Chrome's AI / reading / sharing
   /// services, password and address autofill, and "copy image address" (a `blob:` URL).
   #[test]
-  fn gitbolt_drops_text_fragment_links_and_chrome_services() {
+  fn gitvolt_drops_text_fragment_links_and_chrome_services() {
     for name in [
       resources::IDC_CONTENT_CONTEXT_COPYLINKTOTEXT,
       resources::IDC_CONTENT_CONTEXT_RESHARELINKTOTEXT,
@@ -405,7 +405,7 @@ mod tests {
     }
   }
 
-  /// GitBolt patch (spell check): the suggestions and the dictionary entries stay; "Use enhanced
+  /// GitVolt patch (spell check): the suggestions and the dictionary entries stay; "Use enhanced
   /// spell check" (sends the text to Google's spelling service) and "Language settings" (a
   /// `chrome://settings` page) go.
   #[test]
@@ -453,7 +453,7 @@ mod tests {
     }
   }
 
-  // GitBolt patch, deferred minor #15 / fix round 1, item 6: `remove_recursive`,
+  // GitVolt patch, deferred minor #15 / fix round 1, item 6: `remove_recursive`,
   // `remove_empty_submenus` and `remove_redundant_separators` are generic over `MenuModelLike`
   // precisely so they can be tested here, against this in-memory fake, instead of a real
   // `MenuModel` — `menu_model_create` returns `None` outside a running browser process

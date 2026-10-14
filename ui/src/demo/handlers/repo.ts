@@ -10,11 +10,12 @@ import type { DemoRepo } from '../engine/repo';
 import type { HandlerTable } from '../transport';
 
 const APP_INFO: AppInfoPayload = {
-  appVersion: (import.meta.env.VITE_GITBOLT_VERSION as string | undefined) ?? '0.0.0',
+  appVersion: (import.meta.env.VITE_GITVOLT_VERSION as string | undefined) ?? '0.0.0',
   build: null,
   gitVersion: 'in-browser (isomorphic-git)',
   installKind: 'none',
   home: null,
+  legacyBundle: null,
 };
 
 /** The remotes, origin first then by name (details::remotes). */

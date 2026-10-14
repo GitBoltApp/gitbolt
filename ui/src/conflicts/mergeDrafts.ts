@@ -46,7 +46,7 @@ export interface MergeDraft {
   at?: number;
 }
 
-const STORAGE = 'gitbolt.mergeDrafts';
+const STORAGE = 'gitvolt.mergeDrafts';
 
 function loadStored(): Record<string, MergeDraft> {
   try {

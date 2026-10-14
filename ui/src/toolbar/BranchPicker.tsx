@@ -10,7 +10,7 @@ const NO_BRANCHES: never[] = [];
 
 /** K72: the picker's order, alphabetical (the default) or most recent tip first; remembered. */
 type Order = 'alpha' | 'recent';
-const ORDER_KEY = 'gitbolt.branchPickerOrder.v1';
+const ORDER_KEY = 'gitvolt.branchPickerOrder.v1';
 function loadOrder(): Order {
   try {
     return localStorage.getItem(ORDER_KEY) === 'recent' ? 'recent' : 'alpha';

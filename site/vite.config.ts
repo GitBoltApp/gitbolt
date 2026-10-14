@@ -12,7 +12,7 @@ import { heroMarker } from './build/shots.ts';
 
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
 
-// The website (spec §6): one static page, relative URLs (served under /gitbolt/), no asset inlined
+// The website (spec §6): one static page, relative URLs (served under any path), no asset inlined
 // as a data: URI (the CSP allows none), and dist/demo/ left to the demo's own build. The page's
 // generated parts come from README.md, data/release.json and shots/ (build/page.ts).
 export default defineConfig({

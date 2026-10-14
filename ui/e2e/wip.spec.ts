@@ -10,7 +10,7 @@ const rows = (page: Page) => page.getByRole('grid', { name: 'Commit graph' }).ge
 // long file, which Hunk shows (with its context) where the default Inline mode (amendment 3)
 // would leave it below Monaco's rendered lines.
 test('the WIP row and panel: its counts, its draft box, the unstaged and staged lists with their diffs, ↑/↓ across them, Path/Tree, sections and the handle', async ({ page }) => {
-  await page.addInitScript(() => localStorage.setItem('gitbolt.diffPrefs.v1', JSON.stringify({ mode: 'hunk', ignoreWhitespace: false, wordWrap: false })));
+  await page.addInitScript(() => localStorage.setItem('gitvolt.diffPrefs.v1', JSON.stringify({ mode: 'hunk', ignoreWhitespace: false, wordWrap: false })));
   await page.goto(openUrl(fixtures.details));
   await test.step('K47: the WIP row shows its per-type counts with the status icons', async () => {
     const row = rows(page).filter({ hasText: '// WIP' });

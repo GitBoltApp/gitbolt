@@ -20,7 +20,7 @@ let booted: Promise<void> | null = null;
 /**
  * Loads the settings and the active profile (its tabs come back, spec §6.2), then opens the
  * launch repos: `?repo=` (repeatable; how Playwright opens repos), else the app's
- * GITBOLT_OPEN / argv. Each opens in a new tab after the active one, or focuses the tab already
+ * GITVOLT_OPEN / argv. Each opens in a new tab after the active one, or focuses the tab already
  * showing it. A later launch's path (the single-instance guard: queued, then `openRequested`)
  * opens the same way, once boot is done, including one forwarded before this page listened. Once per page (StrictMode runs effects twice).
  */
@@ -34,7 +34,7 @@ function boot(): Promise<void> {
     window.addEventListener('pagehide', () => { void flushSaves(); });
     // The backend outlives a webview reload: forget what the previous page watched, before this
     // one watches its active tab (spec §4.4: only the active tab is watched).
-    await api.unwatchAll().catch((e: unknown) => console.warn('[gitbolt] unwatchAll failed', errorMessage(e)));
+    await api.unwatchAll().catch((e: unknown) => console.warn('[gitvolt] unwatchAll failed', errorMessage(e)));
     await useAppState.getState().load();
     // git too old or missing blocks the app (spec §5.5): the shell shows that screen, and no repo opens.
     await useGitCheck.getState().check();

@@ -74,7 +74,7 @@ describe('action registry', () => {
 
   it('hamburger: one submenu per non-empty group, in menu order', () => {
     offs.push(registerActions([
-      { id: 'h.about', label: 'About GitBolt', group: 'Help', icon: Info, tooltip: 'About', run: () => {} },
+      { id: 'h.about', label: 'About GitVolt', group: 'Help', icon: Info, tooltip: 'About', run: () => {} },
       { id: 'f.open', label: 'Open repository…', group: 'File', icon: FolderOpen, tooltip: 'Open', shortcuts: ['Ctrl+O'], run: () => {} },
     ]));
     const rows = hamburgerRows();

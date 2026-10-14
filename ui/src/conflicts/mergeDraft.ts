@@ -4,7 +4,7 @@ import { EMPTY_DRAFT, readWipDraft, withMergeMessage, writeWipDraft, type WipDra
 
 export type Draft = WipDraft;
 
-const ASIDE = 'gitbolt.mergeDraftAside.v1';
+const ASIDE = 'gitvolt.mergeDraftAside.v1';
 const key = (repoPath: string, worktree: string) => `${repoPath}\u0000${worktree}`;
 const same = (a: Draft, b: Draft) => a.summary === b.summary && a.description === b.description;
 
@@ -75,7 +75,7 @@ export async function restoreDraftAfterAbort(repoPath: string, worktree: string,
   writeWipDraft(repoPath, worktree, saved.draft);
 }
 
-/** The merge ended without GitBolt's Abort (a commit, or a terminal): an untouched merge message
+/** The merge ended without GitVolt's Abort (a commit, or a terminal): an untouched merge message
  * gives way to the old draft; an edited or sent one stays. */
 export function settleDraftAside(repoPath: string, worktree: string): void {
   if (aborting.has(key(repoPath, worktree))) return; // Abort's own handler restores it

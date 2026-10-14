@@ -1,24 +1,29 @@
 <p align="center">
-  <img src="crates/gitbolt-app/icons/icon.png" alt="GitBolt" width="128" height="128">
+  <img src="crates/gitvolt-app/icons/icon.png" alt="GitVolt" width="128" height="128">
 </p>
 
-<h1 align="center">GitBolt</h1>
+<h1 align="center">GitVolt</h1>
 
 <p align="center">A fast, keyboard-friendly desktop Git client with a commit graph at its heart.</p>
 
 ---
 
-GitBolt is a graphical Git client inspired by [GitKraken](https://www.gitkraken.com/). If you've
+GitVolt is a graphical Git client inspired by [GitKraken](https://www.gitkraken.com/). If you've
 used GitKraken, it'll feel familiar on purpose: the lane graph down the middle, the branch and
 remote sidebar, the commit details on the right, and workflows driven from context menus and
-the keyboard. GitBolt is an independent project, not affiliated with or endorsed
+the keyboard. GitVolt is an independent project, not affiliated with or endorsed
 by GitKraken / Axosoft.
+
+**Formerly GitBolt.** Renamed in 0.7.0. GitBolt 0.6.1 updates to GitVolt by itself and keeps its
+settings, accounts and undo history.
+**On GitBolt 0.6.0 or earlier?** It can't update across the rename: download the latest from
+[GitVoltApp/gitvolt releases](https://github.com/GitVoltApp/gitvolt/releases).
 
 It's built with a Rust core (using [gitoxide](https://github.com/GitoxideLabs/gitoxide) for most reads
 and the `git` CLI for writes, so your hooks, config and credentials behave exactly as they do in a
 terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) runtime.
 
-![GitBolt: the commit graph with repository tabs in three tab groups, branches with their GitHub pull requests, a second worktree, and a selected commit's files as a tree](docs/images/screenshot.webp)
+![GitVolt: the commit graph with repository tabs in three tab groups, branches with their GitHub pull requests, a second worktree, and a selected commit's files as a tree](docs/images/screenshot.webp)
 
 > **Status:** early (0.x). Usable day to day on Linux and Windows, and new on macOS; expect rough edges.
 
@@ -33,25 +38,25 @@ terminal), a React UI, and [Tauri](https://tauri.app/) with the Chromium (CEF) r
 ## Installing
 
 Download the package for your system from the
-[latest release](https://github.com/GitBoltApp/gitbolt/releases/latest):
+[latest release](https://github.com/GitVoltApp/gitvolt/releases/latest):
 
-- **Debian and Ubuntu:** `sudo apt install ./GitBolt_<version>_amd64.deb`
-- **Arch Linux:** `sudo pacman -U GitBolt-<version>-x86_64.pkg.tar.zst`
-- **Fedora 40 or later:** `sudo dnf install ./GitBolt-<version>-1.x86_64.rpm` (openSUSE Tumbleweed:
-  `sudo zypper install --allow-unsigned-rpm ./GitBolt-<version>-1.x86_64.rpm`)
-- **Windows:** run `GitBolt_<version>_x64-setup.exe` (installs for you, no administrator rights)
-  or `GitBolt_<version>_x64.msi` (installs for all users). They aren't code-signed yet, so
+- **Debian and Ubuntu:** `sudo apt install ./GitVolt_<version>_amd64.deb`
+- **Arch Linux:** `sudo pacman -U GitVolt-<version>-x86_64.pkg.tar.zst`
+- **Fedora 40 or later:** `sudo dnf install ./GitVolt-<version>-1.x86_64.rpm` (openSUSE Tumbleweed:
+  `sudo zypper install --allow-unsigned-rpm ./GitVolt-<version>-1.x86_64.rpm`)
+- **Windows:** run `GitVolt_<version>_x64-setup.exe` (installs for you, no administrator rights)
+  or `GitVolt_<version>_x64.msi` (installs for all users). They aren't code-signed yet, so
   Windows SmartScreen warns the first time: **More info** › **Run anyway**.
-- **macOS (Apple Silicon):** open `GitBolt_<version>_aarch64.dmg` and drag GitBolt to
+- **macOS (Apple Silicon):** open `GitVolt_<version>_aarch64.dmg` and drag GitVolt to
   Applications. The app is ad-hoc signed, not signed with an Apple Developer ID or notarized, so
   the first launch is blocked ("Apple could not verify…"). Either run
-  `xattr -dr com.apple.quarantine /Applications/GitBolt.app` once, or try to open it, then
+  `xattr -dr com.apple.quarantine /Applications/GitVolt.app` once, or try to open it, then
   go to System Settings › Privacy & Security and click **Open Anyway**.
 
-GitBolt needs Git 2.40 or newer on your `PATH` (on Windows,
+GitVolt needs Git 2.40 or newer on your `PATH` (on Windows,
 [Git for Windows](https://gitforwindows.org/); on macOS, Xcode's command line tools or Homebrew's
 `git`). `SHA256SUMS` in each release lists the files'
-checksums. After that, GitBolt updates itself (see [Updates](#updates)).
+checksums. After that, GitVolt updates itself (see [Updates](#updates)).
 
 ## Features
 
@@ -71,7 +76,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 - **Undo history.** Each worktree keeps a journal of its last 50 operations, and it
   survives restarts: commits and amends, checkouts, branch and tag changes, merges, rebases,
   cherry-picks, reverts, resets, stashes, discards and pulls. Staging has its own undo too.
-- **Interactive rebase.** Besides pick, reword, squash and drop, GitBolt has fixup
+- **Interactive rebase.** Besides pick, reword, squash and drop, GitVolt has fixup
   and edit (the rebase stops so you can amend that commit), predicts which commits will
   conflict before you start, and lets you move, add or delete branches on the rewritten commits
   in the same step.
@@ -129,7 +134,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 - **Cherry-pick and revert,** each with a no-commit variant; stashes; tags.
 - **Signed commits** through your git config, and signature verification in the commit details.
 - **Undo menu:** undo an older action out of order when nothing later depends on it.
-- **Activity log** of every git command GitBolt ran, with its output, hooks included.
+- **Activity log** of every git command GitVolt ran, with its output, hooks included.
 
 #### Files and diffs
 
@@ -156,7 +161,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 
 #### Privacy
 
-- **No telemetry,** analytics or crash reporting. The update check is the only request GitBolt
+- **No telemetry,** analytics or crash reporting. The update check is the only request GitVolt
   makes on its own that isn't about your repositories or accounts.
 - **Locked-down webview.** A strict Content Security Policy, and Chromium can't resolve any host
   name but localhost: the Rust core makes every network request. Images from hosts other than
@@ -167,7 +172,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 
 ✅ yes, 🟡 partly, ❌ no.
 
-| | GitKraken | GitBolt |
+| | GitKraken | GitVolt |
 |---|---|---|
 | Commit graph with lanes, branch/tag chips and avatars | ✅ | ✅ |
 | Main branch pinned to the left | 🟡 When you pin one | ✅ Automatic, with its remote branch and, in a fork, the original project's; can be changed or turned off |
@@ -203,7 +208,7 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 | Windows and macOS | ✅ | ✅ (macOS: Apple Silicon only) |
 | License | Proprietary; free for local and public repos | MIT |
 
-### What GitBolt doesn't do
+### What GitVolt doesn't do
 
 - **Planned:** Forgejo.
 - **Not there yet:** hiding or soloing branches.
@@ -213,21 +218,21 @@ checksums. After that, GitBolt updates itself (see [Updates](#updates)).
 
 ## Updates
 
-GitBolt checks GitHub for a new release at startup and once a day. When there is one:
+GitVolt checks GitHub for a new release at startup and once a day. When there is one:
 
 1. A pill at the bottom right says **Update to 0.6.0** (the new version). A click downloads the package for how
-   you installed GitBolt.
-2. GitBolt checks the download against the release's `SHA256SUMS`, then offers **Install**.
+   you installed GitVolt.
+2. GitVolt checks the download against the release's `SHA256SUMS`, then offers **Install**.
 3. **Install** depends on the platform:
-   - **Linux (`.deb`, `.rpm`, Arch):** GitBolt runs the package manager through `pkexec`
+   - **Linux (`.deb`, `.rpm`, Arch):** GitVolt runs the package manager through `pkexec`
      (`pkexec apt install`, `pkexec dnf install` or zypper, `pkexec pacman -U`), so your desktop
      asks for your password. If it can't ask, it shows the command to run in a terminal; on Arch,
      it can show your AUR helper's command instead.
-   - **Windows:** GitBolt starts the installer you installed with (the setup `.exe` or the `.msi`)
+   - **Windows:** GitVolt starts the installer you installed with (the setup `.exe` or the `.msi`)
      and closes so it can be replaced.
-   - **macOS:** GitBolt copies the new GitBolt.app over the one you run, with no password. If it
-     can't write to its folder, it says to open the `.dmg` and drag GitBolt to Applications.
-4. **Restart GitBolt** starts the new version (on Linux and macOS).
+   - **macOS:** GitVolt copies the new GitVolt.app over the one you run, with no password. If it
+     can't write to its folder, it says to open the `.dmg` and drag GitVolt to Applications.
+4. **Restart GitVolt** starts the new version (on Linux and macOS).
 
 A build from source only links to the release page.
 
@@ -264,15 +269,15 @@ See [docs/dev-setup.md](docs/dev-setup.md) for the full setup, including Chromiu
 - [ARCHITECTURE.md](ARCHITECTURE.md): how the pieces fit together
 - [CONTRIBUTING.md](CONTRIBUTING.md): how to contribute
 - [SECURITY.md](SECURITY.md): reporting a vulnerability
-- [PRIVACY.md](PRIVACY.md): what GitBolt stores and sends
+- [PRIVACY.md](PRIVACY.md): what GitVolt stores and sends
 - [CHANGELOG.md](CHANGELOG.md): what changed in each release
 - [docs/dev-setup.md](docs/dev-setup.md): the full development setup
-- [docs/decisions/cef-over-webkitgtk.md](docs/decisions/cef-over-webkitgtk.md): why GitBolt runs on CEF rather than WebKitGTK
+- [docs/decisions/cef-over-webkitgtk.md](docs/decisions/cef-over-webkitgtk.md): why GitVolt runs on CEF rather than WebKitGTK
 - [docs/licensing.md](docs/licensing.md): licensing details
 
 ## License
 
 [MIT](LICENSE)
 
-GitKraken is a trademark of Axosoft, LLC. It's mentioned here only to describe GitBolt's
+GitKraken is a trademark of Axosoft, LLC. It's mentioned here only to describe GitVolt's
 inspiration and to compare features.

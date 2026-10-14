@@ -91,7 +91,7 @@ export const availableActions = () => [...registry.values()].filter(usable);
  * error toast with Copy/Retry and Details (R12; a cancel stays quiet). */
 export function invoke(a: Action, opts: { quiet?: boolean } = {}): void {
   track(a.id, a.label, a.run, (e) => {
-    console.warn(`[gitbolt] action ${a.id} failed`, e);
+    console.warn(`[gitvolt] action ${a.id} failed`, e);
     toastActionError(e, a.errorContext?.());
   }, opts.quiet);
 }
@@ -127,7 +127,7 @@ const GROUPS: Array<{ group: ActionGroup; icon: LucideIcon; tooltip: string }> =
   { group: 'Edit', icon: Pencil, tooltip: 'Find, filter and the command palette' },
   { group: 'View', icon: LayoutPanelLeft, tooltip: 'Tabs and panels' },
   { group: 'Repository', icon: FolderGit2, tooltip: 'Actions on the current repository' },
-  { group: 'Help', icon: CircleHelp, tooltip: 'About GitBolt' },
+  { group: 'Help', icon: CircleHelp, tooltip: 'About GitVolt' },
 ];
 
 const QUIT_ID = 'file.quit';

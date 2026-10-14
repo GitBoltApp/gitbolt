@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Usage: scripts/check-arch-pkg.sh <GitBolt-*.pkg.tar.zst>
+# Usage: scripts/check-arch-pkg.sh <GitVolt-*.pkg.tar.zst>
 #
 # Installs the Arch package in a throwaway archlinux:latest container (Docker and the network
 # needed, so it's not part of `just package`) and checks that:
 #   - pacman accepts it and every dependency resolves from Arch's repos;
-#   - `pacman -Qkk gitbolt` finds the .MTREE and no altered files;
+#   - `pacman -Qkk gitvolt` finds the .MTREE and no altered files;
 #   - chrome-sandbox is root:root 4755 after install;
-#   - the license notices are in /usr/share/licenses/gitbolt/ and not empty;
-#   - the spell-check dictionary is in /usr/share/GitBolt/dictionaries/;
-#   - the AppStream metainfo validates and names the gitbolt package, the desktop entry validates,
+#   - the license notices are in /usr/share/licenses/gitvolt/ and not empty;
+#   - the spell-check dictionary is in /usr/share/GitVolt/dictionaries/;
+#   - the AppStream metainfo validates and names the gitvolt package, the desktop entry validates,
 #     and the app-id icons are there;
 #   - ldd finds every library of the binary and the bundled CEF .so files;
 #   - the app starts headless (xvfb-run, as a normal user) without a missing library. Under
@@ -17,9 +17,9 @@
 #     are granted to the container).
 # The container is removed afterwards (--rm, and on interrupt); no other image or container is touched.
 set -euo pipefail
-pkg=$(realpath "${1:?usage: check-arch-pkg.sh <GitBolt-*.pkg.tar.zst>}")
+pkg=$(realpath "${1:?usage: check-arch-pkg.sh <GitVolt-*.pkg.tar.zst>}")
 [ -f "$pkg" ] || { echo "check-arch-pkg: no such file: $pkg" >&2; exit 1; }
-name="gitbolt-arch-check-$$"
+name="gitvolt-arch-check-$$"
 trap 'docker rm -f "$name" >/dev/null 2>&1 || true' EXIT INT TERM
 docker run --rm --name "$name" -v "$pkg:/pkg/$(basename "$pkg"):ro" -e PKG="/pkg/$(basename "$pkg")" \
   archlinux:latest bash -c '
@@ -29,44 +29,44 @@ step() { echo; echo "== $*"; }
 step "pacman -Syu (refresh, and no partial upgrade against the image)"
 pacman -Syu --noconfirm --noprogressbar >/tmp/syu.log 2>&1 || { cat /tmp/syu.log; fail "pacman -Syu"; }
 # The image keeps itself small with NoExtract rules (usr/share/doc, man pages, locales) that a
-# stock Arch install does not have: they would skip the license notices in /usr/share/doc/gitbolt
+# stock Arch install does not have: they would skip the license notices in /usr/share/doc/gitvolt
 # and make pacman -Qkk report them missing. Install the way a real system does.
 sed -i "/^NoExtract/d" /etc/pacman.conf
 step "pacman -U $PKG"
 pacman -U --noconfirm --noprogressbar "$PKG" 2>&1 | tee /tmp/u.log
 grep -Ei "^(warning|error):|missing|corrupt|invalid" /tmp/u.log && fail "pacman -U warned"
-step "pacman -Qi gitbolt"
-pacman -Qi gitbolt | grep -E "^(Name|Version|Description|Architecture|URL|Licenses|Depends On|Installed Size|Packager|Build Date) "
-step "pacman -Qkk gitbolt"
-pacman -Qkk gitbolt 2>&1 | tee /tmp/qkk.log || fail "pacman -Qkk reported problems"
-grep -qE "^gitbolt: [0-9]+ total files, 0 altered files$" /tmp/qkk.log || fail "pacman -Qkk found altered files"
+step "pacman -Qi gitvolt"
+pacman -Qi gitvolt | grep -E "^(Name|Version|Description|Architecture|URL|Licenses|Depends On|Installed Size|Packager|Build Date) "
+step "pacman -Qkk gitvolt"
+pacman -Qkk gitvolt 2>&1 | tee /tmp/qkk.log || fail "pacman -Qkk reported problems"
+grep -qE "^gitvolt: [0-9]+ total files, 0 altered files$" /tmp/qkk.log || fail "pacman -Qkk found altered files"
 grep -Ei "^(warning|error):|mtree" /tmp/qkk.log && fail "pacman -Qkk warned"
 step "chrome-sandbox ownership and mode"
-s=$(stat -c "%U:%G %a %A" /usr/share/GitBolt/chrome-sandbox); echo "$s"
+s=$(stat -c "%U:%G %a %A" /usr/share/GitVolt/chrome-sandbox); echo "$s"
 [ "$s" = "root:root 4755 -rwsr-xr-x" ] || fail "chrome-sandbox is $s"
-step "license notices in /usr/share/licenses/gitbolt"
+step "license notices in /usr/share/licenses/gitvolt"
 for f in LICENSE THIRD-PARTY-NOTICES-rust.txt THIRD-PARTY-NOTICES-ui.txt CEF-LICENSE.txt CHROMIUM-CREDITS.html.gz DICTIONARY-en-US-LICENSE.txt; do
-  [ -s "/usr/share/licenses/gitbolt/$f" ] || fail "no /usr/share/licenses/gitbolt/$f (or it is empty)"
+  [ -s "/usr/share/licenses/gitvolt/$f" ] || fail "no /usr/share/licenses/gitvolt/$f (or it is empty)"
 done
-ls -lL /usr/share/licenses/gitbolt/
-step "spell-check dictionary in /usr/share/GitBolt/dictionaries"
-[ -s /usr/share/GitBolt/dictionaries/en-US-10-1.bdic ] || fail "no /usr/share/GitBolt/dictionaries/en-US-10-1.bdic (or it is empty)"
-[ "$(head -c 4 /usr/share/GitBolt/dictionaries/en-US-10-1.bdic)" = BDic ] || fail "en-US-10-1.bdic is not a .bdic"
-ls -l /usr/share/GitBolt/dictionaries/
+ls -lL /usr/share/licenses/gitvolt/
+step "spell-check dictionary in /usr/share/GitVolt/dictionaries"
+[ -s /usr/share/GitVolt/dictionaries/en-US-10-1.bdic ] || fail "no /usr/share/GitVolt/dictionaries/en-US-10-1.bdic (or it is empty)"
+[ "$(head -c 4 /usr/share/GitVolt/dictionaries/en-US-10-1.bdic)" = BDic ] || fail "en-US-10-1.bdic is not a .bdic"
+ls -l /usr/share/GitVolt/dictionaries/
 step "AppStream metainfo, desktop entry and icons"
 pacman -S --noconfirm --noprogressbar --needed appstream desktop-file-utils >/dev/null 2>&1 || fail "installing appstream"
-m=/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml
+m=/usr/share/metainfo/com.gitvolt.desktop.metainfo.xml
 appstreamcli validate --pedantic --no-net "$m" || fail "appstreamcli rejects $m"
-grep -qx "  <pkgname>gitbolt</pkgname>" "$m" || fail "$m does not name the gitbolt package"
-desktop-file-validate /usr/share/applications/GitBolt.desktop || fail "desktop-file-validate rejects GitBolt.desktop"
+grep -qx "  <pkgname>gitvolt</pkgname>" "$m" || fail "$m does not name the gitvolt package"
+desktop-file-validate /usr/share/applications/GitVolt.desktop || fail "desktop-file-validate rejects GitVolt.desktop"
 for s in 32x32 64x64 128x128 256x256 512x512; do
-  [ -s "/usr/share/icons/hicolor/$s/apps/dev.gitbolt.desktop.png" ] || fail "no $s icon"
+  [ -s "/usr/share/icons/hicolor/$s/apps/com.gitvolt.desktop.png" ] || fail "no $s icon"
 done
-[ -s /usr/share/icons/hicolor/scalable/apps/dev.gitbolt.desktop.svg ] || fail "no scalable icon"
-appstreamcli get dev.gitbolt.desktop --details 2>&1 | grep -E "^(Identifier|Name|Summary|Package|License|Icon|Homepage)" || true
+[ -s /usr/share/icons/hicolor/scalable/apps/com.gitvolt.desktop.svg ] || fail "no scalable icon"
+appstreamcli get com.gitvolt.desktop --details 2>&1 | grep -E "^(Identifier|Name|Summary|Package|License|Icon|Homepage)" || true
 step "ldd"
 missing=0
-for f in /usr/share/GitBolt/gitbolt /usr/share/GitBolt/*.so*; do
+for f in /usr/share/GitVolt/gitvolt /usr/share/GitVolt/*.so*; do
   out=$(ldd "$f"); n=$(grep -c "not found" <<<"$out" || true)
   echo "$f: $(grep -c "=>" <<<"$out") libraries, $n not found"
   [ "$n" = 0 ] || { grep "not found" <<<"$out"; missing=1; }
@@ -76,7 +76,7 @@ step "headless launch (xvfb-run, 20 s, as a normal user)"
 pacman -S --noconfirm --noprogressbar --needed xorg-server-xvfb xorg-xauth >/dev/null 2>&1 || fail "installing xvfb"
 useradd -m tester
 set +e
-runuser -u tester -- env HOME=/home/tester timeout 20 xvfb-run -a gitbolt >/tmp/run.log 2>&1
+runuser -u tester -- env HOME=/home/tester timeout 20 xvfb-run -a gitvolt >/tmp/run.log 2>&1
 rc=$?
 set -e
 tail -n 20 /tmp/run.log

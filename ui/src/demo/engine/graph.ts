@@ -1,12 +1,12 @@
-// The graph pipeline compiled from crates/gitbolt-graph (gitbolt-graph-wasm): loaded once, one
+// The graph pipeline compiled from crates/gitvolt-graph (gitvolt-graph-wasm): loaded once, one
 // engine (a commit store) per repository. JSON in and out, the payload as the core's.
-import init, { GraphEngine } from 'gitbolt-graph-wasm';
+import init, { GraphEngine } from 'gitvolt-graph-wasm';
 import { gunzipIfNeeded } from './bundle';
 import { gbError } from './errors';
 import type { GraphFactory } from './layout';
 
 // Gzipped at build time: GitHub Pages doesn't compress .wasm (spec §5.3).
-const WASM_URL = new URL('../wasm/gitbolt_graph_wasm_bg.wasm.gz', import.meta.url);
+const WASM_URL = new URL('../wasm/gitvolt_graph_wasm_bg.wasm.gz', import.meta.url);
 
 /** `bytes`: the .wasm (tests read it from disk); fetched next to this module otherwise. */
 export async function loadGraphWasm(bytes?: Uint8Array): Promise<GraphFactory> {

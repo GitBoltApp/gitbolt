@@ -11,7 +11,7 @@ export interface Bullet { lead: string; text: string }
 export interface Section { title: string; level: 3 | 4; bullets: Bullet[]; lines: string[] }
 export interface Highlight { lead: string; kicker: string; lane: Lane; shot: ShotId }
 
-const REPO = 'https://github.com/GitBoltApp/gitbolt';
+const REPO = 'https://github.com/GitVoltApp/gitvolt';
 
 /** The page's highlights, in order: README.md's, plus Pinned trunk (from Graph and workspace), as
  * the approved design has them. The README's "Free and MIT licensed" is in the hero. */

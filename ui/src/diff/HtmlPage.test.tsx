@@ -122,7 +122,7 @@ describe('HtmlPage: the bar for what does not run here', () => {
     expect(bar).toHaveTextContent("This page uses scripts or files from cdn.jsdelivr.net, unpkg.com — they don't run here. Open in browser to see it fully.");
     fireEvent.click(await screen.findByRole('button', { name: 'Open in browser' }));
     expect(openIn).toHaveBeenCalledWith(1, expect.objectContaining({ path: 'report.html', opener: 'chooser', line: null, source: target.new }));
-    expect(localStorage.getItem('gitbolt.openIn.v1')).toBeNull();
+    expect(localStorage.getItem('gitvolt.openIn.v1')).toBeNull();
   });
 
   it('without a system chooser, the bar has no button', async () => {

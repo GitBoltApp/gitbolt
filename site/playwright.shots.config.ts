@@ -3,7 +3,7 @@ import { defineConfig, devices } from '@playwright/test';
 // The site's screenshots (`just site-shots`, on demand, never in CI): headless Chromium at device
 // scale 2 on the demo build (dist/demo/), served as static files. Port: the e2e port base + 4
 // (1424 by default).
-const port = (process.env.GITBOLT_E2E_PORT_BASE ? Number(process.env.GITBOLT_E2E_PORT_BASE) : 1420) + 4;
+const port = (process.env.GITVOLT_E2E_PORT_BASE ? Number(process.env.GITVOLT_E2E_PORT_BASE) : 1420) + 4;
 
 export default defineConfig({
   testDir: './e2e-shots',

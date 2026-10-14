@@ -24,7 +24,7 @@ describe('readBundle', () => {
   });
 
   test('refuses what is not a whole, well-formed bundle', async () => {
-    await expect(readBundle(new Uint8Array(gzipSync(Buffer.from('PK\u0003\u0004 not a bundle'))))).rejects.toThrow('not a GitBolt demo bundle');
+    await expect(readBundle(new Uint8Array(gzipSync(Buffer.from('PK\u0003\u0004 not a bundle'))))).rejects.toThrow('not a GitVolt demo bundle');
     const raw = new Uint8Array(gunzipSync(encodeBundle('basic', [file('repo/a', 'abc')])));
     expect(() => parseBundle(raw.subarray(0, raw.length - 1))).toThrow('truncated demo bundle (repo/a)');
     expect(() => parseBundle(new Uint8Array([...raw, 0]))).toThrow('trailing bytes');

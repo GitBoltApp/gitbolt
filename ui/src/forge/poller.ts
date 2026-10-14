@@ -6,7 +6,7 @@
  *   window has the focus;
  * - when the window gets the focus back (`focus`), if the last full poll is FOCUS_GAP_MS old
  *   or a tick was skipped meanwhile;
- * - after any GitBolt forge write (`write`);
+ * - after any GitVolt forge write (`write`);
  * - while a visible MR/PR's pipeline runs (`fast`): after 20 s, then 40 s, 80 s, at most 2 min
  *   while the same pipeline keeps running; a new one starts again at 20 s.
  * Background tabs never poll. Requests are conditional (ETags), so an unchanged poll is nearly
@@ -100,7 +100,7 @@ const stronger = (queued: PollReason | null, next: PollReason): PollReason => (q
  *   interval has passed since the last full poll (`timer`). A tick while the window is minimized
  *   or hasn't the focus is skipped, and made up when the window gets the focus back;
  * - `onFocus(true)`: a full poll, if a tick was skipped or the last full poll is FOCUS_GAP_MS old;
- * - `afterWrite`: a full poll at once (a GitBolt forge write).
+ * - `afterWrite`: a full poll at once (a GitVolt forge write).
  * One poll at a time: a reason arriving meanwhile runs right after it.
  */
 export function createForgePoller(fetchIntervalMs: number, deps: ForgePollDeps): ForgePoller {

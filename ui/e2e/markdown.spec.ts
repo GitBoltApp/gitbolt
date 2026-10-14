@@ -50,7 +50,7 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
   // One MR and page for these (each was a test of its own, paying for a fixture, a page load and
   // the MR's): a description with an upload and a reference, then a long body; a long code line in
   // a comment; a long title.
-  test('a description renders, its upload loads through the API, and its !ref opens the other MR in GitBolt; long lines, titles and bodies never push the panel sideways or squash the merge box', async ({ page, request }) => {
+  test('a description renders, its upload loads through the API, and its !ref opens the other MR in GitVolt; long lines, titles and bodies never push the panel sideways or squash the merge box', async ({ page, request }) => {
     const longTitle = 'Unify the config-file lexer, parser and the standalone formatter so they share one tokenizer and stop drifting apart';
     const longBody = Array.from({ length: 200 }, (_, i) => `Line ${i + 1} of a long description.`).join('\n\n');
     const badge = await openWithDescription(page, request, `## What / why\n\nCaching follows !5.\n\n\`\`\`ts\nconst cached = true;\n\`\`\`\n\n![shot](/uploads/${UPLOAD_HASH}/shot.png)\n\n${longBody}`, `Try this:\n\n\`\`\`sh\necho ${'x'.repeat(400)}\n\`\`\``, longTitle);
@@ -85,7 +85,7 @@ test.describe('rendered Markdown in the MR/PR view (spec #5 §7)', () => {
     await expect(view.locator('.mr-description .md-code')).toContainText('const cached = true;');
     const ref = view.getByRole('link', { name: '!5' });
     await ref.hover();
-    await expect(page.getByRole('tooltip')).toHaveText('Open !5 in GitBolt');
+    await expect(page.getByRole('tooltip')).toHaveText('Open !5 in GitVolt');
     await expect.poll(async () => (await forgeRequests(request)).some((r) => r.path === `/api/v4/projects/42/uploads/${UPLOAD_HASH}/shot.png` && r.authorized)).toBe(true);
     await expect(view.getByRole('button', { name: /Load image from/ })).toHaveCount(0);
     // It shows: decoded at its own size (the upload arrives as application/octet-stream).

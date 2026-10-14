@@ -186,7 +186,7 @@ export async function loadHistory(repoId: number, worktree: string): Promise<voi
   try {
     loadedHistory.set(key, await api.journalHistory(repoId, worktree));
   } catch (e) {
-    console.warn('[gitbolt] undo history', e);
+    console.warn('[gitvolt] undo history', e);
     loadedHistory.delete(key);
   }
 }

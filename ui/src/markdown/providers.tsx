@@ -9,7 +9,7 @@ import { findTrigger, loadEmojiList, rankEmoji, type EmojiEntry, type EmojiHit }
 import { findMention, mergePeople, participantsOf, rankPeople } from './mentions';
 import type { Provider } from './useCompletion';
 
-/** `:shortcode` → gemoji's emoji; inserts the shortcode, not the glyph (both forges and GitBolt's
+/** `:shortcode` → gemoji's emoji; inserts the shortcode, not the glyph (both forges and GitVolt's
  * own renderer turn it into the emoji). */
 export function useEmojiProvider(): Provider<EmojiHit> {
   const [list, setList] = useState<readonly EmojiEntry[] | null>(null);

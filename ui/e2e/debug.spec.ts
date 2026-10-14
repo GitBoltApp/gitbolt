@@ -84,7 +84,7 @@ test.describe('the Debug modal', () => {
       await expect(page.getByRole('status')).toHaveText('Diagnostics copied');
       if (test.info().project.name === 'chromium') {
         const text = await page.evaluate(() => navigator.clipboard.readText());
-        expect(text).toMatch(/^GitBolt /);
+        expect(text).toMatch(/^GitVolt /);
         expect(text).toContain('Runtime: harness');
       }
       const perf = dialog.getByRole('button', { name: 'Perf overlay' });

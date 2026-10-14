@@ -11,10 +11,15 @@ appVersion: string,
  */
 build: string | null, gitVersion: string, 
 /**
- * How this GitBolt was installed: what the update dialog offers.
+ * How this GitVolt was installed: what the update dialog offers.
  */
 installKind: InstallKind, 
 /**
  * The user's home folder, so paths under it can read `~/…`.
  */
-home: string | null, };
+home: string | null, 
+/**
+ * macOS: the GitBolt.app left beside this GitVolt.app that it offers to remove
+ * (`updates::install::leftover_legacy_bundle`); set by `Api`, never by `app_info_payload`.
+ */
+legacyBundle: string | null, };

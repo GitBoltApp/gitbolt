@@ -27,7 +27,7 @@ const TITLES: Record<Exclude<GbErrorKind, 'Cancelled'>, string> = {
   Conflict: 'Merge conflict',
   DirtyWorktree: 'Uncommitted changes in the way',
   IndexLocked: 'Repository is locked',
-  RefMoved: 'Branch changed outside GitBolt',
+  RefMoved: 'Branch changed outside GitVolt',
   NotFound: 'Not found',
   InvalidInput: 'Invalid input',
   GitTooOld: 'git is too old',
@@ -46,7 +46,7 @@ const TITLES: Record<Exclude<GbErrorKind, 'Cancelled'>, string> = {
 export function describeError(err: GbError): { title: string; message: string } | null {
   if (err.kind === 'Cancelled') return null;
   const title = TITLES[err.kind];
-  if (err.kind === 'RefMoved') return { title, message: 'Branch changed outside GitBolt — refresh and retry' };
+  if (err.kind === 'RefMoved') return { title, message: 'Branch changed outside GitVolt — refresh and retry' };
   if (err.kind === 'IndexLocked') {
     // Spec #2 §14: Remove stale lock arrives with the lock's detail; without it, the hand-made way.
     return err.detail?.kind === 'indexLock'

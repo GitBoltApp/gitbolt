@@ -66,7 +66,7 @@ test('themes: Default Dark by default; a lane override; ?theme=; the palette, sa
     await expect(page.locator('body')).toHaveCSS('background-color', rgb(THEMES['solarized-light'].colors['app-bg0']));
     await expect.poll(() => canvasHash(page)).not.toBe(before);
     // Saved (the backend's settings), and mirrored for the first paint (R3).
-    await expect.poll(() => page.evaluate(() => localStorage.getItem('gitbolt.theme.v1'))).toBe(JSON.stringify({ id: 'solarized-light', kind: 'light', bg: THEMES['solarized-light'].colors['app-bg0'] }));
+    await expect.poll(() => page.evaluate(() => localStorage.getItem('gitvolt.theme.v1'))).toBe(JSON.stringify({ id: 'solarized-light', kind: 'light', bg: THEMES['solarized-light'].colors['app-bg0'] }));
     await page.reload();
     await expect(grid(page)).toBeVisible();
     expect(await theme(page)).toBe('solarized-light');
@@ -86,7 +86,7 @@ test('themes: Default Dark by default; a lane override; ?theme=; the palette, sa
 });
 
 test("index.html paints the mirrored theme's background and scheme on its own, before the app's module runs (I1)", async ({ page }) => {
-  await page.addInitScript((bg) => localStorage.setItem('gitbolt.theme.v1', JSON.stringify({ id: 'light', kind: 'light', bg })), THEMES.light.colors['app-bg0']);
+  await page.addInitScript((bg) => localStorage.setItem('gitvolt.theme.v1', JSON.stringify({ id: 'light', kind: 'light', bg })), THEMES.light.colors['app-bg0']);
   // No app module at all: only the inline <head> script can have set these.
   // (The dev server's /src/main.tsx, or the production build's entry chunk.)
   await page.route(/\/(src\/main\.tsx|assets\/index-[^/]*\.js)(\?|$)/, (r) => r.abort());
@@ -146,7 +146,7 @@ test('the open editor: a theme switch repaints it without re-creating it (R6); S
 test.describe('theme screenshots', () => {
   // Pixel baselines: opt-in (`just e2e-shots`), recorded on one machine; fonts and antialiasing
   // elsewhere would fail the gate (W2-A review).
-  test.skip(!process.env.GITBOLT_E2E_SHOTS, 'pixel baselines run with GITBOLT_E2E_SHOTS=1 (just e2e-shots)');
+  test.skip(!process.env.GITVOLT_E2E_SHOTS, 'pixel baselines run with GITVOLT_E2E_SHOTS=1 (just e2e-shots)');
   test.skip(({ browserName }) => browserName !== 'chromium', 'screenshot baselines are Chromium-only');
   for (const id of THEME_IDS) {
     test(`${id}: graph, details, split diff`, async ({ page }) => {

@@ -17,7 +17,7 @@ function withFiles(files: Record<string, string>, message: string): string {
 
 type Pwned = { __pwned?: string[] };
 
-// The app's Content Security Policy (crates/gitbolt-app/tauri.conf.json), which the e2e build is
+// The app's Content Security Policy (crates/gitvolt-app/tauri.conf.json), which the e2e build is
 // served under (vite.config.ts). The Markdown sanitizer keeps scripts out of a rendered document;
 // the policy is the second layer, for a script that got past it.
 test.describe('Content Security Policy', () => {

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/gitbolt-graph", "crates/gitbolt-graph-wasm", "crates/gitbolt-core", "crates/gitbolt-forge", "crates/gitbolt-app", "crates/gitbolt-harness"]
+members = ["crates/gitvolt-graph", "crates/gitvolt-graph-wasm", "crates/gitvolt-core", "crates/gitvolt-forge", "crates/gitvolt-app", "crates/gitvolt-harness"]
 
 [workspace.package]
 version = "0.6.1"
@@ -9,9 +9,9 @@ publish = false
 license = "MIT"
 
 [workspace.dependencies]
-gitbolt-core = { path = "crates/gitbolt-core" }
-gitbolt-forge = { path = "crates/gitbolt-forge" }
-gitbolt-graph = { path = "crates/gitbolt-graph" }
+gitvolt-core = { path = "crates/gitvolt-core" }
+gitvolt-forge = { path = "crates/gitvolt-forge" }
+gitvolt-graph = { path = "crates/gitvolt-graph" }
 gix = "0.88"
 tokio = { version = "1.53", features = ["rt-multi-thread", "macros", "process", "time", "sync", "fs", "net", "io-util"] }
 tokio-util = "0.7.19"
@@ -23,6 +23,10 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 tracing-appender = "0.2.5"
 regex = "1.13"
+# GitBolt.app's Info.plist (XML or binary): `updates::install::leftover_legacy_bundle`.
+plist = "1.10"
+# macOS only: the Trash (`updates::trash`).
+objc2-foundation = "0.3"
 nix = { version = "0.31", features = ["signal", "process", "user", "fs"] }
 # Windows system calls (core's platform module: job objects, file ids, named-pipe security).
 # Already in the tree through tokio and others; same version.
@@ -44,7 +48,7 @@ insta = "1.48"
 axum = { version = "0.8.9", features = ["ws"] }
 tokio-tungstenite = "0.30"
 # Tauri 3 alpha + the official CEF (Chromium) runtime (Task 14). Pinned exactly: this is an
-# alpha series. See vendor/tauri-runtime-cef/GITBOLT-PATCH.md for the vendored runtime patch.
+# alpha series. See vendor/tauri-runtime-cef/GITVOLT-PATCH.md for the vendored runtime patch.
 tauri = { version = "=3.0.0-alpha.4", features = [] }
 tauri-build = { version = "=3.0.0-alpha.3", features = [] }
 tauri-runtime-cef = "=3.0.0-alpha.5"
@@ -71,7 +75,7 @@ raw-window-handle = "0.6.2"
 notify = "8.2.0"
 
 [patch.crates-io]
-# CEF issue #3002 idle-busy-loop workaround; see vendor/tauri-runtime-cef/GITBOLT-PATCH.md.
+# CEF issue #3002 idle-busy-loop workaround; see vendor/tauri-runtime-cef/GITVOLT-PATCH.md.
 tauri-runtime-cef = { path = "vendor/tauri-runtime-cef" }
 
 # Build speed (docs/dev-setup.md, "Build and test speed"). Dev and test builds keep file:line
@@ -90,5 +94,5 @@ debug = false
 incremental = true
 
 # The website demo's WebAssembly graph: small over fast (it downloads with the page).
-[profile.release.package.gitbolt-graph-wasm]
+[profile.release.package.gitvolt-graph-wasm]
 opt-level = "s"

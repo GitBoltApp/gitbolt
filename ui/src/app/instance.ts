@@ -14,7 +14,7 @@ function whenBooted(): Promise<void> {
   });
 }
 
-const warn = (e: unknown) => { console.warn('[gitbolt] opening a path from another launch failed', errorMessage(e)); };
+const warn = (e: unknown) => { console.warn('[gitvolt] opening a path from another launch failed', errorMessage(e)); };
 
 /**
  * Opens what later launches forwarded and nothing took yet. The backend returns each forwarded

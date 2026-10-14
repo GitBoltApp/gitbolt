@@ -9,7 +9,7 @@ import { expect, it } from 'vitest';
 // except the getters and event listeners `core:default` already allows.
 const here = dirname(fileURLToPath(import.meta.url));
 const src = join(here, '..');
-const capability = JSON.parse(readFileSync(join(here, '../../../crates/gitbolt-app/capabilities/default.json'), 'utf8')) as { permissions: string[] };
+const capability = JSON.parse(readFileSync(join(here, '../../../crates/gitvolt-app/capabilities/default.json'), 'utf8')) as { permissions: string[] };
 const inDefault = (m: string) => /^(is|on|inner|outer|scale|title|theme|current)/.test(m);
 const kebab = (m: string) => m.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
 

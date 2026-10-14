@@ -13,10 +13,10 @@
 #
 # Deterministic: fixed identities, dates and contents, git config isolated from yours, so every
 # run gives the same commit hashes. Re-running resets DIR, which must be empty, missing, or carry
-# the .gitbolt-showcase marker from a previous run.
+# the .gitvolt-showcase marker from a previous run.
 set -euo pipefail
 dir=${1:?usage: scripts/showcase-repo.sh DIR}
-marker=.gitbolt-showcase
+marker=.gitvolt-showcase
 
 if [ -e "$dir" ] && [ -n "$(ls -A "$dir")" ] && [ ! -f "$dir/$marker" ]; then
   echo "$dir isn't empty and has no $marker marker; leaving it alone" >&2

@@ -1,5 +1,5 @@
 # Release: `just release <version>` commits the version bump and tags it v<version>; pushing them
-# together (git push origin main v<version>, or GitBolt's Push with "Push tags with branches")
+# together (git push origin main v<version>, or GitVolt's Push with "Push tags with branches")
 # runs one build, on main: it builds the .deb, the Arch package and the RPM on Linux, the two Windows
 # installers (NSIS and MSI, unsigned for now) and the macOS .dmg (Apple Silicon, ad-hoc signed),
 # checks them, and uploads them with SHA256SUMS to a draft GitHub release for review. Building on main matters for speed: only
@@ -144,7 +144,7 @@ jobs:
         env:
           TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          conf=$(jq -er .version crates/gitbolt-app/tauri.conf.json)
+          conf=$(jq -er .version crates/gitvolt-app/tauri.conf.json)
           if [ -n "$TAG" ]; then
             v=${TAG#v}
             if [ "$v" != "$conf" ]; then
@@ -271,7 +271,7 @@ jobs:
       # release.
       - name: Build the packages
         env:
-          GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          GITVOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: CARGO_BUILD_JOBS=$(nproc) just package
 
       - name: Save the CEF archive
@@ -282,7 +282,7 @@ jobs:
           key: ${{ steps.cef.outputs.cache-primary-key }}
 
       # Installs it in archlinux:latest: dependencies, pacman -Qkk, chrome-sandbox, the license
-      # notices in /usr/share/licenses/gitbolt, ldd and a headless launch.
+      # notices in /usr/share/licenses/gitvolt, ldd and a headless launch.
       - name: Check the Arch package
         run: just check-arch-pkg
 
@@ -295,19 +295,19 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          deb=(target/release/bundle/deb/GitBolt_*_amd64.deb)
-          pkg=(target/release/bundle/arch/GitBolt-*-x86_64.pkg.tar.zst)
-          rpm=(target/release/bundle/rpm/GitBolt-*.x86_64.rpm)
+          deb=(target/release/bundle/deb/GitVolt_*_amd64.deb)
+          pkg=(target/release/bundle/arch/GitVolt-*-x86_64.pkg.tar.zst)
+          rpm=(target/release/bundle/rpm/GitVolt-*.x86_64.rpm)
           [ ${#deb[@]} = 1 ] && [ ${#pkg[@]} = 1 ] && [ ${#rpm[@]} = 1 ] || { echo "::error::Expected one .deb, one Arch package and one RPM: ${deb[*]} ${pkg[*]} ${rpm[*]}"; exit 1; }
-          [ "${deb[0]}" = "target/release/bundle/deb/GitBolt_${VERSION}_amd64.deb" ] || { echo "::error::Unexpected .deb name ${deb[0]}"; exit 1; }
-          [ "${rpm[0]}" = "target/release/bundle/rpm/GitBolt-${VERSION}-1.x86_64.rpm" ] || { echo "::error::Unexpected RPM name ${rpm[0]}"; exit 1; }
+          [ "${deb[0]}" = "target/release/bundle/deb/GitVolt_${VERSION}_amd64.deb" ] || { echo "::error::Unexpected .deb name ${deb[0]}"; exit 1; }
+          [ "${rpm[0]}" = "target/release/bundle/rpm/GitVolt-${VERSION}-1.x86_64.rpm" ] || { echo "::error::Unexpected RPM name ${rpm[0]}"; exit 1; }
           echo "deb version: $(dpkg-deb -f "${deb[0]}" Version); Arch package: $(basename "${pkg[0]}"); RPM: $(basename "${rpm[0]}")"
           cp "${deb[0]}" "${pkg[0]}" "${rpm[0]}" dist/
           (cd dist && sha256sum -- *.deb *.pkg.tar.zst *.rpm > SHA256SUMS && cat SHA256SUMS)
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gitbolt-${{ steps.version.outputs.version }}
+          name: gitvolt-${{ steps.version.outputs.version }}
           path: dist/
           if-no-files-found: error
           retention-days: 3
@@ -337,14 +337,14 @@ jobs:
           persist-credentials: false
 
       # The tag's version, or tauri.conf.json's for a dry run: package-windows.ps1 checks that
-      # GITBOLT_RELEASE_VERSION is a release version equal to tauri.conf.json's. The CEF version
+      # GITVOLT_RELEASE_VERSION is a release version equal to tauri.conf.json's. The CEF version
       # keys its cache.
       - name: Version
         id: version
         env:
           TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          $conf = (Get-Content -Raw crates/gitbolt-app/tauri.conf.json | ConvertFrom-Json).version
+          $conf = (Get-Content -Raw crates/gitvolt-app/tauri.conf.json | ConvertFrom-Json).version
           $v = if ($env:TAG) { $env:TAG -replace '^v', '' } else { $conf }
           $lock = Get-Content -Raw Cargo.lock
           if ($lock -notmatch 'name = "cef"\r?\nversion = "[^+"]*\+([^"]+)"') { throw 'No CEF version in Cargo.lock' }
@@ -411,12 +411,12 @@ jobs:
         working-directory: ui
         run: npm ci
 
-      # `just package-windows`: the notices, the UI, gitbolt-app as a DLL, the staged layout
-      # (CEF's bootstrap as GitBolt.exe, checked against the CEF build), then the NSIS installer
+      # `just package-windows`: the notices, the UI, gitvolt-app as a DLL, the staged layout
+      # (CEF's bootstrap as GitVolt.exe, checked against the CEF build), then the NSIS installer
       # and the MSI, ICE-validated.
       #
-      # Signing (none yet): set GITBOLT_SIGN_COMMAND here, e.g. from a secret, to a command that
-      # signs the path appended to it in place. The script then signs GitBolt.exe and GitBolt.dll
+      # Signing (none yet): set GITVOLT_SIGN_COMMAND here, e.g. from a secret, to a command that
+      # signs the path appended to it in place. The script then signs GitVolt.exe and GitVolt.dll
       # with the same certificate (the bootstrap requires it), the NSIS uninstaller and installer,
       # and the MSI. See docs/releasing.md.
       # Windows PowerShell, not the job's pwsh: package-windows runs powershell.exe, which can't load
@@ -424,7 +424,7 @@ jobs:
       - name: Build the installers
         shell: powershell
         env:
-          GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          GITVOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           $env:CARGO_BUILD_JOBS = "$env:NUMBER_OF_PROCESSORS"
           just package-windows
@@ -443,7 +443,7 @@ jobs:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
           $out = 'target/release/bundle/windows'
-          $files = @("GitBolt_${env:VERSION}_x64-setup.exe", "GitBolt_${env:VERSION}_x64.msi")
+          $files = @("GitVolt_${env:VERSION}_x64-setup.exe", "GitVolt_${env:VERSION}_x64.msi")
           New-Item -ItemType Directory -Force dist-windows | Out-Null
           foreach ($f in $files) {
             if (-not (Test-Path "$out/$f")) { throw "Missing $f in ${out}: $((Get-ChildItem $out).Name -join ', ')" }
@@ -456,7 +456,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gitbolt-${{ steps.version.outputs.version }}-windows
+          name: gitvolt-${{ steps.version.outputs.version }}-windows
           path: dist-windows/
           if-no-files-found: error
           retention-days: 3
@@ -482,14 +482,14 @@ jobs:
           persist-credentials: false
 
       # The tag's version, or tauri.conf.json's for a dry run: package-version.sh checks that
-      # GITBOLT_RELEASE_VERSION is a release version equal to tauri.conf.json's. The CEF version
+      # GITVOLT_RELEASE_VERSION is a release version equal to tauri.conf.json's. The CEF version
       # keys its cache.
       - name: Version
         id: version
         env:
           TAG: ${{ needs.plan.outputs.tag }}
         run: |
-          conf=$(jq -er .version crates/gitbolt-app/tauri.conf.json)
+          conf=$(jq -er .version crates/gitvolt-app/tauri.conf.json)
           v=${TAG#v}
           [ -n "$v" ] || v=$conf
           cef=$(awk '$0 == "name = \"cef\"" { getline; print }' Cargo.lock | sed -n 's/^version = "[^+"]*+\([^"]*\)"$/\1/p')
@@ -557,7 +557,7 @@ jobs:
         working-directory: ui
         run: npm ci
 
-      # `just package-macos`: the notices, the release GitBolt.app (ad-hoc signed, with the
+      # `just package-macos`: the notices, the release GitVolt.app (ad-hoc signed, with the
       # install-kind marker and the notices in Contents/Resources) and the .dmg, then their checks:
       # the signature, inside the mounted image too, and the Applications link.
       #
@@ -566,7 +566,7 @@ jobs:
       # and `stapler` on the .dmg. See docs/releasing.md.
       - name: Build the disk image
         env:
-          GITBOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          GITVOLT_RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: CARGO_BUILD_JOBS=$(sysctl -n hw.ncpu) just package-macos
 
       - name: Save the CEF archive
@@ -580,7 +580,7 @@ jobs:
         env:
           VERSION: ${{ steps.version.outputs.version }}
         run: |
-          dmg=target/release/bundle/dmg/GitBolt_${VERSION}_aarch64.dmg
+          dmg=target/release/bundle/dmg/GitVolt_${VERSION}_aarch64.dmg
           [ -f "$dmg" ] || { echo "::error::Missing $dmg: $(ls target/release/bundle/dmg)"; exit 1; }
           mkdir -p dist-macos
           cp "$dmg" dist-macos/
@@ -589,7 +589,7 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: gitbolt-${{ steps.version.outputs.version }}-macos
+          name: gitvolt-${{ steps.version.outputs.version }}-macos
           path: dist-macos/
           if-no-files-found: error
           retention-days: 3
@@ -609,15 +609,15 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: gitbolt-${{ needs.build.outputs.version }}
+          name: gitvolt-${{ needs.build.outputs.version }}
           path: dist
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: gitbolt-${{ needs.build.outputs.version }}-windows
+          name: gitvolt-${{ needs.build.outputs.version }}-windows
           path: dist-windows
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: gitbolt-${{ needs.build.outputs.version }}-macos
+          name: gitvolt-${{ needs.build.outputs.version }}-macos
           path: dist-macos
 
       # Each job's checksums, then one SHA256SUMS for all the packages.
@@ -631,10 +631,10 @@ jobs:
           (cd dist && sha256sum -c SHA256SUMS && cat SHA256SUMS)
 
       # Artifact attestations need a public repository, or GitHub Enterprise Cloud for a private
-      # one: while the repository is private this is skipped unless the GITBOLT_ATTEST variable is
+      # one: while the repository is private this is skipped unless the GITVOLT_ATTEST variable is
       # 'true'.
       - name: Build provenance
-        if: ${{ !github.event.repository.private || vars.GITBOLT_ATTEST == 'true' }}
+        if: ${{ !github.event.repository.private || vars.GITVOLT_ATTEST == 'true' }}
         uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
         with:
           subject-path: |
@@ -661,10 +661,10 @@ jobs:
               echo "::error::The release $TAG is already published; not replacing its assets."
               exit 1
             fi
-            gh release edit "$TAG" --draft --title "GitBolt $VERSION" --notes-file dist/release-notes.md --prerelease="$PRERELEASE"
+            gh release edit "$TAG" --draft --title "GitVolt $VERSION" --notes-file dist/release-notes.md --prerelease="$PRERELEASE"
             gh release upload "$TAG" "${assets[@]}" --clobber
           else
-            gh release create "$TAG" --draft --verify-tag --title "GitBolt $VERSION" \
+            gh release create "$TAG" --draft --verify-tag --title "GitVolt $VERSION" \
               --notes-file dist/release-notes.md --prerelease="$PRERELEASE" "${assets[@]}"
           fi
           url=$(gh release view "$TAG" --json url --jq .url)

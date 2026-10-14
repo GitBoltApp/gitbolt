@@ -32,10 +32,10 @@ export function bannerText(b: Banner): string {
     case 'abortedWork':
       return `Your edits from the stop are in stash "${b.stashMessage}": the rebase was aborted.${b.target ? ` Your commits from the stop are on ${b.target}.` : ''}`;
     case 'abortInterrupted':
-      // 3C final fix M6: the abort may have run before GitBolt stopped.
-      return `GitBolt stopped before it could ${b.label}: the abort may not have run; your work is in the working tree or the stash "${b.stashMessage}"${b.target ? `, and your commits from the stop are on ${b.target}` : ''}.`;
+      // 3C final fix M6: the abort may have run before GitVolt stopped.
+      return `GitVolt stopped before it could ${b.label}: the abort may not have run; your work is in the working tree or the stash "${b.stashMessage}"${b.target ? `, and your commits from the stop are on ${b.target}` : ''}.`;
     case 'recovery':
-      return `GitBolt stopped during ${b.label}. Your changes are safe in ${b.snapshot ? 'a snapshot' : 'the autostash'}.`;
+      return `GitVolt stopped during ${b.label}. Your changes are safe in ${b.snapshot ? 'a snapshot' : 'the autostash'}.`;
   }
 }
 
@@ -52,7 +52,7 @@ const BINARY_DROP = {
  * there is no Show): ask first (2A final M8). */
 const dropSnapshot = (label: string) => ({
   title: 'Dismiss without restoring?',
-  body: `The snapshot is the only copy of your changes from before ${label}. Once dismissed, GitBolt can't restore them.`,
+  body: `The snapshot is the only copy of your changes from before ${label}. Once dismissed, GitVolt can't restore them.`,
   confirmLabel: 'Dismiss',
   arm: 'Click again to dismiss: the snapshot is lost',
   danger: true,

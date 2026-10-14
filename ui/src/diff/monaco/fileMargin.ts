@@ -43,7 +43,7 @@ export class FileMarginStrip {
   private readonly listeners = new Set<() => void>();
   private readonly ed: MonacoNs.editor.ICodeEditor;
   private readonly font: () => MarginFont;
-  private readonly widget: MonacoNs.editor.IOverlayWidget = { getId: () => 'gitbolt.fileMargin', getDomNode: () => this.node!, getPosition: () => null };
+  private readonly widget: MonacoNs.editor.IOverlayWidget = { getId: () => 'gitvolt.fileMargin', getDomNode: () => this.node!, getPosition: () => null };
 
   constructor(ed: MonacoNs.editor.ICodeEditor, font: () => MarginFont) {
     this.ed = ed;

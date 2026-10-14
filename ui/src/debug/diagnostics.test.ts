@@ -1,6 +1,6 @@
 import { beforeEach, expect, it, vi } from 'vitest';
 
-const diagnostics = vi.hoisted(() => vi.fn(async () => 'GitBolt 0.1.0\n'));
+const diagnostics = vi.hoisted(() => vi.fn(async () => 'GitVolt 0.1.0\n'));
 const openLogsFolder = vi.hoisted(() => vi.fn(async () => null));
 const copyText = vi.hoisted(() => vi.fn(async (_t: string) => {}));
 vi.mock('../api/client', () => ({ api: { diagnostics, openLogsFolder }, errorMessage: String, onEvent: () => () => {} }));
@@ -15,7 +15,7 @@ beforeEach(() => vi.clearAllMocks());
 it('asks the backend for the text with the UI facts, copies it and says so (T9, R24)', async () => {
   await copyDiagnostics();
   expect(diagnostics).toHaveBeenCalledWith({ userAgent: navigator.userAgent, settings: useAppState.getState().settings });
-  expect(copyText).toHaveBeenCalledWith('GitBolt 0.1.0\n');
+  expect(copyText).toHaveBeenCalledWith('GitVolt 0.1.0\n');
   expect(useToast.getState().message).toBe('Diagnostics copied');
 });
 

@@ -11,7 +11,7 @@ Subcommands (each prints to stdout; errors go to stderr with exit status 2):
   escape <path>                 a path in mtree's escaping (tests)
   mtree <dir> <epoch> <out.gz>  writes the gzip-compressed .MTREE for everything under <dir>
   size <dir>                    installed size in bytes (apparent size, as makepkg reports it)
-  licenses <doc-dir>            the package's licenses (SPDX), one per line: GitBolt's MIT, then
+  licenses <doc-dir>            the package's licenses (SPDX), one per line: GitVolt's MIT, then
                                 those of the third-party notices' summaries, CEF and Chromium's
                                 BSD-3-Clause and the dictionary's LicenseRef-SCOWL
   verify <src.tar> <pkg.tar> [edited...]
@@ -189,8 +189,8 @@ def entries(tarpath, skip_meta):
 
 
 # What package-arch.sh adds to the .deb's payload: Arch's license directory, a symlink to the
-# .deb's /usr/share/doc/gitbolt (and its parent directory, when the .deb has none).
-ARCH_EXTRA = {"usr/share/licenses": ("dir", 0o755, 0, ""), "usr/share/licenses/gitbolt": ("link", 0, 0, "../doc/gitbolt")}
+# .deb's /usr/share/doc/gitvolt (and its parent directory, when the .deb has none).
+ARCH_EXTRA = {"usr/share/licenses": ("dir", 0o755, 0, ""), "usr/share/licenses/gitvolt": ("link", 0, 0, "../doc/gitvolt")}
 
 
 # The Rust and UI notices (docs/licensing.md) each start with a summary of the licenses they list.

@@ -12,7 +12,7 @@ export const IMAGE_BACKGROUNDS: { id: ImageBackground; label: string }[] = [
   { id: 'white', label: 'White background' },
   { id: 'grey', label: 'Grey background' },
 ];
-export const IMAGE_BACKGROUND_STORAGE_KEY = 'gitbolt.imageBackground.v1';
+export const IMAGE_BACKGROUND_STORAGE_KEY = 'gitvolt.imageBackground.v1';
 
 const isBackground = (v: unknown): v is ImageBackground => IMAGE_BACKGROUNDS.some((b) => b.id === v);
 

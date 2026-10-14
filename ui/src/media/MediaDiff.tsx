@@ -99,7 +99,7 @@ function useFontFace(bytes: Uint8Array<ArrayBuffer>) {
       setFace({ status: 'failed' });
       return () => { live = false; };
     }
-    const family = `gitbolt-font-preview-${++faces}`;
+    const family = `gitvolt-font-preview-${++faces}`;
     let font: FontFace | null = null;
     try {
       font = new FontFace(family, bytes);

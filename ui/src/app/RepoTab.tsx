@@ -97,12 +97,12 @@ export const RepoTab = memo(function RepoTab({ tab }: { tab: TabState }) {
   useForgePolling(tab.id, repoId);
   // --- end 4B T9 ---
 
-  // The window title follows the active tab (1A's e2e checks `GitBolt — repo`). A linked
+  // The window title follows the active tab (1A's e2e checks `GitVolt — repo`). A linked
   // worktree's tab is titled by its folder, as its label is (`tabLabel`, without the alias).
   const repoName = rt?.repo?.name;
   const title = repoName ? tabLabel({ ...tab, alias: null, path: rt?.repo?.path ?? tab.path, worktree: rt?.worktree ?? tab.worktree }, repoName) : null;
   useEffect(() => {
-    if (title) document.title = `GitBolt — ${title}`;
+    if (title) document.title = `GitVolt — ${title}`;
   }, [title]);
 
   const repo = rt?.repo;

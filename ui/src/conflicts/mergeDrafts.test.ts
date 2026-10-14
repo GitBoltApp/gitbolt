@@ -153,10 +153,10 @@ describe("the merge tool's kept work (spec #2 §13.3)", () => {
     expect(kept.huge).toBeUndefined();
     expect(kept.k0).toBeUndefined();
     expect(kept[`k${STORED_DRAFTS + 4}`]).toBeDefined();
-    sessionStorage.setItem('gitbolt.mergeDrafts', '{"old":{}}');
+    sessionStorage.setItem('gitvolt.mergeDrafts', '{"old":{}}');
     const set = vi.spyOn(sessionStorage, 'setItem').mockImplementationOnce(() => { throw new Error('QuotaExceededError'); });
     useMergeDrafts.setState({ drafts: { [key]: draft() } });
     expect(set).toHaveBeenCalled();
-    expect(sessionStorage.getItem('gitbolt.mergeDrafts')).toBeNull();
+    expect(sessionStorage.getItem('gitvolt.mergeDrafts')).toBeNull();
   });
 });

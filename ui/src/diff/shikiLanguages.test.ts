@@ -12,7 +12,7 @@ const dropped = Object.keys(exceptions.dropped.grammars);
 const replaced = Object.keys(exceptions.replaced.grammars);
 const droppedNames = shikiInfo.filter((l) => dropped.includes(l.id)).flatMap((l) => [l.id, ...(l.aliases ?? [])]);
 
-describe("GitBolt's Shiki language registry", () => {
+describe("GitVolt's Shiki language registry", () => {
   it('leaves out the dropped grammars (copyleft, or no license upstream) and their aliases', () => {
     expect(dropped).toEqual(expect.arrayContaining(['ada', 'gnuplot', 'nginx', 'org', 'racket', 'ahk2', 'dax']));
     expect(droppedNames.length).toBeGreaterThanOrEqual(dropped.length);
@@ -29,7 +29,7 @@ describe("GitBolt's Shiki language registry", () => {
     expect(keys).toEqual(bundledLanguagesInfo.flatMap((l) => [l.id, ...(l.aliases ?? [])]).sort());
   });
 
-  it("imports each grammar by its own id, glsl and tcl from GitBolt's files, and never a dropped or replaced Shiki one", () => {
+  it("imports each grammar by its own id, glsl and tcl from GitVolt's files, and never a dropped or replaced Shiki one", () => {
     expect(replaced.sort()).toEqual(['glsl', 'tcl']);
     const src = readFileSync(join(process.cwd(), 'src/diff/shikiLanguages.ts'), 'utf8');
     const specifiers = [...src.matchAll(/import\('(?:shiki\/langs\/([^']+)\.mjs'\)|\.\/grammars\/([^']+)\.json', \{ with: \{ type: 'json' \} \}\))/g)].map((m) => m[1] ?? `ours:${m[2]}`);
@@ -45,7 +45,7 @@ describe("GitBolt's Shiki language registry", () => {
     expect(detectLanguage('config.yml')).toBe('yaml');
   });
 
-  it("maps shader and Tcl files to GitBolt's glsl and tcl grammars", () => {
+  it("maps shader and Tcl files to GitVolt's glsl and tcl grammars", () => {
     for (const ext of ['glsl', 'vert', 'frag', 'geom', 'tesc', 'tese', 'comp', 'vsh', 'fsh', 'gsh', 'vshader', 'fshader', 'gshader'])
       expect(detectLanguage(`shaders/basic.${ext}`), ext).toBe('glsl');
     expect(detectLanguage('script.fs')).toBe('fsharp');
@@ -54,7 +54,7 @@ describe("GitBolt's Shiki language registry", () => {
   });
 });
 
-describe("GitBolt's glsl and tcl grammars", () => {
+describe("GitVolt's glsl and tcl grammars", () => {
   async function scopes(lang: string, code: string) {
     const h = await createHighlighterCore({ themes: [import('shiki/themes/dark-plus.mjs')], langs: [bundledLanguages[lang]], engine: createOnigurumaEngine(import('shiki/wasm')) });
     try {

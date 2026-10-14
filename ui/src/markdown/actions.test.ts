@@ -82,7 +82,7 @@ describe('Ctrl+click and the tooltip', () => {
   });
 
   it('shows the full target first', () => {
-    expect(linkTooltip(forge, { kind: 'mr', number: 45, webUrl: 'x' })).toBe('Open !45 in GitBolt');
+    expect(linkTooltip(forge, { kind: 'mr', number: 45, webUrl: 'x' })).toBe('Open !45 in GitVolt');
     expect(linkTooltip(forge, { kind: 'commit', sha: SHA, webUrl: null })).toBe('Select abc1234 in the graph');
     expect(linkTooltip(forge, { kind: 'external', url: 'https://example.org/a' })).toBe('https://example.org/a');
   });

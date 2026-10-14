@@ -14,10 +14,10 @@ test("the demo's data comes from demo-data/ next to the page", async () => {
     urls.push(String(u));
     return String(u).endsWith('.json') ? new Response('{"version":1,"repos":[],"groups":[]}') : new Response(new Uint8Array([1, 2]));
   }));
-  const data = httpData(new URL('demo-data/', 'https://demo.example.com/gitbolt/demo/demo.html'));
+  const data = httpData(new URL('demo-data/', 'https://demo.example.com/gitvolt/demo/demo.html'));
   expect(await data.manifest()).toEqual({ version: 1, repos: [], groups: [] });
   expect(await data.bundle('basic.gbdemo')).toEqual(new Uint8Array([1, 2]));
-  expect(urls).toEqual(['https://demo.example.com/gitbolt/demo/demo-data/manifest.json', 'https://demo.example.com/gitbolt/demo/demo-data/basic.gbdemo']);
+  expect(urls).toEqual(['https://demo.example.com/gitvolt/demo/demo-data/manifest.json', 'https://demo.example.com/gitvolt/demo/demo-data/basic.gbdemo']);
 });
 
 test("the build's rev and each bundle's go in the query, so a deploy never mixes with a cached copy", async () => {
@@ -26,12 +26,12 @@ test("the build's rev and each bundle's go in the query, so a deploy never mixes
     urls.push(String(u));
     return String(u).includes('.json') ? new Response('{"version":1,"repos":[],"groups":[]}') : new Response(new Uint8Array([1]));
   }));
-  const data = httpData(new URL('demo-data/', 'https://demo.example.com/gitbolt/demo/demo.html'), '0123456789ab');
+  const data = httpData(new URL('demo-data/', 'https://demo.example.com/gitvolt/demo/demo.html'), '0123456789ab');
   await data.manifest();
   await data.bundle('basic.gbdemo', 'ba5e0000cafe');
   expect(urls).toEqual([
-    'https://demo.example.com/gitbolt/demo/demo-data/manifest.json?v=0123456789ab',
-    'https://demo.example.com/gitbolt/demo/demo-data/basic.gbdemo?v=ba5e0000cafe',
+    'https://demo.example.com/gitvolt/demo/demo-data/manifest.json?v=0123456789ab',
+    'https://demo.example.com/gitvolt/demo/demo-data/basic.gbdemo?v=ba5e0000cafe',
   ]);
 });
 

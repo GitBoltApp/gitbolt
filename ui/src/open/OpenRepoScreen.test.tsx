@@ -153,7 +153,7 @@ describe('OpenRepoScreen', () => {
   });
 
   it('Your repos: the filter narrows by name or path, and the sort toggles between recent and A–Z, remembered', async () => {
-    localStorage.removeItem('gitbolt.yourReposOrder.v1');
+    localStorage.removeItem('gitvolt.yourReposOrder.v1');
     api.scanFolders.mockResolvedValue([
       { path: '/a/zeta', name: 'zeta', branch: 'main', modified: 3 },
       { path: '/a/alpha', name: 'alpha', branch: 'main', modified: 2 },
@@ -172,7 +172,7 @@ describe('OpenRepoScreen', () => {
     fireEvent.mouseLeave(mid);
     fireEvent.click(screen.getByRole('button', { name: 'Sort A–Z' }));
     expect(names()).toEqual(['alpha', 'mid', 'zeta']);
-    expect(localStorage.getItem('gitbolt.yourReposOrder.v1')).toBe('alpha');
+    expect(localStorage.getItem('gitvolt.yourReposOrder.v1')).toBe('alpha');
     const filter = screen.getByRole('textbox', { name: 'Filter your repositories' });
     fireEvent.change(filter, { target: { value: 'WORK' } });
     expect(names()).toEqual(['mid']);
@@ -184,7 +184,7 @@ describe('OpenRepoScreen', () => {
   });
 
   it('Your repos groups by directory on request, each list under its directory, remembered; one directory has no toggle', async () => {
-    localStorage.removeItem('gitbolt.yourReposLayout.v1');
+    localStorage.removeItem('gitvolt.yourReposLayout.v1');
     api.scanFolders.mockResolvedValue([
       { path: '/a/one', name: 'one', branch: 'main', modified: 2 },
       { path: '/b/two', name: 'two', branch: 'main', modified: 3 },
@@ -194,7 +194,7 @@ describe('OpenRepoScreen', () => {
     await waitFor(() => expect(document.querySelectorAll('.open-yours .open-row')).toHaveLength(2));
     expect(document.querySelectorAll('.open-yours .open-from')).toHaveLength(2); // one list: rows say their directory
     fireEvent.click(screen.getByRole('button', { name: 'Group by directory' }));
-    expect(localStorage.getItem('gitbolt.yourReposLayout.v1')).toBe('grouped');
+    expect(localStorage.getItem('gitvolt.yourReposLayout.v1')).toBe('grouped');
     const groups = [...screen.getByRole('list', { name: 'Scanned directories' }).querySelectorAll(':scope > li')];
     expect(groups.map((g) => [g.querySelector('.open-folder-path')?.textContent, [...g.querySelectorAll('.open-name')].map((n) => n.textContent)])).toEqual([['/a', ['one']], ['/b', ['two']]]);
     expect(document.querySelector('.open-yours .open-from')).toBeNull(); // the heading says it

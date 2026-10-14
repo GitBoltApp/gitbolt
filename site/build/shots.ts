@@ -11,7 +11,7 @@ export interface Shot { alt: string; width: number; height: number }
 
 const FEATURE = { width: 720, height: 450 };
 export const SHOTS: Record<ShotId, Shot> = {
-  hero: { alt: 'GitBolt with Orbital, a made-up repository: its commit graph, branches and tabs', width: 1240, height: 775 },
+  hero: { alt: 'GitVolt with Orbital, a made-up repository: its commit graph, branches and tabs', width: 1240, height: 775 },
   graph: { alt: 'The commit graph with main pinned left, and repository tabs in a tab group', ...FEATURE },
   review: { alt: 'A pending review with a suggested change in the diff', ...FEATURE },
   markdown: { alt: 'A changed devlog page rendered side by side, its changed words highlighted', ...FEATURE },

@@ -14,7 +14,7 @@ test('framed: once the graph shows, the parent hears "ready", on its own origin 
   const { win, postMessage } = framed();
   reportToParent(win, Promise.resolve(), () => Promise.resolve());
   await settle();
-  expect(postMessage).toHaveBeenCalledWith({ source: 'gitbolt-demo', type: 'ready' }, 'https://site.example');
+  expect(postMessage).toHaveBeenCalledWith({ source: 'gitvolt-demo', type: 'ready' }, 'https://site.example');
 });
 
 test("a boot that fails reports why, the GbError's message", async () => {
@@ -23,7 +23,7 @@ test("a boot that fails reports why, the GbError's message", async () => {
   reportToParent(win, Promise.reject(gbError('NotFound', "The demo's data is missing: orbital.gbdemo (404)")), graph);
   await settle();
   expect(graph).not.toHaveBeenCalled();
-  expect(postMessage).toHaveBeenCalledWith({ source: 'gitbolt-demo', type: 'failed', message: "The demo's data is missing: orbital.gbdemo (404)" }, 'https://site.example');
+  expect(postMessage).toHaveBeenCalledWith({ source: 'gitvolt-demo', type: 'failed', message: "The demo's data is missing: orbital.gbdemo (404)" }, 'https://site.example');
 });
 
 test('not framed (demo.html opened on its own): nothing is posted', async () => {

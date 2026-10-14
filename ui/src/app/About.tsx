@@ -12,7 +12,7 @@ export const useAbout = create<{ open: boolean; setOpen(v: boolean): void }>((se
 // The licenses page loads on first use: none of it is in the startup bundle.
 const Licenses = lazy(() => import('./Licenses'));
 
-/** Help > About GitBolt (spec §6.1): the app version and the git version in use, Check for
+/** Help > About GitVolt (spec §6.1): the app version and the git version in use, Check for
  *  updates, and the open source licenses (the notices the build ships, docs/licensing.md). */
 export function About() {
   const open = useAbout((s) => s.open);
@@ -29,7 +29,7 @@ export function About() {
   const licenses = page === 'licenses';
   return (
     <div className="modal-backdrop" onPointerDown={close}>
-      <div ref={ref} className={licenses ? 'modal about-licenses' : 'modal'} role="dialog" aria-label={licenses ? 'Open source licenses' : 'About GitBolt'} onPointerDown={(e) => e.stopPropagation()}>
+      <div ref={ref} className={licenses ? 'modal about-licenses' : 'modal'} role="dialog" aria-label={licenses ? 'Open source licenses' : 'About GitVolt'} onPointerDown={(e) => e.stopPropagation()}>
         {licenses ? (
           <>
             <h2>Open source licenses</h2>
@@ -43,7 +43,7 @@ export function About() {
           </>
         ) : (
           <>
-            <h2>GitBolt</h2>
+            <h2>GitVolt</h2>
             <p>Version {info?.appVersion ?? '…'}{info?.build ? ` (build ${info.build})` : ''}</p>
             <p>git {info?.gitVersion ?? '…'}</p>
             <UpdateStatus onShow={close} />

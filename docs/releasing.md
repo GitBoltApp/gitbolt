@@ -1,4 +1,4 @@
-# Releasing GitBolt
+# Releasing GitVolt
 
 A release is a tag. `just release <version>` prepares the release commit and tag locally;
 pushing them starts [.github/workflows/release.yml](../.github/workflows/release.yml), which
@@ -24,7 +24,7 @@ automatically.
    just release 0.1.0-alpha.1
    ```
 
-   It sets the version in `crates/gitbolt-app/tauri.conf.json`, the workspace `Cargo.toml` and
+   It sets the version in `crates/gitvolt-app/tauri.conf.json`, the workspace `Cargo.toml` and
    `Cargo.lock`, and `ui/package.json` and its lockfile. Then it turns `## [Unreleased]` into
    `## [0.1.0-alpha.1] - <today>` under a fresh, empty `## [Unreleased]`, commits
    "Release 0.1.0-alpha.1" and creates the annotated tag `v0.1.0-alpha.1`. It never pushes.
@@ -40,7 +40,7 @@ automatically.
    git push origin main v0.1.0-alpha.1
    ```
 
-   GitBolt's Push does the same with **Push tags with branches** on (the default), since the
+   GitVolt's Push does the same with **Push tags with branches** on (the default), since the
    tag is annotated. The build then runs on main's push, warm (see
    [Which run builds](#which-run-builds)). Pushed apart, it still releases: see there.
 
@@ -48,7 +48,7 @@ automatically.
    It fails fast when the tag doesn't match `tauri.conf.json`'s version or CHANGELOG.md has no
    section for it.
 
-4. **Review the draft** under Releases. It's titled "GitBolt 0.1.0-alpha.1" and has the
+4. **Review the draft** under Releases. It's titled "GitVolt 0.1.0-alpha.1" and has the
    changelog section as its notes, plus the `.deb`, the `.pkg.tar.zst`, the `.rpm`, the Windows
    `-setup.exe` and `.msi`, the macOS `.dmg`, and `SHA256SUMS`. A
    version with a pre-release part (`-alpha.1`, `-rc.2`) is marked pre-release. Edit the notes
@@ -65,30 +65,23 @@ automatically.
 
 ## Asset names are an API
 
-Installed GitBolts find their update by these names (`crates/gitbolt-core/src/updates/release.rs`),
-so keep them exactly as they are, and keep `SHA256SUMS` in every release: an update whose
-package `SHA256SUMS` doesn't list is never installed. The website's downloads
+Installed GitVolts find their update by these names (`crates/gitvolt-core/src/updates/release.rs`),
+in the releases of `GitVoltApp/gitvolt` only. GitBolt 0.6.1, the app under its old name, also takes
+these names, from `GitVoltApp/gitvolt` (or `GitBoltApp/gitbolt` while that one doesn't exist), so
+it updates to GitVolt; GitBolt 0.6.0 and earlier can't, and need a GitVolt package installed by
+hand. So keep the names exactly as they are, and keep `SHA256SUMS` in every release: an update
+whose package `SHA256SUMS` doesn't list is never installed. The website's downloads
 (`scripts/site-release.py`) find the packages by these names too.
-
-The project is being renamed GitVolt. GitBolt 0.6.1 and later accept each package under either
-name, `GitVolt` or `GitBolt` (`<Name>` below), and take the GitVolt one when a release has both;
-0.6.0 and earlier only know the GitBolt names. They also look for the releases in
-`GitVoltApp/gitvolt` first, and in `GitBoltApp/gitbolt` while that answers 404 or lists no
-releases, and download from either's `releases/download/` (see
-[Moving to GitVoltApp/gitvolt](#moving-to-gitvoltappgitvolt)).
 
 | Install | Asset |
 |---|---|
-| `.deb` | `<Name>_<version>_amd64.deb` |
-| Arch | `<Name>-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
-| `.rpm` (Fedora, openSUSE) | `<Name>-<version>-1.x86_64.rpm` (the version as in the `.deb`'s name: `GitBolt-0.1.0-alpha.1-1.x86_64.rpm`, although the package's Version is `0.1.0~alpha.1`) |
-| Windows (NSIS) | `<Name>_<version>_x64-setup.exe` |
-| Windows (MSI) | `<Name>_<version>_x64.msi` |
-| macOS | `<Name>_<version>_aarch64.dmg` (Apple Silicon; an Intel Mac takes `<Name>_<version>_x64.dmg`, which no release has yet). The image holds `GitVolt.app` or `GitBolt.app` at its top level (0.6.0 and earlier: `GitBolt.app` only) |
+| `.deb` | `GitVolt_<version>_amd64.deb` |
+| Arch | `GitVolt-<pkgver>-1-x86_64.pkg.tar.zst` (`<pkgver>`: the version without the pre-release's `-`) |
+| `.rpm` (Fedora, openSUSE) | `GitVolt-<version>-1.x86_64.rpm` (the version as in the `.deb`'s name: `GitVolt-0.1.0-alpha.1-1.x86_64.rpm`, although the package's Version is `0.1.0~alpha.1`) |
+| Windows (NSIS) | `GitVolt_<version>_x64-setup.exe` |
+| Windows (MSI) | `GitVolt_<version>_x64.msi` |
+| macOS | `GitVolt_<version>_aarch64.dmg` (Apple Silicon; an Intel Mac takes `GitVolt_<version>_x64.dmg`, which no release has yet). The image holds `GitVolt.app` at its top level |
 | all | `SHA256SUMS` (`sha256sum` output listing each package) |
-
-`<Name>` is `GitBolt` (every version) or `GitVolt` (0.6.1 and later): `GitBolt_0.6.1_amd64.deb`,
-`GitVolt_0.7.0_amd64.deb`, `GitVolt-0.7.0-1.x86_64.rpm`.
 
 The tag stays `v<version>`, and the release's body (the CHANGELOG section) is what the update
 dialog shows. Drafts are never offered; a release marked pre-release (or with a pre-release
@@ -98,58 +91,52 @@ Each package says how it was installed in an `install-kind` file beside the bina
 app reads at run time (one build goes into both packages of a platform, so the binary itself
 can't know):
 
-- the `.deb` ships `/usr/share/GitBolt/install-kind` = `deb`
-  (`crates/gitbolt-app/packaging/install-kind-deb`, through tauri.conf.json), and
+- the `.deb` ships `/usr/share/GitVolt/install-kind` = `deb`
+  (`crates/gitvolt-app/packaging/install-kind-deb`, through tauri.conf.json), and
   `scripts/package-arch.sh` rewrites it to `arch`, `scripts/package-rpm.sh` to `rpm`;
-- the NSIS installer writes `install-kind` = `nsis` beside `GitBolt.exe`, and the MSI installs
+- the NSIS installer writes `install-kind` = `nsis` beside `GitVolt.exe`, and the MSI installs
   `packaging/windows/install-kind-msi` (`msi`) there; `scripts/package-windows.ps1` checks the
   MSI has it;
-- the `.dmg`'s GitBolt.app has `Contents/Resources/install-kind` = `dmg` (the bundle's place for
-  its files: `crates/gitbolt-app/packaging/install-kind-dmg`, through
+- the `.dmg`'s GitVolt.app has `Contents/Resources/install-kind` = `dmg` (the bundle's place for
+  its files: `crates/gitvolt-app/packaging/install-kind-dmg`, through
   `packaging/macos/dmg.conf.json`, which only `just package-macos` passes, so a plain
   `cargo tauri build` bundle counts as a build from source); `scripts/package-macos.sh` checks it.
-  An update mounts the new `.dmg` and copies its `GitVolt.app`, else its `GitBolt.app`, over the
-  running bundle, so the image must keep holding one of them at its top level (0.6.0 and earlier
-  take only `GitBolt.app`). The bundle keeps its name, except that `GitBolt.app` updated to
-  `GitVolt.app` becomes `GitVolt.app` beside it; Restart removes the old one once GitBolt has
-  exited.
+  An update mounts the new `.dmg` and copies its `GitVolt.app` over the running bundle, so the
+  image must keep holding `GitVolt.app` at its top level.
 
 No file: a build from source, which is only offered the release page. `just package`,
 `just package-windows` and `just package-macos` also bake the stamped version in
-(`GITBOLT_BUILD_VERSION`), which the status bar and the update check use.
+(`GITVOLT_BUILD_VERSION`), which the status bar and the update check use.
 
-## Moving to GitVoltApp/gitvolt
+## The move from GitBoltApp/gitbolt
 
-The project is being renamed GitVolt, and the repository moves from `GitBoltApp/gitbolt` to
-`GitVoltApp/gitvolt` (a transfer, so GitHub redirects the old addresses). 0.6.0 and earlier only
-know `GitBoltApp/gitbolt` and the GitBolt asset names, so they can't follow; 0.6.1 is the bridge
-(`crates/gitbolt-forge/src/updates.rs`, `crates/gitbolt-core/src/updates/`).
+The project was called GitBolt until 0.7.0, and its repository was `GitBoltApp/gitbolt`. On
+2026-10-15 it was transferred to `GitVoltApp/gitvolt` and renamed in one call, so GitHub redirects
+the old addresses. 0.6.1 bridged the two names (it checks `GitVoltApp/gitvolt` first, takes
+`GitVolt_*` packages and updates into GitVolt); 0.6.0 and earlier only know `GitBoltApp/gitbolt`
+and the GitBolt asset names, so they can't follow (the README says so). GitVolt itself checks
+`GitVoltApp/gitvolt` only and takes only `GitVolt_*` packages.
 
-1. **Publish 0.6.1 from `GitBoltApp/gitbolt`,** with GitBolt asset names, and give users time to
-   take it before the move: an install still on 0.6.0 after it is stranded.
-2. **The final name must be `GitVoltApp/gitvolt`**, in any capitals: it's the name 0.6.1
-   asks first and downloads from. Rename the repository in the transfer or right after it.
-3. **Don't create `GitVoltApp/gitvolt` ahead of time.** An empty one is harmless to 0.6.1 (an empty
-   list falls back to the old name), but a repository already there blocks the transfer.
-4. **Never delete or rename the `GitBoltApp` organization, nor create a new `gitbolt` repository
-   in it.** It would take over the old address: 0.6.0 and 0.6.1 would check it instead of
-   following GitHub's redirect, and the redirect would be gone.
-5. **GitVolt's packages must replace an installed GitBolt**, since the update only installs the
-   package:
-   - `.deb`: `Conflicts`, `Replaces` and `Provides: gitbolt` (`apt install -y` then removes it);
-   - `.rpm`: `Obsoletes` and `Provides: gitbolt` (dnf, zypper and `rpm -U` then replace it);
-   - Arch: `conflicts=('gitbolt')`, `provides=('gitbolt')` and `replaces=('gitbolt')`. For a
-     `GitVolt-*` package the update runs `pacman -U --noconfirm --ask=4`, which answers yes to
-     removing a conflicting package (`--noconfirm` alone answers no);
-   - Windows: the installers remove GitBolt's install (NSIS) or keep the MSI's UpgradeCode;
-   - macOS: the `.dmg` holds `GitVolt.app` at its top level.
-6. **Restart finds the new binary where GitBolt's was, renamed** `GitBolt` → `GitVolt` and
-   `gitbolt` → `gitvolt` in the binary's name and its folder only: `/usr/share/GitVolt/gitvolt`
-   for `/usr/share/GitBolt/gitbolt` (or only one of the two renamed), and
-   `GitVolt.app/Contents/MacOS/GitVolt` for the bundle. Elsewhere, Restart fails and the user
-   starts GitVolt themselves.
-7. **Later, in a GitVolt release:** drop `GitBoltApp/gitbolt` from `RELEASES_REPOS` (and so from
-   the download allow-list), and the GitBolt asset names from `PRODUCT_NAMES`.
+- **Never delete or rename the `GitBoltApp` organization, nor create a `gitbolt` repository in
+  it.** It would take over the old address: an install still on 0.6.0 (or on 0.6.1, if
+  `GitVoltApp/gitvolt` were missing) would check it and its updates would be captured, and
+  GitHub's redirect for old links would end. The old Pages address
+  redirects through the `GitBoltApp/gitboltapp.github.io` repository for the same reason.
+- **Installs still on 0.6.0 or earlier at the transfer** must reinstall by hand from the GitVolt
+  release.
+- **GitVolt's packages replace an installed GitBolt**, since the update only installs the package:
+  - `.deb`: `Conflicts` and `Replaces` `git-bolt (<< 0.7.0)` (`apt install -y` then removes it);
+  - `.rpm`: `Obsoletes: gitbolt < 0.7.0` (dnf, zypper and `rpm -U` then replace it);
+  - Arch: `conflicts=('gitbolt<0.7.0')` and `replaces=('gitbolt<0.7.0')`. 0.6.1's in-app update
+    answers pacman's conflict question itself (`--ask=4`); a `pacman -U` by hand asks first;
+  - none of them `Provides` `gitbolt`;
+  - the metainfo `<replaces>` `dev.gitbolt.desktop`, and every package is named `gitvolt` (`fix-deb.sh`
+    renames Tauri's `git-volt`);
+  - Windows: the installers remove GitBolt's install (NSIS) or keep the MSI's UpgradeCode;
+  - macOS: every `GitVolt_*.dmg` contains `GitVolt.app`.
+    0.6.1 installs it beside `GitBolt.app` and removes that on Restart; GitVolt offers to remove a
+    `GitBolt.app` left beside it (a notice once, and Settings › Updates), moving it to the Trash only
+    when it is GitBolt's and GitBolt isn't running.
 
 ## Versions
 
@@ -164,9 +151,9 @@ before the release:
 
 | SemVer (tag `v…`) | `.deb` and `.rpm` Version | Arch `pkgver` | Files |
 |---|---|---|---|
-| `0.1.0-alpha.1` | `0.1.0~alpha.1` | `0.1.0alpha.1` | `GitBolt_0.1.0-alpha.1_amd64.deb`, `GitBolt-0.1.0alpha.1-1-x86_64.pkg.tar.zst`, `GitBolt-0.1.0-alpha.1-1.x86_64.rpm` |
-| `0.1.0-rc.2` | `0.1.0~rc.2` | `0.1.0rc.2` | `GitBolt_0.1.0-rc.2_amd64.deb`, `GitBolt-0.1.0rc.2-1-x86_64.pkg.tar.zst`, `GitBolt-0.1.0-rc.2-1.x86_64.rpm` |
-| `0.1.0` | `0.1.0` | `0.1.0` | `GitBolt_0.1.0_amd64.deb`, `GitBolt-0.1.0-1-x86_64.pkg.tar.zst`, `GitBolt-0.1.0-1.x86_64.rpm` |
+| `0.1.0-alpha.1` | `0.1.0~alpha.1` | `0.1.0alpha.1` | `GitVolt_0.1.0-alpha.1_amd64.deb`, `GitVolt-0.1.0alpha.1-1-x86_64.pkg.tar.zst`, `GitVolt-0.1.0-alpha.1-1.x86_64.rpm` |
+| `0.1.0-rc.2` | `0.1.0~rc.2` | `0.1.0rc.2` | `GitVolt_0.1.0-rc.2_amd64.deb`, `GitVolt-0.1.0rc.2-1-x86_64.pkg.tar.zst`, `GitVolt-0.1.0-rc.2-1.x86_64.rpm` |
+| `0.1.0` | `0.1.0` | `0.1.0` | `GitVolt_0.1.0_amd64.deb`, `GitVolt-0.1.0-1-x86_64.pkg.tar.zst`, `GitVolt-0.1.0-1.x86_64.rpm` |
 | local build of `0.1.0` | `0.1.0+202610051325.ab4dbf9e` | `0.1.0.202610051325.ab4dbf9e` | stamped, as before |
 
 - Debian's `~` sorts before anything, so `0.1.0~alpha.1` is older than `0.1.0`
@@ -179,7 +166,7 @@ before the release:
   number directly (`scripts/arch-pkg.py`).
 - `scripts/test-version-order.sh` (part of `just test-scripts`) checks the whole order with
   `dpkg --compare-versions`, and with `vercmp` and rpm's `rpm.vercmp` when they're installed. Run
-  it with `GITBOLT_TEST_DOCKER=1` to use them in `archlinux:latest` and `fedora:latest`
+  it with `GITVOLT_TEST_DOCKER=1` to use them in `archlinux:latest` and `fedora:latest`
   containers.
 
 Windows wants numeric versions: the MSI's `ProductVersion` and the files' `FILEVERSION` are
@@ -187,12 +174,12 @@ Windows wants numeric versions: the MSI's `ProductVersion` and the files' `FILEV
 compares only the first three fields, so the MSI allows same-version upgrades
 (`AllowSameVersionUpgrades`): any build of `0.1.0` replaces whichever `0.1.0` build is installed,
 pre-release or not, and an older `X.Y.Z` is refused. The full version stays in the file names
-(`GitBolt_0.1.0-alpha.1_x64-setup.exe`, `GitBolt_0.1.0-alpha.1_x64.msi`), in the files' version
+(`GitVolt_0.1.0-alpha.1_x64-setup.exe`, `GitVolt_0.1.0-alpha.1_x64.msi`), in the files' version
 strings (Properties > Details) and in the NSIS installer's entry in Settings > Apps; the MSI's
 entry shows `0.1.0.0`.
 
 Local `just package` builds stay stamped (`<version>+<UTC time>.<commit>`), so each one installs
-over the last. `GITBOLT_RELEASE_VERSION=<version> just package` builds the plain version the way
+over the last. `GITVOLT_RELEASE_VERSION=<version> just package` builds the plain version the way
 the workflow does; it must equal `tauri.conf.json`'s version.
 
 ## What the workflow does
@@ -207,7 +194,7 @@ side by side, then the release job:
      `binutils`, `cmake`, `ninja-build`, and `appstream` and `desktop-file-utils` for
      `check-deb.sh`), stable
      Rust, Node 22, `just`, `tauri-cli` 3.0.0-alpha.4 and cargo-about 0.9.2;
-   - runs `just package` with `GITBOLT_RELEASE_VERSION` set. That generates the third-party
+   - runs `just package` with `GITVOLT_RELEASE_VERSION` set. That generates the third-party
      license notices (`scripts/licenses.sh`, failing on a license outside `about.toml`'s
      allow-list; see [licensing.md](licensing.md)), builds, and runs `fix-deb.sh`, `check-deb.sh`
      (which also checks the notices are in the `.deb`), `package-arch.sh` and `package-rpm.sh`;
@@ -217,11 +204,11 @@ side by side, then the release job:
    - writes `SHA256SUMS`, and keeps the packages, the checksums and the notes as a workflow
      artifact for 3 days.
 2. **Windows** (`windows-latest`, read-only): stable Rust, Node 22, `just`, cargo-about 0.9.2
-   and Visual Studio's Ninja; runs `just package-windows` with `GITBOLT_RELEASE_VERSION` set (see
+   and Visual Studio's Ninja; runs `just package-windows` with `GITVOLT_RELEASE_VERSION` set (see
    [Windows installers](#windows-installers)), and keeps both installers and their checksums as
    a workflow artifact.
 3. **macOS** (`macos-15`, Apple Silicon, read-only): stable Rust, Node 22, `just`, CMake and
-   Ninja, `tauri-cli` and cargo-about; runs `just package-macos` with `GITBOLT_RELEASE_VERSION`
+   Ninja, `tauri-cli` and cargo-about; runs `just package-macos` with `GITVOLT_RELEASE_VERSION`
    set (see [macOS disk image](#macos-disk-image)), and keeps the `.dmg` and its checksum as a
    workflow artifact. Its caches (cargo, the two cargo tools, the CEF archive) are saved from main
    only, as the others are.
@@ -254,20 +241,24 @@ per release, decided by the workflow's first job, **Plan**:
 `just package-windows` (on Windows; `scripts/package-windows.ps1`) builds once and packages twice,
 into `target\release\bundle\windows\`:
 
-- **`GitBolt_<version>_x64-setup.exe`** (NSIS): installs for the current user, no administrator
-  rights, into `%LOCALAPPDATA%\Programs\GitBolt`. Silent: `/S`, and `/D=<folder>` (last,
+- **`GitVolt_<version>_x64-setup.exe`** (NSIS): installs for the current user, no administrator
+  rights, into `%LOCALAPPDATA%\Programs\GitVolt`. Silent: `/S`, and `/D=<folder>` (last,
   unquoted) for another folder. Settings > Apps lists it; its uninstaller is
   `uninstall.exe` (`/S` for silent). Installing a newer one over it runs the old uninstaller first.
-- **`GitBolt_<version>_x64.msi`** (WiX v5): installs for all users into `Program Files\GitBolt`
-  (administrator rights), for managed deployment: `msiexec /i GitBolt_<version>_x64.msi /qn`.
+- **`GitVolt_<version>_x64.msi`** (WiX v5): installs for all users into `Program Files\GitVolt`
+  (administrator rights), for managed deployment: `msiexec /i GitVolt_<version>_x64.msi /qn`.
 
-Both add a Start menu shortcut and "Open in GitBolt" on folders in File Explorer, and leave the
-user's settings and data (`%APPDATA%\gitbolt`, `%LOCALAPPDATA%\gitbolt`,
-`%LOCALAPPDATA%\dev.gitbolt.desktop`) on uninstall.
+Both add a Start menu shortcut and "Open in GitVolt" on folders in File Explorer, and leave the
+user's settings and data (`%APPDATA%\gitvolt`, `%LOCALAPPDATA%\gitvolt`,
+`%LOCALAPPDATA%\com.gitvolt.desktop`) on uninstall.
 
-The installed folder is CEF's sandboxed layout: `GitBolt.exe` is CEF's `bootstrap.exe` (with
-GitBolt's icon, version information and `packaging/windows/GitBolt.exe.manifest`), which loads
-`GitBolt.dll` (gitbolt-app built as a DLL) and runs Chromium sandboxed; then CEF's runtime files,
+Both replace GitBolt (the app's name before 0.7.0): the MSI by its unchanged UpgradeCode, the NSIS
+installer by running GitBolt's per-user uninstaller. A GitBolt MSI install isn't removed by the NSIS
+installer, nor the other way round. The NSIS installer asks to close a running GitBolt first.
+
+The installed folder is CEF's sandboxed layout: `GitVolt.exe` is CEF's `bootstrap.exe` (with
+GitVolt's icon, version information and `packaging/windows/GitVolt.exe.manifest`), which loads
+`GitVolt.dll` (gitvolt-app built as a DLL) and runs Chromium sandboxed; then CEF's runtime files,
 `dictionaries\` and the license notices in `licenses\`. The bootstrap must come from the CEF build
 the DLL links, and nothing at run time checks that, so the script compares `bootstrap.exe`'s and
 `libcef.dll`'s versions with `Cargo.lock`'s CEF before staging.
@@ -279,11 +270,11 @@ The MSI also goes through Windows Installer's ICE checks.
 ### Signing
 
 The installers aren't signed yet, so SmartScreen warns about them ("Windows protected your PC" >
-More info > Run anyway). The hook is in place: `GITBOLT_SIGN_COMMAND`, a command that signs the
+More info > Run anyway). The hook is in place: `GITVOLT_SIGN_COMMAND`, a command that signs the
 file path appended to it in place (for example `signtool sign /fd sha256 /tr <timestamp URL> /td
 sha256 /f <certificate>`). With it set, `package-windows.ps1` signs, in order:
 
-1. `GitBolt.exe` and `GitBolt.dll`, **with the same certificate**: a signed bootstrap only loads a
+1. `GitVolt.exe` and `GitVolt.dll`, **with the same certificate**: a signed bootstrap only loads a
    DLL signed with its own certificate, so signing one without the other, or with two
    certificates, makes the app refuse to start;
 2. the NSIS uninstaller (while the installer is built, through NSIS's `!uninstfinalize`), then the
@@ -295,9 +286,9 @@ step's comment marks the place).
 
 ## macOS disk image
 
-`just package-macos` (on a Mac; `scripts/package-macos.sh`) builds the release `GitBolt.app` and
-`target/release/bundle/dmg/GitBolt_<version>_aarch64.dmg` with the Tauri CLI's own bundlers: the
-`.dmg` holds `GitBolt.app` and a link to `/Applications`. The app is CEF's layout (the framework
+`just package-macos` (on a Mac; `scripts/package-macos.sh`) builds the release `GitVolt.app` and
+`target/release/bundle/dmg/GitVolt_<version>_aarch64.dmg` with the Tauri CLI's own bundlers: the
+`.dmg` holds `GitVolt.app` and a link to `/Applications`. The app is CEF's layout (the framework
 and the helper apps in `Contents/Frameworks`; docs/dev-setup.md), with the spell-check
 dictionary, the `install-kind` marker and the license notices in `Contents/Resources`, and an
 `Info.plist` that declares folders as a document type (Open With). The script then checks the
@@ -307,8 +298,8 @@ in the bundle and again in the mounted image.
 **Signing.** The app is **ad-hoc signed** (`signingIdentity: "-"` in `tauri.macos.conf.json`),
 inside out by the bundler, with the hardened runtime and CEF's entitlements; the `.dmg` itself
 isn't signed. Gatekeeper rejects it (`spctl --assess` says "rejected"), so a downloaded copy
-needs `xattr -dr com.apple.quarantine /Applications/GitBolt.app` or **Open Anyway** once
-(README.md). An update downloaded by GitBolt itself carries no quarantine flag, so it needs
+needs `xattr -dr com.apple.quarantine /Applications/GitVolt.app` or **Open Anyway** once
+(README.md). An update downloaded by GitVolt itself carries no quarantine flag, so it needs
 neither. The hook for real signing: a Developer ID Application identity in place of `"-"`
 (the Tauri CLI reads `APPLE_SIGNING_IDENTITY` and a certificate from `APPLE_CERTIFICATE` /
 `APPLE_CERTIFICATE_PASSWORD`), then notarization (`xcrun notarytool submit --wait` and
@@ -318,10 +309,10 @@ comment marks the place). That needs an Apple Developer Program membership.
 
 **Versions.** `CFBundleShortVersionString` and `CFBundleVersion` are the package version as is
 (`0.4.0-rc.1`, or a local build's stamp): macOS shows it in Finder and nothing compares it, since
-the updater uses GitBolt's own version.
+the updater uses GitVolt's own version.
 
 **Intel Macs.** Not built yet: the release has only the `aarch64` `.dmg`. An Intel build would
-be a second, separate `GitBolt_<version>_x64.dmg` (the updater already picks its own
+be a second, separate `GitVolt_<version>_x64.dmg` (the updater already picks its own
 architecture's), cross-compiled on the same runner with CEF's x64 distribution. A universal app
 would need both CEF distributions, two builds, and `lipo` on the app, every helper and the
 framework's libraries, doubling the download for everyone.
@@ -351,11 +342,11 @@ The release job attests every package with `actions/attest-build-provenance`, so
 check that a file came from this workflow:
 
 ```sh
-gh attestation verify GitBolt_0.1.0-alpha.1_amd64.deb --repo GitBoltApp/gitbolt
+gh attestation verify GitVolt_0.1.0-alpha.1_amd64.deb --repo GitVoltApp/gitvolt
 ```
 
 Attestations need a public repository, or GitHub Enterprise Cloud for a private one. While the
-repository is private, the step is skipped unless the repository variable `GITBOLT_ATTEST` is
+repository is private, the step is skipped unless the repository variable `GITVOLT_ATTEST` is
 `true` (set it only on a plan that supports them). `SHA256SUMS` is always uploaded.
 
 ## Build time and cost
@@ -368,7 +359,7 @@ runner; public ones get 4 vCPUs, roughly halving the compile steps):
 | Setup (checkout, apt, Rust, Node, `npm ci`) | 3–4 min | 2–3 min |
 | `tauri-cli` and `cargo-about` installs | 10–15 min (compiled) | seconds (cached) |
 | CEF download (~310 MB) | 1 min | restored from the cache |
-| `just package`: Rust release build | 30–45 min | 10–15 min (only GitBolt's own crates) |
+| `just package`: Rust release build | 30–45 min | 10–15 min (only GitVolt's own crates) |
 | `just package`: UI build, `.deb`, Arch package, `.rpm` | 6–8 min | 6–8 min |
 | `just check-arch-pkg` | 3–5 min | 3–5 min |
 | `just check-rpm-pkg` | 2–3 min | 2–3 min |

@@ -35,7 +35,7 @@ export const SUBMENU_GRACE_MS = 300;
 /** A window blur closes the menu only once the window has stayed unfocused this long (K24).
  * Under GNOME (mutter on Xwayland) every button press in the window refocuses it: the window
  * manager's `WM_TAKE_FOCUS`, which the CEF runtime answers by moving the X focus back to the
- * browser (vendor/tauri-runtime-cef/GITBOLT-PATCH.md). The page sees that as a window blur and,
+ * browser (vendor/tauri-runtime-cef/GITVOLT-PATCH.md). The page sees that as a window blur and,
  * a few ms later, a focus, right after the right-click that opened the menu. Closing on the blur
  * itself closed every menu at once. A real deactivation (another window) has no focus after it. */
 export const BLUR_SETTLE_MS = 150;

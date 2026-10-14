@@ -40,14 +40,14 @@ describe('About: Check for updates', () => {
     render(<About />);
     act(() => useAbout.getState().setOpen(true));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check for updates' })); });
-    expect(screen.getByRole('status')).toHaveTextContent('GitBolt is up to date.');
+    expect(screen.getByRole('status')).toHaveTextContent('GitVolt is up to date.');
     api.updateCheck.mockRejectedValueOnce(new Error("Couldn't reach api.github.com"));
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check for updates' })); });
     expect(screen.getByRole('status')).toHaveTextContent("Couldn't check for updates: Couldn't reach api.github.com");
-    const release = { version: '1.3.0', name: 'GitBolt 1.3.0', notes: '', url: 'u', prerelease: false, publishedAt: null, asset: null };
+    const release = { version: '1.3.0', name: 'GitVolt 1.3.0', notes: '', url: 'u', prerelease: false, publishedAt: null, asset: null };
     api.updateCheck.mockResolvedValueOnce({ state: 'available', release });
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Check for updates' })); });
-    expect(screen.getByRole('status')).toHaveTextContent('GitBolt 1.3.0 is available.');
+    expect(screen.getByRole('status')).toHaveTextContent('GitVolt 1.3.0 is available.');
     fireEvent.click(screen.getByRole('button', { name: 'Show update' }));
     expect(useUpdates.getState().dialogOpen).toBe(true);
     expect(useAbout.getState().open).toBe(false);

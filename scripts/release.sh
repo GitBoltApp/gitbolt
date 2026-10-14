@@ -27,7 +27,7 @@ while read -r tag; do
   [ "$(python3 scripts/version.py cmp "$v" "${tag#v}")" = 1 ] || fail "$v is not newer than $tag"
 done < <(git tag -l 'v*')
 
-files=(crates/gitbolt-app/tauri.conf.json Cargo.toml Cargo.lock ui/package.json ui/package-lock.json CHANGELOG.md)
+files=(crates/gitvolt-app/tauri.conf.json Cargo.toml Cargo.lock ui/package.json ui/package-lock.json CHANGELOG.md)
 committed=
 trap '[ -n "$committed" ] || git checkout -q -- "${files[@]}"' EXIT
 python3 scripts/set-version.py "$v"
@@ -35,7 +35,7 @@ python3 scripts/changelog.py release "$v" "$(date +%F)" CHANGELOG.md
 git add -- "${files[@]}"
 git commit -q -m "Release $v"
 committed=1
-git tag -a "v$v" -m "GitBolt $v"
+git tag -a "v$v" -m "GitVolt $v"
 echo
 echo "Committed \"Release $v\" and tagged v$v. Nothing is pushed yet. Push both to start the release build:"
 echo "  git push origin main v$v"

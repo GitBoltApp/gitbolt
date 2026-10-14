@@ -77,7 +77,7 @@ describe('runWrite (spec #2 §3.1)', () => {
   });
 
   it('any other failure goes to the error toast with Retry, Refresh and Remove stale lock', async () => {
-    const err: GbError = { kind: 'RefMoved', message: 'main changed outside GitBolt', commandId: null, stderr: null };
+    const err: GbError = { kind: 'RefMoved', message: 'main changed outside GitVolt', commandId: null, stderr: null };
     const refresh = vi.fn();
     expect(await runWrite(ctx, async () => { throw err; }, { refresh })).toBeNull();
     const { ctx: given } = toast.calls[0] as { ctx: { retry?: unknown; refresh?: unknown; removeLock?: unknown } };

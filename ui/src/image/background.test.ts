@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const KEY = 'gitbolt.imageBackground.v1';
+const KEY = 'gitvolt.imageBackground.v1';
 
 async function fresh() {
   vi.resetModules();

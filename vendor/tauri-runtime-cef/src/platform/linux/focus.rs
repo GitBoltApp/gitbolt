@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // SPDX-License-Identifier: MIT
 
-//! GitBolt patch: the window manager's `WM_TAKE_FOCUS` gives the keyboard to the CEF browser.
+//! GitVolt patch: the window manager's `WM_TAKE_FOCUS` gives the keyboard to the CEF browser.
 //!
 //! GDK advertises `WM_TAKE_FOCUS` on its toplevels and answers it by putting the X input focus
 //! on the toplevel's own 1x1 InputOnly "focus window". The CEF browsers are X children of
@@ -96,13 +96,13 @@ pub(super) fn redirect_take_focus(
       }
       display.error_trap_pop_ignored();
 
-      if crate::cef_impl::client::gitbolt_key_log() {
+      if crate::cef_impl::client::gitvolt_key_log() {
         match target {
           Some(target) => eprintln!(
-            "[gitbolt-keys] WM_TAKE_FOCUS 0x{toplevel:x} time {time}: X focus -> browser 0x{target:x}"
+            "[gitvolt-keys] WM_TAKE_FOCUS 0x{toplevel:x} time {time}: X focus -> browser 0x{target:x}"
           ),
           None => eprintln!(
-            "[gitbolt-keys] WM_TAKE_FOCUS 0x{toplevel:x} time {time}: no viewable browser, GDK takes it"
+            "[gitvolt-keys] WM_TAKE_FOCUS 0x{toplevel:x} time {time}: no viewable browser, GDK takes it"
           ),
         }
       }
@@ -237,14 +237,14 @@ mod tests {
   /// Without the redirect GDK puts the focus on its own focus window and the browser never
   /// gets a key. Ignored by default, since it must never run on a real session: it needs a
   /// throwaway server, named explicitly:
-  /// `Xvfb :77 & GITBOLT_X11_TEST_DISPLAY=:77 cargo test -p tauri-runtime-cef --lib focus -- --ignored`
+  /// `Xvfb :77 & GITVOLT_X11_TEST_DISPLAY=:77 cargo test -p tauri-runtime-cef --lib focus -- --ignored`
   #[test]
-  #[ignore = "needs a throwaway X server in GITBOLT_X11_TEST_DISPLAY (e.g. Xvfb :77)"]
+  #[ignore = "needs a throwaway X server in GITVOLT_X11_TEST_DISPLAY (e.g. Xvfb :77)"]
   fn wm_take_focus_puts_the_x_focus_on_the_browser_window() {
     use std::time::{Duration, Instant};
 
-    let display_name = std::env::var("GITBOLT_X11_TEST_DISPLAY")
-      .expect("GITBOLT_X11_TEST_DISPLAY names the throwaway X server to use");
+    let display_name = std::env::var("GITVOLT_X11_TEST_DISPLAY")
+      .expect("GITVOLT_X11_TEST_DISPLAY names the throwaway X server to use");
     // SAFETY: set before GTK or Xlib start, and no other test in this binary reads them.
     unsafe {
       std::env::set_var("DISPLAY", &display_name);

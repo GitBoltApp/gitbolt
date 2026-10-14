@@ -8,14 +8,14 @@ Subcommands (errors go to stderr with exit status 2):
                                             first, version and date) and @TAG@ replaced by the
                                             newest one's tag (v<version>), which pins the
                                             screenshot's URL to a release
-  copyright <LICENSE> <out>                 /usr/share/doc/gitbolt/copyright in Debian's
+  copyright <LICENSE> <out>                 /usr/share/doc/gitvolt/copyright in Debian's
                                             machine-readable format (DEP-5), with LICENSE's text
 """
 import re
 import sys
 from xml.sax.saxutils import quoteattr
 
-REPO = "https://github.com/GitBoltApp/gitbolt"
+REPO = "https://github.com/GitVoltApp/gitvolt"
 RELEASE = re.compile(r"## \[(\d+\.\d+\.\d+(?:-[0-9A-Za-z.]+)?)\] - (\d{4}-\d{2}-\d{2})\s*")
 
 
@@ -58,7 +58,7 @@ def copyright(license_text):
     body = license_text.split(m.group(0), 1)[1].strip("\n")
     text = "\n".join(f" {line}" if line.strip() else " ." for line in body.split("\n"))
     return f"""Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
-Upstream-Name: GitBolt
+Upstream-Name: GitVolt
 Upstream-Contact: {REPO}/issues
 Source: {REPO}
 Comment: The binary also contains Rust crates and npm packages under their own licenses; each
@@ -69,16 +69,16 @@ Files: *
 Copyright: {m.group(1)}
 License: MIT
 
-Files: usr/share/GitBolt/*.so usr/share/GitBolt/*.so.* usr/share/GitBolt/*.pak
- usr/share/GitBolt/locales/* usr/share/GitBolt/chrome-sandbox usr/share/GitBolt/icudtl.dat
- usr/share/GitBolt/v8_context_snapshot.bin usr/share/GitBolt/vk_swiftshader_icd.json
+Files: usr/share/GitVolt/*.so usr/share/GitVolt/*.so.* usr/share/GitVolt/*.pak
+ usr/share/GitVolt/locales/* usr/share/GitVolt/chrome-sandbox usr/share/GitVolt/icudtl.dat
+ usr/share/GitVolt/v8_context_snapshot.bin usr/share/GitVolt/vk_swiftshader_icd.json
 Copyright: 2008-2020 Marshall A. Greenblatt
            2006-2009 Google Inc.
 License: BSD-3-Clause
 Comment: The Chromium Embedded Framework (CEF) and Chromium. CEF's license is in CEF-LICENSE.txt;
  Chromium's, and those of the projects it bundles, are in CHROMIUM-CREDITS.html.gz.
 
-Files: usr/share/GitBolt/dictionaries/*
+Files: usr/share/GitVolt/dictionaries/*
 Copyright: 2000-2018 Kevin Atkinson, and others
 License: SCOWL
 Comment: Chromium's en-US Hunspell dictionary, derived from SCOWL.

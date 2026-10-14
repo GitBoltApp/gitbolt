@@ -10,7 +10,7 @@ export interface Download { os: Os; kind: Kind; arch: 'x86_64' | 'aarch64'; file
 export interface Release { version: string; tag: string; prerelease: boolean; published: string; url: string; sums: string; downloads: Download[] }
 export interface ReleaseFile { schema: 1; release: Release | null }
 
-const RELEASES = 'https://github.com/GitBoltApp/gitbolt/releases';
+const RELEASES = 'https://github.com/GitVoltApp/gitvolt/releases';
 const OSES: Os[] = ['linux', 'macos', 'windows'];
 const KINDS: Kind[] = ['deb', 'rpm', 'arch', 'dmg', 'nsis', 'msi'];
 
@@ -88,7 +88,7 @@ export function renderDownloads(f: ReleaseFile): string {
   }).join('');
   const version = `Version ${esc(r.version)}${r.prerelease ? ', a pre-release' : ''}.`;
   return `<div class="dgrid">${cards}</div>
-<p class="dfoot">${version} Needs Git 2.40 or newer on your <code>PATH</code>. <a href="${esc(r.sums)}"><code>SHA256SUMS</code></a> lists each file's checksum. After that, GitBolt updates itself.</p>`;
+<p class="dfoot">${version} Needs Git 2.40 or newer on your <code>PATH</code>. <a href="${esc(r.sums)}"><code>SHA256SUMS</code></a> lists each file's checksum. After that, GitVolt updates itself.</p>`;
 }
 
 export function releaseMarker(path: string): Marker {

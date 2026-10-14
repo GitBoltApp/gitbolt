@@ -6,7 +6,7 @@ import type { GraphFactory } from './engine/layout';
 import type { DemoData, Manifest } from './engine/repos';
 
 export const GOLDEN = fileURLToPath(new URL('./golden', import.meta.url));
-export const WASM_GZ = fileURLToPath(new URL('./wasm/gitbolt_graph_wasm_bg.wasm.gz', import.meta.url));
+export const WASM_GZ = fileURLToPath(new URL('./wasm/gitvolt_graph_wasm_bg.wasm.gz', import.meta.url));
 
 export const goldenManifest = (dir = GOLDEN): Manifest => JSON.parse(readFileSync(`${dir}/manifest.json`, 'utf8')) as Manifest;
 

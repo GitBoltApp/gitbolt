@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Usage: scripts/package-macos.sh   (`just package-macos`, on a Mac)
 #
-# The macOS package: target/release/bundle/dmg/GitBolt_<version>_<arch>.dmg (arch: aarch64 on
-# Apple Silicon, x64 on Intel), holding GitBolt.app and a link to /Applications.
+# The macOS package: target/release/bundle/dmg/GitVolt_<version>_<arch>.dmg (arch: aarch64 on
+# Apple Silicon, x64 on Intel), holding GitVolt.app and a link to /Applications.
 #
 # 1. The license notices (scripts/licenses.sh: the Rust crates of this Mac's target, CEF and
 #    Chromium), failing on a license outside about.toml's allow-list.
@@ -12,11 +12,11 @@
 #    bundler. packaging/macos/dmg.conf.json adds the package's files to Contents/Resources: the
 #    `install-kind` marker (`dmg`, for the updater) and the notices in `licenses/`.
 # 3. Checks: the signature (`codesign --verify --deep --strict`), the marker, the notices and the
-#    folder document type in the bundle, then the .dmg mounted read-only: GitBolt.app, signed,
+#    folder document type in the bundle, then the .dmg mounted read-only: GitVolt.app, signed,
 #    and the Applications link.
 #
 # The version follows scripts/package-version.sh: a stamped one for local builds, the plain one
-# with GITBOLT_RELEASE_VERSION (the release workflow). CARGO_BUILD_JOBS defaults to 4. Needs
+# with GITVOLT_RELEASE_VERSION (the release workflow). CARGO_BUILD_JOBS defaults to 4. Needs
 # Xcode's command line tools, CMake, Ninja, Node, cargo-about and the pinned Tauri CLI
 # (docs/dev-setup.md).
 set -euo pipefail
@@ -32,13 +32,13 @@ esac
 
 cd "$root"
 scripts/licenses.sh
-app_dir=crates/gitbolt-app
+app_dir=crates/gitvolt-app
 v=$(scripts/package-version.sh "$app_dir/tauri.conf.json")
 bundle=target/release/bundle
-app=$bundle/macos/GitBolt.app
-dmg=$bundle/dmg/GitBolt_${v}_${arch}.dmg
+app=$bundle/macos/GitVolt.app
+dmg=$bundle/dmg/GitVolt_${v}_${arch}.dmg
 tauri() {
-  (cd "$app_dir" && env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" GITBOLT_BUILD_VERSION="$v" \
+  (cd "$app_dir" && env -u CARGO_INCREMENTAL CARGO_BUILD_JOBS="${CARGO_BUILD_JOBS:-4}" GITVOLT_BUILD_VERSION="$v" \
     cargo tauri "$@" --config packaging/macos/dmg.conf.json --config "{\"version\":\"$v\"}")
 }
 # Old bundles first: the checks below must see only what this build makes.
@@ -71,9 +71,9 @@ check_app() {
 }
 check_app "$app"
 
-mnt=$(mktemp -d "${TMPDIR:-/tmp}/gitbolt-dmg.XXXXXX")
+mnt=$(mktemp -d "${TMPDIR:-/tmp}/gitvolt-dmg.XXXXXX")
 trap 'hdiutil detach -quiet "$mnt" 2>/dev/null || hdiutil detach -quiet -force "$mnt" 2>/dev/null || true; rmdir "$mnt" 2>/dev/null || true' EXIT
 hdiutil attach -nobrowse -readonly -noautoopen -mountpoint "$mnt" "$dmg" >/dev/null
-check_app "$mnt/GitBolt.app"
+check_app "$mnt/GitVolt.app"
 [ "$(readlink "$mnt/Applications")" = /Applications ] || fail "$dmg: no link to /Applications"
-echo "package-macos: $dmg ($(du -h "$dmg" | cut -f1); GitBolt.app $(du -sh "$app" | cut -f1)), version $v"
+echo "package-macos: $dmg ($(du -h "$dmg" | cut -f1); GitVolt.app $(du -sh "$app" | cut -f1)), version $v"

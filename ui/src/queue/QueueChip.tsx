@@ -10,7 +10,7 @@ import { HoverTooltip } from '../ui/HoverTooltip';
 import { chipText, IDLE, isIdle, loadQueue, useQueue } from './store';
 import './queue.css';
 
-const quiet = (p: Promise<unknown>) => { void p.catch((e: unknown) => console.warn('[gitbolt] queue', e)); };
+const quiet = (p: Promise<unknown>) => { void p.catch((e: unknown) => console.warn('[gitvolt] queue', e)); };
 
 /** The chip's list (spec #2 §3.6): the running item with Cancel, each queued item with ×, and
  * Resume / Clear after a stop. */

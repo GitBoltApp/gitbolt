@@ -273,7 +273,7 @@ describe('buildUiNotices', () => {
       expect(r.errors.join('\n')).toMatch(/grammar dax: .*no license.*replace it or drop it/);
     });
 
-    describe("GitBolt's own grammar files (src/diff/grammars), replacing Shiki's", () => {
+    describe("GitVolt's own grammar files (src/diff/grammars), replacing Shiki's", () => {
       const replaced = {
         licenses: { 'LicenseRef-TextMate-Bundle': 'permissive' },
         replaced: {
@@ -298,7 +298,7 @@ describe('buildUiNotices', () => {
         expect(r.warnings).toEqual([]);
         const t = r.text;
         expect(t).toMatch(/Grammars \(3\):/);
-        expect(t).toMatch(/glsl +Unlicense +https:\/\/example\.invalid\/sublime-glsl\/GLSL\.tmLanguage +\(GitBolt's copy, src\/diff\/grammars\/glsl\.json, in place of Shiki's\)/);
+        expect(t).toMatch(/glsl +Unlicense +https:\/\/example\.invalid\/sublime-glsl\/GLSL\.tmLanguage +\(GitVolt's copy, src\/diff\/grammars\/glsl\.json, in place of Shiki's\)/);
         expect(t).toMatch(/tcl +LicenseRef-TextMate-Bundle +https:\/\/example\.invalid\/tcl\.tmbundle\/Tcl\.plist/);
         expect(t).toMatch(/glsl \(Unlicense\), from https:\/\/example\.invalid\/sublime-glsl\/GLSL\.tmLanguage[\s\S]*GLSL TEXT/);
         expect(t).toMatch(/tcl \(LicenseRef-TextMate-Bundle\), from [^\n]*\n-+\nTCL TEXT/);
@@ -314,7 +314,7 @@ describe('buildUiNotices', () => {
           exceptions: { ...replaced, replaced: { grammars: { ...replaced.replaced.grammars, glsl: { ...replaced.replaced.grammars.glsl, license: 'GPL-3.0' } } } },
         });
         const errors = r.errors.join('\n');
-        expect(errors).toMatch(/grammar mystery: GitBolt's own grammar file src\/diff\/grammars\/mystery\.json has no license recorded/);
+        expect(errors).toMatch(/grammar mystery: GitVolt's own grammar file src\/diff\/grammars\/mystery\.json has no license recorded/);
         expect(errors).toMatch(/grammar glsl: .*GPL-3\.0.*copyleft/);
         expect(errors).toMatch(/grammar tcl: no license text/);
         expect(errors).toMatch(/grammar glsl: replaced by src\/diff\/grammars\/glsl\.json, but Shiki's is bundled/);

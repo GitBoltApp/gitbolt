@@ -83,7 +83,7 @@ describe('MdImage (spec #5 §4.2)', () => {
     expect(await why('/uploads/0123abcd0123abcd/a.png', async () => ({ kind: 'missing', reason: 'needs sign-in' }))).toBe("Couldn't load: needs sign-in");
     expect(await why('/uploads/0123abcd0123abcd/b.png', async () => ({ kind: 'expired' }))).toBe("Couldn't load: its link expired");
     expect(await why('/uploads/0123abcd0123abcd/c.png', async () => { throw { message: "Couldn't reach gitlab.example.com" }; })).toBe("Couldn't load: Couldn't reach gitlab.example.com");
-    expect(await why('javascript:alert(1)')).toBe("Not loaded: GitBolt doesn't load images from this address");
+    expect(await why('javascript:alert(1)')).toBe("Not loaded: GitVolt doesn't load images from this address");
   });
 
   it('an expired signed image asks for the bodies again, at most once a minute', async () => {

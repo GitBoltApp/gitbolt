@@ -1,12 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 import { HARNESS_BIN } from './e2e/harness-path';
 
-// GITBOLT_E2E_PORT_BASE lets several `just e2e` runs (one per git worktree) coexist without
+// GITVOLT_E2E_PORT_BASE lets several `just e2e` runs (one per git worktree) coexist without
 // colliding on fixed ports. Unset: harness on 7433, the UI on 1420. Set to N: harness on N, the UI
 // on N+1 (vite.config.ts derives the same N+1 from this env var for the dev server). The UI learns
-// its harness port from VITE_GITBOLT_HARNESS, set below only on the UI server's process: baked
+// its harness port from VITE_GITVOLT_HARNESS, set below only on the UI server's process: baked
 // into the e2e build, read at runtime by the dev server (src/api/transport.ts).
-const portBase = process.env.GITBOLT_E2E_PORT_BASE ? Number(process.env.GITBOLT_E2E_PORT_BASE) : undefined;
+const portBase = process.env.GITVOLT_E2E_PORT_BASE ? Number(process.env.GITVOLT_E2E_PORT_BASE) : undefined;
 const harnessPort = portBase ?? 7433;
 const vitePort = portBase !== undefined ? portBase + 1 : 1420;
 const harnessWs = `ws://127.0.0.1:${harnessPort}/ws`;
@@ -15,9 +15,9 @@ const harnessWs = `ws://127.0.0.1:${harnessPort}/ws`;
 // only when its inputs change: e2e/build-ui.mjs), served as static files by `vite preview`. A page
 // then loads a few minified chunks instead of the dev server's hundreds of unbundled modules
 // (Monaco above all): that was most of what a test cost. The `e2e` mode keeps the test hooks
-// (`window.__gb`) the release bundle compiles out. GITBOLT_E2E_DEV=1 serves the Vite dev server
+// (`window.__gb`) the release bundle compiles out. GITVOLT_E2E_DEV=1 serves the Vite dev server
 // instead (source, unminified React errors), for debugging a spec.
-const devServer = !!process.env.GITBOLT_E2E_DEV;
+const devServer = !!process.env.GITVOLT_E2E_DEV;
 const uiServer = devServer
   ? { command: 'npm run dev', timeout: 60_000 }
   : {
@@ -27,9 +27,9 @@ const uiServer = devServer
 
 // Traces are off by default: recording one for every test (to keep the failures') took about
 // half of the suite's CPU time, DOM snapshots above all. A failure still leaves a screenshot.
-// GITBOLT_E2E_TRACE=1 records them and keeps each failure's (`npx playwright show-trace …`):
+// GITVOLT_E2E_TRACE=1 records them and keeps each failure's (`npx playwright show-trace …`):
 // rerun the failing spec with it.
-const trace = process.env.GITBOLT_E2E_TRACE ? 'retain-on-failure' : 'off';
+const trace = process.env.GITVOLT_E2E_TRACE ? 'retain-on-failure' : 'off';
 
 const chromium = { ...devices['Desktop Chrome'], permissions: ['clipboard-read', 'clipboard-write'] };
 
@@ -47,7 +47,7 @@ export default defineConfig({
     // them. Same browser, same budgets.
     { name: 'chromium', grepInvert: /@budget/, use: chromium },
     { name: 'chromium-budget', grep: /@budget/, use: chromium },
-    // WebKit stands in for engine portability, not for macOS: GitBolt ships on Linux, where its
+    // WebKit stands in for engine portability, not for macOS: GitVolt ships on Linux, where its
     // shortcuts (and Monaco's) are Ctrl ones. The Desktop Safari device's Mac user agent made
     // Monaco take Cmd keybindings, so a test's Ctrl+Home/Ctrl+F fell through to the hidden
     // textarea. Same engine, the user agent's platform Linux.
@@ -60,7 +60,7 @@ export default defineConfig({
       url: `http://localhost:${vitePort}`,
       reuseExistingServer: false,
       // Read at build time (and by the dev server): the UI's WebSocket URL (src/api/transport.ts).
-      env: { VITE_GITBOLT_HARNESS: harnessWs },
+      env: { VITE_GITVOLT_HARNESS: harnessWs },
     },
   ],
 });

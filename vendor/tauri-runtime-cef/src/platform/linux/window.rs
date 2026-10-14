@@ -42,7 +42,7 @@ pub(crate) struct CefX11Host {
   /// CSS provider currently backing this window's background color, kept so it can be removed
   /// from the display instead of accumulating one provider per `set_background_color` call.
   background_color_provider: RefCell<Option<gtk::CssProvider>>,
-  /// GitBolt patch: answers the window manager's `WM_TAKE_FOCUS` by focusing a browser.
+  /// GitVolt patch: answers the window manager's `WM_TAKE_FOCUS` by focusing a browser.
   _take_focus: Option<super::focus::TakeFocusRedirect>,
 }
 

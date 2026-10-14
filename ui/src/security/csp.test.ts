@@ -6,7 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { appCsp, demoCsp, e2eCsp, inlineScriptHashes, parseCsp } from './csp';
 
 const ui = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const tauriConf = JSON.parse(readFileSync(join(ui, '..', 'crates', 'gitbolt-app', 'tauri.conf.json'), 'utf8'));
+const tauriConf = JSON.parse(readFileSync(join(ui, '..', 'crates', 'gitvolt-app', 'tauri.conf.json'), 'utf8'));
 const indexHtml = readFileSync(join(ui, 'index.html'), 'utf8');
 
 describe('the Content Security Policy (tauri.conf.json, the one source)', () => {

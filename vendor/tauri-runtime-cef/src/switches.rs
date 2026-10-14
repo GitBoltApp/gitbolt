@@ -163,9 +163,9 @@ pub(crate) fn warn_about_replacing_switches(args: &[(String, Option<String>)]) {
   }
 }
 
-/// GitBolt: a `--host-resolver-rules` value that only blocks name resolution (`MAP * ~NOTFOUND`,
+/// GitVolt: a `--host-resolver-rules` value that only blocks name resolution (`MAP * ~NOTFOUND`,
 /// with `EXCLUDE` exceptions) can't redirect traffic anywhere, so it isn't the boundary the warning
-/// is about: GitBolt sets exactly this to stop Chromium's own background requests (PRIVACY.md).
+/// is about: GitVolt sets exactly this to stop Chromium's own background requests (PRIVACY.md).
 fn only_blocks_resolution(key: &str, value: Option<&str>) -> bool {
   key == "host-resolver-rules"
     && value.is_some_and(|v| {

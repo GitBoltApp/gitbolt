@@ -10,7 +10,7 @@ export interface Transport {
   subscribe(h: EventHandler): () => void;
 }
 
-/** Must match `gitbolt_core::events::TAURI_EVENT`. */
+/** Must match `gitvolt_core::events::TAURI_EVENT`. */
 export const TAURI_EVENT = 'gb:event';
 
 /** Hands `ev` to every handler; one that throws is logged and never starves the others. */
@@ -123,7 +123,7 @@ export function setTransportOverride(t: Transport): void {
 export function createTransport(onClosed?: () => void): Transport {
   if (override) return timed(override);
   if (inTauri()) return timed(tauriTransport());
-  return timed(wsTransport(import.meta.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws', undefined, onClosed));
+  return timed(wsTransport(import.meta.env.VITE_GITVOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws', undefined, onClosed));
 }
 
 /**

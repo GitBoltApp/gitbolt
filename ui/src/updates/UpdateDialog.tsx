@@ -14,9 +14,9 @@ import './updates.css';
 
 const ReleaseNotes = lazy(() => import('./ReleaseNotes'));
 
-/** What an AUR install runs instead (there's no `gitbolt-bin` on the AUR yet: "if you installed
+/** What an AUR install runs instead (there's no `gitvolt-bin` on the AUR yet: "if you installed
  * from the AUR"). */
-export const AUR_COMMANDS = ['yay -S gitbolt-bin', 'paru -S gitbolt-bin'] as const;
+export const AUR_COMMANDS = ['yay -S gitvolt-bin', 'paru -S gitvolt-bin'] as const;
 
 function copy(text: string) {
   void copyText(text).then(() => useToast.getState().show('Copied'), () => useToast.getState().show('Copy failed'));
@@ -34,12 +34,12 @@ function Command({ text }: { text: string }) {
 
 /** What the install button does, per install kind. */
 const INSTALL_NOTE: Record<Exclude<InstallKind, 'none'>, string> = {
-  deb: 'GitBolt installs the package with apt; your system asks for your password.',
-  arch: 'GitBolt installs the package with pacman; your system asks for your password.',
-  rpm: 'GitBolt installs the package with dnf (or zypper); your system asks for your password.',
-  nsis: 'The installer opens, and GitBolt closes so it can be replaced.',
-  msi: 'Windows Installer opens (and may ask for permission), and GitBolt closes so it can be replaced.',
-  dmg: 'GitBolt copies the new version from the disk image over this one; then restart it.',
+  deb: 'GitVolt installs the package with apt; your system asks for your password.',
+  arch: 'GitVolt installs the package with pacman; your system asks for your password.',
+  rpm: 'GitVolt installs the package with dnf (or zypper); your system asks for your password.',
+  nsis: 'The installer opens, and GitVolt closes so it can be replaced.',
+  msi: 'Windows Installer opens (and may ask for permission), and GitVolt closes so it can be replaced.',
+  dmg: 'GitVolt copies the new version from the disk image over this one; then restart it.',
 };
 
 /** The dialog's middle: what can be done now, for this install. */
@@ -48,10 +48,10 @@ function Action({ state, release, kind }: { state: UpdateState; release: UpdateR
   const outcome = useUpdates((s) => s.outcome);
   const archMethod = useAppState((s) => s.settings.updateArchMethod);
   if (!release.asset || kind === 'none') {
-    return <p className="update-message">{kind === 'none' ? 'This GitBolt was built from source: get the new version from its release page.' : `This release has no package for this install: get it from its release page.`}</p>;
+    return <p className="update-message">{kind === 'none' ? 'This GitVolt was built from source: get the new version from its release page.' : `This release has no package for this install: get it from its release page.`}</p>;
   }
   const arch = kind === 'arch' ? (
-    <div className="update-choices" role="group" aria-label="How do you install GitBolt?">
+    <div className="update-choices" role="group" aria-label="How do you install GitVolt?">
       <button type="button" aria-pressed={archMethod === 'pacman'} onClick={() => useAppState.getState().setSettings({ updateArchMethod: 'pacman' })}>Install with pacman</button>
       <button type="button" aria-pressed={archMethod === 'aur'} onClick={() => useAppState.getState().setSettings({ updateArchMethod: 'aur' })}>I use an AUR helper</button>
     </div>
@@ -60,7 +60,7 @@ function Action({ state, release, kind }: { state: UpdateState; release: UpdateR
     return (
       <>
         {arch}
-        <p className="update-message">If you installed GitBolt from the AUR, update it with your helper:</p>
+        <p className="update-message">If you installed GitVolt from the AUR, update it with your helper:</p>
         {AUR_COMMANDS.map((c) => <Command key={c} text={c} />)}
       </>
     );
@@ -85,11 +85,11 @@ function Action({ state, release, kind }: { state: UpdateState; release: UpdateR
       return (
         <>
           {arch}
-          {needsChoice ? <p className="update-message">How did you install GitBolt? GitBolt remembers your answer.</p> : <p className="update-message">{INSTALL_NOTE[kind]}</p>}
+          {needsChoice ? <p className="update-message">How did you install GitVolt? GitVolt remembers your answer.</p> : <p className="update-message">{INSTALL_NOTE[kind]}</p>}
           {outcome?.outcome === 'manual' && (
             <>
               <p className="update-message error" role="alert">{outcome.reason}</p>
-              {/* The package manager's own words, apart from GitBolt's: what to search for or report. */}
+              {/* The package manager's own words, apart from GitVolt's: what to search for or report. */}
               {outcome.output && <pre className="update-output" aria-label="Package manager output">{outcome.output}</pre>}
               <p className="update-message">Run this in a terminal instead:</p>
               <Command text={outcome.command} />
@@ -102,8 +102,8 @@ function Action({ state, release, kind }: { state: UpdateState; release: UpdateR
     case 'installed':
       return (
         <>
-          <p className="update-message">GitBolt {release.version} is installed. Restart GitBolt to use it.</p>
-          <div className="modal-actions"><button type="button" className="primary" onClick={() => void useUpdates.getState().restart()}>Restart GitBolt</button></div>
+          <p className="update-message">GitVolt {release.version} is installed. Restart GitVolt to use it.</p>
+          <div className="modal-actions"><button type="button" className="primary" onClick={() => void useUpdates.getState().restart()}>Restart GitVolt</button></div>
         </>
       );
     case 'failed':
@@ -138,9 +138,9 @@ export function UpdateDialog() {
   if (release.asset && kind !== 'none') file = <p className="update-file">{release.asset.name} · {formatSize(release.asset.size)}</p>;
   return (
     <div className="modal-backdrop" onPointerDown={close}>
-      <div ref={ref} className="modal update-dialog" role="dialog" aria-label={`Update to GitBolt ${release.version}`} onPointerDown={(e) => e.stopPropagation()}>
+      <div ref={ref} className="modal update-dialog" role="dialog" aria-label={`Update to GitVolt ${release.version}`} onPointerDown={(e) => e.stopPropagation()}>
         <h2>{release.name}{release.prerelease && <span className="update-badge">Pre-release</span>}</h2>
-        <p className="update-sub">You have GitBolt {info?.appVersion ?? '…'}.</p>
+        <p className="update-sub">You have GitVolt {info?.appVersion ?? '…'}.</p>
         <div className="update-notes" tabIndex={0} aria-label="Release notes">
           {release.notes.trim()
             ? <Suspense fallback={<p aria-busy="true">Loading…</p>}><ReleaseNotes text={release.notes} /></Suspense>

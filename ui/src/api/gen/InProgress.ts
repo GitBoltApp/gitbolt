@@ -7,7 +7,7 @@ export type InProgress = { "kind": "merge", mergeHead: string, message: string, 
  */
 editStop: string | null, 
 /**
- * UX L: GitBolt's Edit stop is "about to commit": right after git stopped, HEAD was
+ * UX L: GitVolt's Edit stop is "about to commit": right after git stopped, HEAD was
  * soft-reset to the edited commit's parent (this oid), so its changes are staged and its
  * message (`message`) is the commit box's. `None`: git's own stop (HEAD on `edit_stop`),
  * as a terminal's rebase has it.
@@ -29,12 +29,12 @@ editChanged: boolean,
  */
 editConflict: boolean, 
 /**
- * 3C final fix (M1, M2): GitBolt couldn't apply this stop's new message (a commit-msg
+ * 3C final fix (M1, M2): GitVolt couldn't apply this stop's new message (a commit-msg
  * hook refused it): why. HEAD keeps the old one.
  */
 messageFailed: string | null, 
 /**
- * 3C fix round 2: GitBolt's own interactive rebase (its session is there): Commit at
- * its Edit stops is GitBolt's. `false` for one started in a terminal.
+ * 3C fix round 2: GitVolt's own interactive rebase (its session is there): Commit at
+ * its Edit stops is GitVolt's. `false` for one started in a terminal.
  */
-gitbolt: boolean, conflicted: number, message: string, } | { "kind": "cherryPick", head: string | null, message: string, conflicted: number, } | { "kind": "revert", head: string | null, message: string, conflicted: number, } | { "kind": "other", what: string, };
+gitvolt: boolean, conflicted: number, message: string, } | { "kind": "cherryPick", head: string | null, message: string, conflicted: number, } | { "kind": "revert", head: string | null, message: string, conflicted: number, } | { "kind": "other", what: string, };

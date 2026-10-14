@@ -1,7 +1,7 @@
 import { inTauri } from '../api/transport';
 import { runAction } from './actions';
 
-/** Must match `MENU_EVENT` in `crates/gitbolt-app/src/menu.rs`. */
+/** Must match `MENU_EVENT` in `crates/gitvolt-app/src/menu.rs`. */
 export const MENU_EVENT = 'gb:menu';
 
 /**
@@ -15,9 +15,9 @@ export function installNativeMenu(): () => void {
   let dead = false;
   void import('@tauri-apps/api/event')
     .then(({ listen }) => listen<string>(MENU_EVENT, (e) => {
-      if (!runAction(e.payload)) console.warn(`[gitbolt] menu item ${e.payload}: no such action, or not usable now`);
+      if (!runAction(e.payload)) console.warn(`[gitvolt] menu item ${e.payload}: no such action, or not usable now`);
     }))
     .then((unlisten) => { if (dead) unlisten(); else off = unlisten; })
-    .catch((e: unknown) => console.warn('[gitbolt] menu bar events unavailable', e));
+    .catch((e: unknown) => console.warn('[gitvolt] menu bar events unavailable', e));
   return () => { dead = true; off?.(); };
 }

@@ -11,7 +11,7 @@ describe('settings schema', () => {
     expect(SETTINGS.find((s) => s.id === 'stickyScroll')?.help).toBe(STICKY_SCROLL_NOTE);
   });
   it('the accounts help names the file fallback too', () => {
-    expect(SETTINGS.find((s) => s.id === 'forgeAccounts')?.help).toContain("Tokens are kept in the system keyring, or in a file in GitBolt's data directory when no keyring is available.");
+    expect(SETTINGS.find((s) => s.id === 'forgeAccounts')?.help).toContain("Tokens are kept in the system keyring, or in a file in GitVolt's data directory when no keyring is available.");
   });
 });
 

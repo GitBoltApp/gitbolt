@@ -14,14 +14,14 @@ import { demoCsp, e2eCsp } from './src/security/csp.ts';
 // this stays 1420 exactly as before -- `just dev` and the packaged app both depend on that
 // default. Set (by the e2e harness, see playwright.config.ts), Vite takes the base + 1, leaving
 // the base port itself for the WebSocket harness.
-const portBase = process.env.GITBOLT_E2E_PORT_BASE ? Number(process.env.GITBOLT_E2E_PORT_BASE) : undefined;
+const portBase = process.env.GITVOLT_E2E_PORT_BASE ? Number(process.env.GITVOLT_E2E_PORT_BASE) : undefined;
 const port = portBase !== undefined ? portBase + 1 : 1420;
 
 // The third-party notices (docs/licensing.md): the build writes dist/licenses/ with the UI's own
-// notices, and copies in the ones `just licenses` made (target/licenses, or GITBOLT_LICENSES_DIR)
-// when they exist, for Help > About GitBolt > Open source licenses.
+// notices, and copies in the ones `just licenses` made (target/licenses, or GITVOLT_LICENSES_DIR)
+// when they exist, for Help > About GitVolt > Open source licenses.
 const here = (p: string) => fileURLToPath(new URL(p, import.meta.url));
-const licensesDir = process.env.GITBOLT_LICENSES_DIR ?? here('../target/licenses');
+const licensesDir = process.env.GITVOLT_LICENSES_DIR ?? here('../target/licenses');
 const notices = licenseNotices({
   root: here('.'),
   aboutToml: here('../about.toml'),
@@ -31,11 +31,11 @@ const notices = licenseNotices({
     { name: 'LICENSE.txt', path: here('../LICENSE') },
     { name: 'THIRD-PARTY-NOTICES-rust.txt', path: `${licensesDir}/THIRD-PARTY-NOTICES-rust.txt` },
     { name: 'CEF-LICENSE.txt', path: `${licensesDir}/CEF-LICENSE.txt` },
-    { name: 'DICTIONARY-en-US-LICENSE.txt', path: here('../crates/gitbolt-app/dictionaries/en-US-LICENSE.txt') },
+    { name: 'DICTIONARY-en-US-LICENSE.txt', path: here('../crates/gitvolt-app/dictionaries/en-US-LICENSE.txt') },
   ],
 });
-// Shiki grammars replaced by GitBolt's own files (docs/licensing.md): Shiki's grammars that embed
-// one (cpp embeds glsl) get GitBolt's file too.
+// Shiki grammars replaced by GitVolt's own files (docs/licensing.md): Shiki's grammars that embed
+// one (cpp embeds glsl) get GitVolt's file too.
 const replaced = Object.keys((JSON.parse(readFileSync(here('build/license-exceptions.json'), 'utf8')) as { replaced?: { grammars?: object } }).replaced?.grammars ?? {});
 const grammars = () => replacedGrammars({ root: here('.'), ids: replaced });
 
@@ -44,20 +44,20 @@ const grammars = () => replacedGrammars({ root: here('.'), ids: replaced });
 // The dev server has none: Vite's own inline scripts and eval-based HMR need a looser one.
 const read = (path: string) => readFileSync(fileURLToPath(new URL(path, import.meta.url)), 'utf8');
 const previewHeaders = (mode: string): Record<string, string> =>
-  mode === 'e2e' ? { 'Content-Security-Policy': e2eCsp(JSON.parse(read('../crates/gitbolt-app/tauri.conf.json')), read('./index.html'), process.env.VITE_GITBOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws') } : {};
+  mode === 'e2e' ? { 'Content-Security-Policy': e2eCsp(JSON.parse(read('../crates/gitvolt-app/tauri.conf.json')), read('./index.html'), process.env.VITE_GITVOLT_HARNESS ?? 'ws://127.0.0.1:7433/ws') } : {};
 
 // The website demo (`vite build --mode demo`; website demo spec §4.1): demo.html alone, into
 // site/dist/demo/ with relative URLs (the site serves it under its own path), its data from
-// GITBOLT_DEMO_DATA (relative to the repo root; default site/demo-data/), and the app's Content Security Policy as a <meta>
+// GITVOLT_DEMO_DATA (relative to the repo root; default site/demo-data/), and the app's Content Security Policy as a <meta>
 // (GitHub Pages sends no headers). Every other mode builds as before; the version define is only
 // read by the demo's About.
 const uiVersion = (JSON.parse(read('./package.json')) as { version: string }).version;
 const demoPolicy = (): Plugin => ({
-  name: 'gitbolt-demo-csp',
+  name: 'gitvolt-demo-csp',
   apply: 'build',
   transformIndexHtml: {
     order: 'post',
-    handler: (html) => html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${demoCsp(JSON.parse(read('../crates/gitbolt-app/tauri.conf.json')), html)}" />`),
+    handler: (html) => html.replace('<head>', `<head>\n    <meta http-equiv="Content-Security-Policy" content="${demoCsp(JSON.parse(read('../crates/gitvolt-app/tauri.conf.json')), html)}" />`),
   },
 });
 
@@ -65,8 +65,8 @@ export default defineConfig(({ mode }) => {
   const demo = mode === 'demo';
   return {
     base: demo ? './' : '/',
-    plugins: [react(), grammars(), notices.main, ...(demo ? [demoPolicy(), demoData(process.env.GITBOLT_DEMO_DATA ? resolve(here('..'), process.env.GITBOLT_DEMO_DATA) : here('../site/demo-data'), here('src/demo/wasm/THIRD-PARTY-NOTICES-wasm.txt'))] : [])],
-    define: { 'import.meta.env.VITE_GITBOLT_VERSION': JSON.stringify(uiVersion) },
+    plugins: [react(), grammars(), notices.main, ...(demo ? [demoPolicy(), demoData(process.env.GITVOLT_DEMO_DATA ? resolve(here('..'), process.env.GITVOLT_DEMO_DATA) : here('../site/demo-data'), here('src/demo/wasm/THIRD-PARTY-NOTICES-wasm.txt'))] : [])],
+    define: { 'import.meta.env.VITE_GITVOLT_VERSION': JSON.stringify(uiVersion) },
     worker: { plugins: () => [grammars(), notices.worker()] },
     clearScreen: false,
     server: { port, strictPort: true },
@@ -80,8 +80,8 @@ export default defineConfig(({ mode }) => {
         // works in both.
         { find: /^decode-named-character-reference$/, replacement: fileURLToPath(new URL('./node_modules/decode-named-character-reference/index.js', import.meta.url)) },
         // The website demo's WebAssembly graph: the glue `just demo-wasm` writes (git-ignored),
-        // typed by src/demo/gitbolt-graph-wasm.d.ts. Only the demo imports it.
-        { find: /^gitbolt-graph-wasm$/, replacement: fileURLToPath(new URL('./src/demo/wasm/gitbolt_graph_wasm.js', import.meta.url)) },
+        // typed by src/demo/gitvolt-graph-wasm.d.ts. Only the demo imports it.
+        { find: /^gitvolt-graph-wasm$/, replacement: fileURLToPath(new URL('./src/demo/wasm/gitvolt_graph_wasm.js', import.meta.url)) },
       ],
     },
     // Monaco and Shiki are only reached through a dynamic import (diff/monaco/load.ts). Pre-bundle
@@ -93,7 +93,7 @@ export default defineConfig(({ mode }) => {
         'monaco-editor/features/register.all',
         'shiki/core',
         'shiki/engine/oniguruma',
-        // Each grammar by name, from GitBolt's registry rather than Shiki's (docs/licensing.md).
+        // Each grammar by name, from GitVolt's registry rather than Shiki's (docs/licensing.md).
         ...bundledLanguagesInfo.filter((l) => !replaced.includes(l.id)).map((l) => `shiki/langs/${l.id}.mjs`),
         'shiki/themes/*.mjs', // the dev server's cache only: the build bundles just the themes editorThemes.ts names
         'shiki/wasm',

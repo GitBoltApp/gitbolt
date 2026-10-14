@@ -28,7 +28,7 @@ beforeEach(() => {
 describe('Open MR/PR rows (spec #4 §4 "4B")', () => {
   it("a branch's menu opens its MR in the view", () => {
     const [row] = rowsOf(target());
-    expect(row).toMatchObject({ id: 'commit.openMr.12', label: 'Open MR !12', tooltip: 'Show merge request !12 (Dev work) in GitBolt' });
+    expect(row).toMatchObject({ id: 'commit.openMr.12', label: 'Open MR !12', tooltip: 'Show merge request !12 (Dev work) in GitVolt' });
     if (row?.kind === 'action') row.run();
     expect(poll.openMrView).toHaveBeenCalledWith('t', 12);
   });

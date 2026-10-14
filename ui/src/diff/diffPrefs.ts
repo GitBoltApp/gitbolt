@@ -19,7 +19,7 @@ export const DEFAULT_DIFF_PREFS: DiffPrefs = { mode: 'inline', ignoreWhitespace:
 const MODES: readonly DiffMode[] = ['hunk', 'inline', 'split'];
 
 /** The one localStorage key for diff prefs. Bump the version if the stored shape changes. */
-export const DIFF_PREFS_STORAGE_KEY = 'gitbolt.diffPrefs.v1';
+export const DIFF_PREFS_STORAGE_KEY = 'gitvolt.diffPrefs.v1';
 
 /** Stored data → prefs. Anything that isn't an object is `null` (the store uses the defaults);
  * inside an object, each valid field is kept and each invalid or missing one takes its default. */

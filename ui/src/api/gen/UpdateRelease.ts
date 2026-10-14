@@ -10,7 +10,7 @@ export type UpdateRelease = {
  */
 version: string, 
 /**
- * The release's title (`GitBolt 0.3.0`).
+ * The release's title (`GitVolt 0.3.0`).
  */
 name: string, 
 /**

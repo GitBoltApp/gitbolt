@@ -1,5 +1,5 @@
 // The site's screenshots (`just site-shots`; spec §2 decision 6, §6.2): each scene on the demo
-// build at device scale 2, into GITBOLT_SITE_SHOTS_RAW as <id>@<2x width>.png, which
+// build at device scale 2, into GITVOLT_SITE_SHOTS_RAW as <id>@<2x width>.png, which
 // scripts/site-shots.py turns into site/shots/<id>.webp and <id>-1x.webp. On demand only.
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,7 +7,7 @@ import { expect, test, type Page } from '@playwright/test';
 import { pendingMethods } from '../build/pending.ts';
 import { SHOTS, type ShotId } from '../build/shots.ts';
 
-const out = process.env.GITBOLT_SITE_SHOTS_RAW;
+const out = process.env.GITVOLT_SITE_SHOTS_RAW;
 test.skip(!out, 'the site screenshots run through `just site-shots`');
 
 const pending = pendingMethods(readFileSync(new URL('../../ui/src/demo/coverage.ts', import.meta.url), 'utf8'));

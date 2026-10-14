@@ -1,6 +1,6 @@
 # Notes for AI coding agents
 
-GitBolt is a desktop Git client: a Rust core (`crates/`), a React UI (`ui/`), and Tauri on the
+GitVolt is a desktop Git client: a Rust core (`crates/`), a React UI (`ui/`), and Tauri on the
 Chromium (CEF) runtime. Read these before changing anything substantial:
 
 - [ARCHITECTURE.md](ARCHITECTURE.md): how the pieces fit, and where things live.
@@ -24,8 +24,8 @@ Chromium (CEF) runtime. Read these before changing anything substantial:
 - **Changed a Rust type the UI uses?** Run `just gen-types` and commit the regenerated
   `ui/src/api/gen/` and `ui/src/demo/gen/` files.
 - **Leave `CARGO_INCREMENTAL` unset.** Setting it to `1` breaks sccache, and `0` makes rebuilds
-  slow. The harness's integration tests are one binary, `crates/gitbolt-harness/tests/it/`.
-- **Running e2e from parallel worktrees?** Give each one its own `GITBOLT_E2E_PORT_BASE`.
+  slow. The harness's integration tests are one binary, `crates/gitvolt-harness/tests/it/`.
+- **Running e2e from parallel worktrees?** Give each one its own `GITVOLT_E2E_PORT_BASE`.
 
 ## Things that will bite you
 
@@ -35,7 +35,7 @@ Chromium (CEF) runtime. Read these before changing anything substantial:
 - **Writes go through the `git` CLI** (hooks, config and credentials must behave as in a
   terminal). Never pass `-c user.*` or otherwise override the user's git identity.
 - **The webview is locked down:**
-  - a strict Content Security Policy (`crates/gitbolt-app/tauri.conf.json`);
+  - a strict Content Security Policy (`crates/gitvolt-app/tauri.conf.json`);
   - Chromium can't resolve any host name except localhost.
 
   Anything that needs the network goes through the Rust core, and a new remote resource needs

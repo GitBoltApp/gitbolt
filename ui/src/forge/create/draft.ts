@@ -30,7 +30,7 @@ export interface MrDraft {
   deleteSourceBranch: boolean | null;
 }
 
-export const MR_DRAFT_STORAGE_KEY = 'gitbolt.mrDrafts.v1';
+export const MR_DRAFT_STORAGE_KEY = 'gitvolt.mrDrafts.v1';
 const PERSIST_MS = 300;
 export const MAX_MR_DRAFTS = 50;
 export const MR_DRAFT_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;

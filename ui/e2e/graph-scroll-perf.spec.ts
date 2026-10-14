@@ -6,7 +6,7 @@ import { avatarPng, makePerfRepo } from './perfRepo';
 
 /**
  * The graph's scroll performance probe: not part of the suite (it takes ~30 s and measures
- * rather than asserts much). GITBOLT_PERF=1 runs it; it prints one JSON line per measurement.
+ * rather than asserts much). GITVOLT_PERF=1 runs it; it prints one JSON line per measurement.
  * A 4000-commit, ~22-lane generated repo with a picture for every author (answered in the
  * WebSocket, the harness has none), a 2560×1440 viewport at dpr 2, the Graph column at its
  * widest (every lane fits). Measures:
@@ -15,7 +15,7 @@ import { avatarPng, makePerfRepo } from './perfRepo';
  * - a ~2 s rAF-driven scroll and a ~2 s mouse-wheel scroll: frames over 16.7 ms, long tasks,
  *   React commits per second (a stub devtools hook counts them), draws and their durations.
  */
-test.skip(!process.env.GITBOLT_PERF, 'the graph perf probe runs with GITBOLT_PERF=1');
+test.skip(!process.env.GITVOLT_PERF, 'the graph perf probe runs with GITVOLT_PERF=1');
 test.use({ viewport: { width: 2560, height: 1440 }, deviceScaleFactor: 2 });
 test.setTimeout(120_000);
 

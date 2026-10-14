@@ -38,7 +38,7 @@ test('a wide one starts the demo in a titled frame over the still, loading', () 
   const root = hero();
   const demo = initHeroDemo(root, { src: 'about:blank', origin: ORIGIN, wide: wide(true), schedule: now });
   const frame = root.querySelector<HTMLIFrameElement>('.stage > iframe.demo-live')!;
-  expect(frame.title).toBe('GitBolt live demo');
+  expect(frame.title).toBe('GitVolt live demo');
   expect(demo.frame).toBe(frame);
   expect(demo.state).toBe('loading');
   expect(badge()).toBe('Loading the live demo…');
@@ -47,7 +47,7 @@ test('a wide one starts the demo in a titled frame over the still, loading', () 
 test('"ready" from the frame shows the demo', () => {
   const root = hero();
   const demo = initHeroDemo(root, { src: 'about:blank', origin: ORIGIN, wide: wide(true), schedule: now });
-  report(demo.frame, { source: 'gitbolt-demo', type: 'ready' });
+  report(demo.frame, { source: 'gitvolt-demo', type: 'ready' });
   expect(demo.state).toBe('ready');
   expect(badge()).toBe('Live demo');
 });
@@ -55,8 +55,8 @@ test('"ready" from the frame shows the demo', () => {
 test('a message from another window or origin, or of another shape, changes nothing', () => {
   const root = hero();
   const demo = initHeroDemo(root, { src: 'about:blank', origin: ORIGIN, wide: wide(true), schedule: now });
-  report(demo.frame, { source: 'gitbolt-demo', type: 'ready' }, 'https://elsewhere.example');
-  report(demo.frame, { source: 'gitbolt-demo', type: 'ready' }, ORIGIN, window);
+  report(demo.frame, { source: 'gitvolt-demo', type: 'ready' }, 'https://elsewhere.example');
+  report(demo.frame, { source: 'gitvolt-demo', type: 'ready' }, ORIGIN, window);
   report(demo.frame, { type: 'ready' });
   report(demo.frame, 'ready');
   expect(demo.state).toBe('loading');
@@ -65,7 +65,7 @@ test('a message from another window or origin, or of another shape, changes noth
 test("a failed report keeps the still and says why", () => {
   const root = hero();
   const demo = initHeroDemo(root, { src: 'about:blank', origin: ORIGIN, wide: wide(true), schedule: now });
-  report(demo.frame, { source: 'gitbolt-demo', type: 'failed', message: "The demo's data is missing: orbital.gbdemo (404)" });
+  report(demo.frame, { source: 'gitvolt-demo', type: 'failed', message: "The demo's data is missing: orbital.gbdemo (404)" });
   expect(demo.state).toBe('failed');
   expect(badge()).toBe("The live demo didn't start: The demo's data is missing: orbital.gbdemo (404)");
 });
@@ -106,12 +106,12 @@ test('reset replaces the frame with a fresh one, loading again; the old one\'s w
   const old = demo.frame;
   const oldWindow = old!.contentWindow;
   expect(oldWindow).not.toBeNull();
-  report(old, { source: 'gitbolt-demo', type: 'ready' });
+  report(old, { source: 'gitvolt-demo', type: 'ready' });
   demo.reset();
   expect(root.querySelectorAll('iframe')).toHaveLength(1);
   expect(demo.frame).not.toBe(old);
   expect(demo.state).toBe('loading');
-  report(old, { source: 'gitbolt-demo', type: 'ready' }, ORIGIN, oldWindow);
+  report(old, { source: 'gitvolt-demo', type: 'ready' }, ORIGIN, oldWindow);
   expect(demo.state).toBe('loading');
 });
 
@@ -134,7 +134,7 @@ test('the badge says Screenshot while the window is too narrow for the demo, and
   const root = hero();
   const q = wide(true);
   const demo = initHeroDemo(root, { src: 'about:blank', origin: ORIGIN, wide: q, schedule: now });
-  report(demo.frame, { source: 'gitbolt-demo', type: 'ready' });
+  report(demo.frame, { source: 'gitvolt-demo', type: 'ready' });
   expect(badge()).toBe('Live demo');
   q.set(false);
   expect(badge()).toBe('Screenshot');

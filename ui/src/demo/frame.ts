@@ -3,7 +3,7 @@
 // for the live frame. Only to its own origin's parent; nothing when demo.html isn't framed.
 import { asGbError } from './engine/errors';
 
-export const DEMO_MESSAGE = 'gitbolt-demo';
+export const DEMO_MESSAGE = 'gitvolt-demo';
 export type DemoStatus = { source: typeof DEMO_MESSAGE; type: 'ready' } | { source: typeof DEMO_MESSAGE; type: 'failed'; message: string };
 
 export function reportToParent(win: Window, boot: Promise<unknown>, graphShown: () => Promise<void>): void {

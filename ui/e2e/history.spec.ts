@@ -128,7 +128,7 @@ test('File History and Blame: following the rename, Blame groups, Esc; the gutte
     expect(gutter.width).toBeLessThanOrEqual(Math.min(200, 0.35 * (await box(editor)).width) + 10);
     expect(number.x).toBeLessThan(code.x);
     expect(Math.abs(number.y + number.height / 2 - (code.y + code.height / 2))).toBeLessThanOrEqual(1);
-    if (process.env.GITBOLT_BLAME_SHOT) await view.screenshot({ path: process.env.GITBOLT_BLAME_SHOT });
+    if (process.env.GITVOLT_BLAME_SHOT) await view.screenshot({ path: process.env.GITVOLT_BLAME_SHOT });
   });
   // UX J: a short hash copies the full one (the row stays unselected); the list column resizes, the bar following.
   await test.step('clicking a hash copies it without selecting the row; the list resizes with the header', async () => {

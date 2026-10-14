@@ -19,15 +19,15 @@ on:
       - ui/build/**
       - ui/scripts/check-site.mjs
       - ui/vite.config.ts
-      - crates/gitbolt-graph/**
-      - crates/gitbolt-graph-wasm/**
+      - crates/gitvolt-graph/**
+      - crates/gitvolt-graph-wasm/**
       - scripts/site-pages.sh
       - .github/workflows/site.yml
       - README.md
       - about.toml
       - justfile
       - ui/src/security/csp.ts
-      - crates/gitbolt-app/tauri.conf.json
+      - crates/gitvolt-app/tauri.conf.json
   workflow_dispatch:
 
 permissions: {}
@@ -198,7 +198,7 @@ jobs:
             fi
           done < <(jq -r '.repos[] | "\(.file) \(.rev)"' "$work/manifest.json")
           code=$(curl -sS -o "$work/404.html" -w '%{http_code}' "${base}no-such-page-$GITHUB_RUN_ID/")
-          if [ "$code" != 404 ] || ! grep -q 'data-gitbolt-404' "$work/404.html"; then
+          if [ "$code" != 404 ] || ! grep -q 'data-gitvolt-404' "$work/404.html"; then
             echo "::error::A missing page answers $code without the site's 404 page"
             exit 1
           fi

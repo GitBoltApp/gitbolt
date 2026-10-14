@@ -131,7 +131,7 @@ export class LineGutter {
     };
     this.hides.push(hide);
     this.refreshes.push(refresh);
-    ed.addOverlayWidget({ getId: () => `gitbolt.lineStage.${side}`, getDomNode: () => btn, getPosition: () => null });
+    ed.addOverlayWidget({ getId: () => `gitvolt.lineStage.${side}`, getDomNode: () => btn, getPosition: () => null });
     // The press is the button's: Monaco mustn't move the cursor or start a selection under it.
     btn.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
     btn.addEventListener('click', () => {

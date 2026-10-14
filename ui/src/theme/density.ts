@@ -17,7 +17,7 @@ import { create } from 'zustand';
 export type Density = 'compact' | 'standard' | 'comfortable';
 export const DENSITIES: readonly Density[] = ['compact', 'standard', 'comfortable'];
 export const DEFAULT_DENSITY: Density = 'standard';
-export const DENSITY_STORAGE_KEY = 'gitbolt.density.v1';
+export const DENSITY_STORAGE_KEY = 'gitvolt.density.v1';
 
 export interface DensityMetrics {
   /** Graph table row height, CSS px: the DOM rows, the virtualizer and the canvas. */

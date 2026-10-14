@@ -1,4 +1,4 @@
-# Template for a future `gitbolt-bin` AUR package, for when the repo goes public and releases
+# Template for a future `gitvolt-bin` AUR package, for when the repo goes public and releases
 # are published on GitHub. Not used by the build: `just package-arch` (scripts/package-arch.sh)
 # makes the .pkg.tar.zst directly from the .deb, without makepkg.
 #
@@ -6,14 +6,14 @@
 # the sha256 placeholder (`updpkgsums`), and keep `depends` in sync with DEB_TO_ARCH in
 # scripts/arch-pkg.py (or copy the `depend =` lines from the release package's .PKGINFO).
 #
-# Maintainer: GitBolt build
-pkgname=gitbolt-bin
+# Maintainer: GitVolt build
+pkgname=gitvolt-bin
 pkgver=0.1.0
 _debver=0.1.0 # the .deb's version, e.g. 0.1.0+202610051325.ab4dbf9e for a dev build
 pkgrel=1
 pkgdesc="Fast, keyboard-friendly Git client"
 arch=('x86_64')
-url="https://github.com/GitBoltApp/gitbolt"
+url="https://github.com/GitVoltApp/gitvolt"
 # Copy the release package's `license =` lines (scripts/arch-pkg.py licenses): MIT, then the
 # licenses of what it bundles.
 license=('MIT' 'Apache-2.0' 'BSD-2-Clause' 'BSD-3-Clause' 'CC0-1.0' 'CDLA-Permissive-2.0' 'EPL-2.0'
@@ -22,10 +22,11 @@ depends=('alsa-lib' 'at-spi2-core' 'cairo' 'dbus' 'expat' 'gcc-libs' 'gdk-pixbuf
          'glibc' 'graphene' 'gtk4' 'libcups' 'libx11' 'libxcb' 'libxcomposite' 'libxdamage'
          'libxext' 'libxfixes' 'libxkbcommon' 'libxrandr' 'mesa' 'nspr' 'nss' 'pango'
          'systemd-libs' 'wayland')
-provides=('gitbolt')
-conflicts=('gitbolt')
+provides=('gitvolt')
+conflicts=('gitvolt' 'gitbolt<0.7.0')
+replaces=('gitbolt<0.7.0')
 options=('!strip' '!debug')
-source=("GitBolt_${_debver}_amd64.deb::${url}/releases/download/v${pkgver}/GitBolt_${_debver}_amd64.deb")
+source=("GitVolt_${_debver}_amd64.deb::${url}/releases/download/v${pkgver}/GitVolt_${_debver}_amd64.deb")
 sha256sums=('SKIP_REPLACE_WITH_THE_RELEASE_SHA256')
 
 package() {
@@ -33,10 +34,10 @@ package() {
   bsdtar -xpf data.tar.* -C "$pkgdir"
   # Chromium's sandbox helper must stay root-owned setuid, as in the .deb (makepkg runs under
   # fakeroot, so the archive records root:root).
-  chmod 4755 "$pkgdir/usr/share/GitBolt/chrome-sandbox"
+  chmod 4755 "$pkgdir/usr/share/GitVolt/chrome-sandbox"
   # The AppStream metainfo names the .deb's package; software centres match it to this one.
-  sed -i "s|<pkgname>git-bolt</pkgname>|<pkgname>$pkgname</pkgname>|" \
-    "$pkgdir/usr/share/metainfo/dev.gitbolt.desktop.metainfo.xml"
+  sed -i "s|<pkgname>gitvolt</pkgname>|<pkgname>$pkgname</pkgname>|" \
+    "$pkgdir/usr/share/metainfo/com.gitvolt.desktop.metainfo.xml"
   # The update check offers the Arch package (or the AUR helper's command), not the .deb.
-  printf 'arch\n' > "$pkgdir/usr/share/GitBolt/install-kind"
+  printf 'arch\n' > "$pkgdir/usr/share/GitVolt/install-kind"
 }

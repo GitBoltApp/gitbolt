@@ -1,5 +1,5 @@
 // The app's Content Security Policy. Its one source is `app.security.csp` in
-// crates/gitbolt-app/tauri.conf.json: Tauri sends it with every page of the bundle and adds the
+// crates/gitvolt-app/tauri.conf.json: Tauri sends it with every page of the bundle and adds the
 // hash of each inline <script> in index.html to `script-src` itself. The e2e build (served by
 // `vite preview --mode e2e`, vite.config.ts) gets the same policy as a header, with that hash
 // computed here and the test harness's WebSocket added to `connect-src`, so the suite runs under

@@ -303,7 +303,7 @@ describe('ImageDiff', () => {
     fireEvent.click(screen.getByRole('button', { name: 'White background' }));
     expect(screen.getByRole('button', { name: 'White background' })).toHaveAttribute('aria-pressed', 'true');
     expect(viewports().every((c) => c.includes('bg-white'))).toBe(true);
-    expect(localStorage.getItem('gitbolt.imageBackground.v1')).toBe('white');
+    expect(localStorage.getItem('gitvolt.imageBackground.v1')).toBe('white');
     // The difference view keeps its black canvas.
     fireEvent.click(screen.getByRole('button', { name: 'Difference' }));
     expect(viewports()).toEqual([expect.stringContaining('bg-black')]);

@@ -193,6 +193,7 @@ export const COVERAGE = {
   updateCancel: 'canned',
   updateInstall: 'notInDemo',
   updateRestart: 'notInDemo',
+  updateRemoveLegacyBundle: 'notInDemo',
 } as const satisfies Record<Method, Tier>;
 
 export type NotInDemoMethod = { [M in Method]: (typeof COVERAGE)[M] extends 'notInDemo' ? M : never }[Method];

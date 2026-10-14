@@ -1,15 +1,15 @@
 # Playground and showcase repositories
 
-`just playground` builds ten throwaway repositories for trying GitBolt, in `~/gitbolt-playground`
-(or the folder you pass: `just playground DIR`). Add that folder in GitBolt ("Add a folder") and
+`just playground` builds ten throwaway repositories for trying GitVolt, in `~/gitvolt-playground`
+(or the folder you pass: `just playground DIR`). Add that folder in GitVolt ("Add a folder") and
 every repo in it is listed. Each repo is a direct child of the folder; the bare remotes live in
 `.remotes/`, linked worktrees in `.worktrees/`, both hidden from the folder scan. Re-running the
-recipe resets the folder, but only if it is empty or carries the `.gitbolt-playground` marker.
+recipe resets the folder, but only if it is empty or carries the `.gitvolt-playground` marker.
 
 ## What it builds
 
 - **orbital**: a 2D space-trading game in Rust, over a thousand commits by six people over two years.
-  Every file type GitBolt previews is in its history: sprites, the HUD font, sounds, the design
+  Every file type GitVolt previews is in its history: sprites, the HUD font, sounds, the design
   PDF, the press kit, tables and a save file. One branch (`balance/fuel-rework`) that conflicts with
   `main`, an interactive-rebase candidate, branches ahead, behind and diverged from origin, two stashes and staged and unstaged
   changes on `main`. A teammate's push is not fetched yet: `git -C .remotes/orbital-origin.git
@@ -32,14 +32,14 @@ recipe resets the folder, but only if it is empty or carries the `.gitbolt-playg
   shows both. `libs/shaders` is recorded but not initialised. The palette (Ctrl+P) has the
   Submodules actions.
 - **lfs**: the title art through Git LFS, with no git-lfs needed to build it. Its two versions
-  diff as images; `art/ships.psd` was never downloaded (Download needs git-lfs). Initialising it clones from a local folder, which git refuses unless `protocol.file.allow` is `always` in your global config (git 2.38.1 and later); GitBolt runs git as a terminal would, so the same applies.
+  diff as images; `art/ships.psd` was never downloaded (Download needs git-lfs). Initialising it clones from a local folder, which git refuses unless `protocol.file.allow` is `always` in your global config (git 2.38.1 and later); GitVolt runs git as a terminal would, so the same applies.
 
 ## Showcase or fixture
 
-`gitbolt-harness showcase <name> <dir>` builds one of the ten above on its own. `<dir>` must be
+`gitvolt-harness showcase <name> <dir>` builds one of the ten above on its own. `<dir>` must be
 empty, missing, or a folder a previous run made. The names match the core's test fixtures, but
 the content does not: the test fixtures back the Rust and e2e tests and must keep their exact
-contents. `gitbolt-harness fixture <name> <dir>` builds the test fixture for `basic`, `sync`,
+contents. `gitvolt-harness fixture <name> <dir>` builds the test fixture for `basic`, `sync`,
 `conflicts`, `stack`, `wip_staging` and `rebase_lab`. For `orbital`, `previews`, `submodules` and
 `lfs` it builds the showcase content, so `fixture` accepts every showcase name.
 
@@ -59,10 +59,10 @@ worktree paths to match.
 
 ## How Orbital is made
 
-Everything is generated from `orbital::SEED` (`crates/gitbolt-harness/src/orbital/mod.rs`), so a
+Everything is generated from `orbital::SEED` (`crates/gitvolt-harness/src/orbital/mod.rs`), so a
 build gives the same commit ids on the same platform.
 
-- **Corpus** (`crates/gitbolt-harness/src/orbital/corpus/`): the text of the game. Rust items,
+- **Corpus** (`crates/gitvolt-harness/src/orbital/corpus/`): the text of the game. Rust items,
   shaders, docs, tables and devlog entries, each block versioned and tagged with the feature that
   introduces it. The file format is described at the top of `orbital/corpus.rs`.
 - **Story** (`orbital/story.rs`): turns the corpus and `corpus/features.txt` into steps. Each
@@ -76,14 +76,14 @@ build gives the same commit ids on the same platform.
   commit, upstreams, stashes, the staged working tree and `forge.json`.
 
 The art is drawn by the harness's own code (`orbital/art.rs`, `scenes.rs`, `glyphs.rs`,
-`design_doc.rs`, `data.rs`), not taken from anywhere. `gitbolt-harness media preview <dir>` writes
+`design_doc.rs`, `data.rs`), not taken from anywhere. `gitvolt-harness media preview <dir>` writes
 every sprite scaled up to `<dir>`, with a `contact.png` sheet and an `index.html` to open.
 
 ## Encoded media
 
 Four files are encoded with ffmpeg, once, from frames and samples the harness makes:
 `trailer-v1.webm`, `trailer-v2.webm`, `menu-loop.ogg` and `docking-chime.opus`, in
-`crates/gitbolt-harness/src/fixture_data/`. They're committed, so building never needs ffmpeg.
+`crates/gitvolt-harness/src/fixture_data/`. They're committed, so building never needs ffmpeg.
 `scripts/gen-fixture-media.sh HARNESS` re-encodes them; run it only to change them.
 
 ## Website data

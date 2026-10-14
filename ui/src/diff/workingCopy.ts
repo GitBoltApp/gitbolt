@@ -268,5 +268,5 @@ export function installWindowCloseGuard(): void {
         if (pick === 'discard') void win.destroy();
       });
     });
-  }).catch((e: unknown) => console.warn('[gitbolt] window close events unavailable', e));
+  }).catch((e: unknown) => console.warn('[gitvolt] window close events unavailable', e));
 }

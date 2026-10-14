@@ -8,6 +8,7 @@ import { ChoiceDialog } from '../ui/ChoiceDialog';
 import { ConfirmDialog } from '../ui/ConfirmDialog';
 import { PromptDialog } from '../ui/PromptDialog';
 import { Toast } from '../ui/Toast';
+import { LegacyBundleNotice } from '../updates/LegacyBundle';
 import { TooltipHost } from '../ui/TooltipHost';
 import './features';
 import { useGlobalEvents } from './ops';
@@ -57,7 +58,7 @@ export function AppShell({ error = null }: { error?: string | null }) {
     if (booted && tabs.length === 0) useAppState.getState().updateProfile((p) => openBlankTab(p).profile);
   }, [booted, tabs.length]);
   useEffect(() => {
-    if (loaded && tabs.length === 0) document.title = 'GitBolt';
+    if (loaded && tabs.length === 0) document.title = 'GitVolt';
   }, [loaded, tabs.length]);
   return (
     <div className="app-shell">
@@ -85,6 +86,7 @@ export function AppShell({ error = null }: { error?: string | null }) {
         </>
       )}
       <Toast />
+      <LegacyBundleNotice />
       {/* The image viewer: a Markdown image clicked, over everything but tooltips, confirms and toasts. */}
       <Lightbox />
       {/* The one context menu and its tooltip (spec §7). */}

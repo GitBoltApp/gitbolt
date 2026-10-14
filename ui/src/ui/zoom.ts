@@ -9,14 +9,14 @@ import { registerKeyHints } from '../shortcuts/hints';
  * `SetZoomLevel`); Chrome's own zoom accelerators stay off (`zoom_hotkeys_enabled` is false in the
  * CEF runtime), so these keys are the app's alone.
  *
- * Chrome keeps a zoom level per origin in its profile. GitBolt's saved step is the source of
+ * Chrome keeps a zoom level per origin in its profile. GitVolt's saved step is the source of
  * truth: it's re-applied at startup, 100% included.
  *
  * The saved step stays in localStorage (plan 1C ruling R4), so it applies before the first paint;
  * `useZoom` mirrors it for the status bar.
  */
 export const ZOOM_STEPS = [80, 90, 100, 110, 120, 130, 140, 150, 175, 200, 250, 300] as const;
-export const ZOOM_STORAGE_KEY = 'gitbolt.zoom.v1';
+export const ZOOM_STORAGE_KEY = 'gitvolt.zoom.v1';
 
 /** The step after `current` in direction `dir` (1 in, -1 out), clamped at both ends; `0` resets
  * to 100. A value between steps moves to the nearest step in that direction. */
@@ -71,7 +71,7 @@ export function applyWebviewZoom(pct: number): void {
   if (!inTauri()) return;
   void import('@tauri-apps/api/webview')
     .then(({ getCurrentWebview }) => getCurrentWebview().setZoom(pct / 100))
-    .catch((e: unknown) => console.warn('[gitbolt] zoom failed', e));
+    .catch((e: unknown) => console.warn('[gitvolt] zoom failed', e));
 }
 
 /**

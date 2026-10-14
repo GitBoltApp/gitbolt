@@ -5,5 +5,5 @@
 useDefault = true
 
 [[allowlists]]
-description = "localStorage keys (gitbolt.<name>.v<N>) aren't secrets"
-regexes = ['''^gitbolt\.[A-Za-z]+\.v[0-9]+$''']
+description = "localStorage keys (gitvolt.<name>.v<N>) aren't secrets"
+regexes = ['''^gitvolt\.[A-Za-z]+\.v[0-9]+$''']

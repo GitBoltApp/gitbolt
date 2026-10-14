@@ -8,7 +8,7 @@ export const FONT_PACKAGES = ['@fontsource/sora', '@fontsource/inter', '@fontsou
 /** The headline's face and the body's. */
 export const PRELOAD = ['sora-latin-800-normal', 'inter-latin-400-normal'] as const;
 
-/** about.toml's `accepted`: the licenses GitBolt ships code under (docs/licensing.md). */
+/** about.toml's `accepted`: the licenses GitVolt ships code under (docs/licensing.md). */
 export function acceptedLicenses(aboutToml: string): string[] {
   const block = /^accepted\s*=\s*\[([\s\S]*?)^\]/m.exec(aboutToml)?.[1] ?? '';
   return [...block.matchAll(/^\s*"([^"]+)"/gm)].map((m) => m[1]);
@@ -28,7 +28,7 @@ export function fontLicenses(root: string, accepted: readonly string[]): string 
 
 export function fonts(root: string, aboutTomlPath: string): Plugin {
   return {
-    name: 'gitbolt-site-fonts',
+    name: 'gitvolt-site-fonts',
     apply: 'build',
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: 'licenses/fonts.txt', source: fontLicenses(root, acceptedLicenses(readFileSync(aboutTomlPath, 'utf8'))) });

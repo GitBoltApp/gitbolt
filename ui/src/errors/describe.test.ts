@@ -53,7 +53,7 @@ describe('per-kind error actions (spec §16.1)', () => {
 
   it('never notifies for Cancelled, uses the spec wording for RefMoved, and offers no lock removal without the lock\'s detail', () => {
     expect(describeError(err('Cancelled'))).toBeNull();
-    expect(describeError(err('RefMoved'))!.message).toBe('Branch changed outside GitBolt — refresh and retry');
+    expect(describeError(err('RefMoved'))!.message).toBe('Branch changed outside GitVolt — refresh and retry');
     const locked = describeError(err('IndexLocked'))!;
     expect(locked.message).toMatch(/index\.lock/);
     expect(ids(err('IndexLocked'), full)).not.toContain('remove-lock');

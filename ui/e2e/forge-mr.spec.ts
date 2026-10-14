@@ -373,8 +373,8 @@ test.describe('merge requests (spec #4 §7, 4B)', () => {
     });
 
     await test.step('Edit shows the form first: title, description, then reviewers, assignees and labels; the rest steps aside; Esc leaves it', async () => {
-      // GITBOLT_SHOT=<prefix> (a manual run): a screenshot of Edit in a narrow and a wide dock.
-      const shot = async (size: 'narrow' | 'wide') => { if (process.env.GITBOLT_SHOT) await page.screenshot({ path: `${process.env.GITBOLT_SHOT}-${size}.png` }); };
+      // GITVOLT_SHOT=<prefix> (a manual run): a screenshot of Edit in a narrow and a wide dock.
+      const shot = async (size: 'narrow' | 'wide') => { if (process.env.GITVOLT_SHOT) await page.screenshot({ path: `${process.env.GITVOLT_SHOT}-${size}.png` }); };
       await view.getByRole('button', { name: 'Dock beside the graph' }).click();
       const edit = view.getByRole('button', { name: 'Edit', exact: true });
       await drag(-400);

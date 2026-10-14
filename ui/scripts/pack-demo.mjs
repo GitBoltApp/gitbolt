@@ -1,7 +1,7 @@
-// Packs a harness fixture folder (`gitbolt-harness fixture <name> <dir>`) into a website-demo
+// Packs a harness fixture folder (`gitvolt-harness fixture <name> <dir>`) into a website-demo
 // bundle, `.gbdemo`: gzip of "GBDEMO1\n", a u32 LE header length, a JSON header
 // ({ version: 1, name, files: [{ path, size, mode }] }) and the files' bytes in header order
-// (docs/superpowers/specs/2026-10-12-gitbolt-website-demo-interfaces.md).
+// (docs/superpowers/specs/2026-10-12-gitvolt-website-demo-interfaces.md).
 //
 // It works on a copy (or the folder itself with --in-place, as `just demo-golden` does so the
 // harness answers from exactly what was packed): each git directory is compacted (one pack,
@@ -20,8 +20,8 @@ import { createHash } from 'node:crypto';
 import { gzipSync } from 'node:zlib';
 
 export const MAGIC = 'GBDEMO1\n';
-/** The harness's fixture marker (`gitbolt_core::testing::FIXTURE_MARKER`): not part of the bundle. */
-export const MARKER = '.gitbolt-fixture';
+/** The harness's fixture marker (`gitvolt_core::testing::FIXTURE_MARKER`): not part of the bundle. */
+export const MARKER = '.gitvolt-fixture';
 const REWRITE_MAX = 1 << 20;
 const GIT_ENV = { ...process.env, GIT_CONFIG_GLOBAL: '/dev/null', GIT_CONFIG_NOSYSTEM: '1', LC_ALL: 'C' };
 
@@ -185,7 +185,7 @@ const rewritable = (rel) => basename(rel) === '.git' || (inGitDir(rel) && !isObj
 export function packFixture(dir, name, { inPlace = false } = {}) {
   if (!/^[A-Za-z0-9_.-]+$/.test(name) || name === '.' || name === '..') throw new Error(`bad demo bundle name: ${name}`);
   const src = realpathSync(dir);
-  const work = inPlace ? src : join(realpathSync(mkdtempSync(join(tmpdir(), 'gitbolt-pack-'))), 'fixture');
+  const work = inPlace ? src : join(realpathSync(mkdtempSync(join(tmpdir(), 'gitvolt-pack-'))), 'fixture');
   try {
     if (!inPlace) cpSync(src, work, { recursive: true, verbatimSymlinks: true });
     const gits = gitDirs(work);

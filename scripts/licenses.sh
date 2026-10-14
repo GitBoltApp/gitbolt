@@ -3,14 +3,14 @@
 #
 # The license files the packages ship that don't come from the UI build (the UI build writes
 # THIRD-PARTY-NOTICES-ui.txt itself, see ui/build/licenses.ts):
-#   THIRD-PARTY-NOTICES-rust.txt  every crate gitbolt-app links, grouped by license (cargo-about,
+#   THIRD-PARTY-NOTICES-rust.txt  every crate gitvolt-app links, grouped by license (cargo-about,
 #                                 then scripts/notices.py); fails on a license about.toml doesn't
 #                                 accept, so a copyleft or unknown license stops the build
 #   CEF-LICENSE.txt               CEF's own license, from the CEF distribution the build uses
 #   CHROMIUM-CREDITS.html.gz         Chromium's credits for everything it bundles, from the same place
-#   LICENSE                       GitBolt's license
+#   LICENSE                       GitVolt's license
 #   DICTIONARY-en-US-LICENSE.txt  the spell-check dictionary's source and license (SCOWL), a copy
-#                                 of crates/gitbolt-app/dictionaries/en-US-LICENSE.txt
+#                                 of crates/gitvolt-app/dictionaries/en-US-LICENSE.txt
 # `just package` runs this before building, scripts/package-windows.ps1 in Git for Windows'
 # bash (the Windows graph and CEF build, with Python as $PYTHON), and scripts/package-macos.sh on
 # macOS (this Mac's architecture); docs/licensing.md describes the whole flow.
@@ -40,7 +40,7 @@ esac
 
 # Rust. --locked: the notices describe exactly what Cargo.lock builds.
 cargo about generate --format json --locked --fail -c "$root/about.toml" ${target[@]+"${target[@]}"} \
-  -m "$root/crates/gitbolt-app/Cargo.toml" -o "$out/about.json"
+  -m "$root/crates/gitvolt-app/Cargo.toml" -o "$out/about.json"
 "$python" "$here/notices.py" rust "$out/about.json" "$out/THIRD-PARTY-NOTICES-rust.txt"
 rm "$out/about.json"
 
@@ -59,7 +59,7 @@ fi
 "$python" "$here/notices.py" cef "$cef_dir" "$out"
 
 cp "$root/LICENSE" "$out/LICENSE"
-cp "$root/crates/gitbolt-app/dictionaries/en-US-LICENSE.txt" "$out/DICTIONARY-en-US-LICENSE.txt"
+cp "$root/crates/gitvolt-app/dictionaries/en-US-LICENSE.txt" "$out/DICTIONARY-en-US-LICENSE.txt"
 for f in THIRD-PARTY-NOTICES-rust.txt CEF-LICENSE.txt CHROMIUM-CREDITS.html.gz LICENSE DICTIONARY-en-US-LICENSE.txt; do
   [ -s "$out/$f" ] || fail "$out/$f is missing or empty"
 done

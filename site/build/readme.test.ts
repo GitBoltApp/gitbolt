@@ -27,7 +27,7 @@ const MD = `# Example
 
 ✅ yes, 🟡 partly, ❌ no.
 
-| | GitKraken | GitBolt |
+| | GitKraken | GitVolt |
 |---|---|---|
 | Image diffs | 🟡 | ✅ Side by side, swipe |
 | Forges | GitHub, GitLab | GitHub.com and GitLab |
@@ -52,7 +52,7 @@ test("the features' sections and bullets, wrapped lines joined, nothing after ##
 
 test('inline Markdown: code, bold, links into the repository, keys as <kbd>, everything escaped', () => {
   expect(inline('A `git <x>` **bold** & [PRIVACY.md](PRIVACY.md), [Updates](#updates)')).toBe(
-    'A <code>git &lt;x&gt;</code> <b>bold</b> &amp; <a href="https://github.com/GitBoltApp/gitbolt/blob/main/PRIVACY.md">PRIVACY.md</a>, <a href="https://github.com/GitBoltApp/gitbolt#updates">Updates</a>',
+    'A <code>git &lt;x&gt;</code> <b>bold</b> &amp; <a href="https://github.com/GitVoltApp/gitvolt/blob/main/PRIVACY.md">PRIVACY.md</a>, <a href="https://github.com/GitVoltApp/gitvolt#updates">Updates</a>',
   );
   expect(inline('Ctrl+F, Ctrl+/, F9 and Shift+F9, not UTF8')).toBe('<kbd>Ctrl</kbd>+<kbd>F</kbd>, <kbd>Ctrl</kbd>+<kbd>/</kbd>, <kbd>F9</kbd> and <kbd>Shift</kbd>+<kbd>F9</kbd>, not UTF8');
 });
@@ -85,8 +85,8 @@ test('a new group needs a lane', () => {
 
 test('the comparison: marks as pills, notes after them, a cell without a mark as a note', () => {
   const html = renderCompare(MD);
-  expect(html).toContain('<th scope="col">GitKraken</th><th scope="col" class="us">GitBolt</th>');
-  expect(html).toContain('<tr><th scope="row">Image diffs</th><td data-label="GitKraken"><span class="cv"><span class="m m-partly">Partly</span></span></td><td data-label="GitBolt"><span class="cv"><span class="m m-yes">Yes</span> <span class="m-note">Side by side, swipe</span></span></td></tr>');
+  expect(html).toContain('<th scope="col">GitKraken</th><th scope="col" class="us">GitVolt</th>');
+  expect(html).toContain('<tr><th scope="row">Image diffs</th><td data-label="GitKraken"><span class="cv"><span class="m m-partly">Partly</span></span></td><td data-label="GitVolt"><span class="cv"><span class="m m-yes">Yes</span> <span class="m-note">Side by side, swipe</span></span></td></tr>');
   expect(html).toContain('<td data-label="GitKraken"><span class="cv"><span class="m-note">GitHub, GitLab</span></span></td>');
   expect(html).toContain('<span class="m m-no">No</span> <span class="m-note">Not planned</span>');
 });
@@ -104,5 +104,5 @@ test('the real README: every highlight and group found, the whole table, links o
   expect(groups).not.toContain('Pinned trunk');
   const rows = md.slice(md.indexOf('### Compared with GitKraken')).split('\n## ')[0].split('\n').filter((l) => l.startsWith('|')).length - 2;
   expect(renderCompare(md).match(/<tr><th scope="row">/g)).toHaveLength(rows);
-  for (const m of `${highlights}${groups}${renderCompare(md)}`.matchAll(/href="([^"]+)"/g)) expect(m[1]).toMatch(/^https:\/\/github\.com\/GitBoltApp\/gitbolt[/#]/);
+  for (const m of `${highlights}${groups}${renderCompare(md)}`.matchAll(/href="([^"]+)"/g)) expect(m[1]).toMatch(/^https:\/\/github\.com\/GitVoltApp\/gitvolt[/#]/);
 });

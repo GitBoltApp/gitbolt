@@ -1,0 +1,15 @@
+[package]
+name = "gitvolt-graph-wasm"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+gitvolt-graph.workspace = true
+serde_json.workspace = true
+# Pinned exactly: `just demo-wasm` runs the wasm-bindgen CLI of this same version.
+wasm-bindgen = "=0.2.129"

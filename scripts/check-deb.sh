@@ -21,29 +21,34 @@ for f in Homepage Section License; do
   echo "$f: $v"
 done
 [ "$(dpkg-deb -f "$deb" Description | wc -l)" -gt 1 ] || fail "the Description has no long description"
+# GitVolt's package, which replaces GitBolt's (git-bolt, before 0.7.0): apt removes that one.
+[ "$(dpkg-deb -f "$deb" Package)" = gitvolt ] || fail "the package isn't named gitvolt: $(dpkg-deb -f "$deb" Package)"
+for f in Conflicts Replaces; do
+  grep -qF 'git-bolt (<< 0.7.0)' <<<"$(dpkg-deb -f "$deb" "$f")" || fail "$f doesn't name git-bolt (<< 0.7.0)"
+done
 contents=$(dpkg-deb -c "$deb")
 line=$(grep '/chrome-sandbox$' <<<"$contents") || fail "no chrome-sandbox in the payload"
 [[ $line == -rwsr-xr-x\ root/root* || $line == -rwsr-xr-x\ 0/0* ]] || fail "chrome-sandbox is not root:root 4755: $line"
-# The license notices (docs/licensing.md): GitBolt's license and the third-party notices, and the
+# The license notices (docs/licensing.md): GitVolt's license and the third-party notices, and the
 # DEP-5 copyright file that points to them.
 # Plus the spell-check dictionary beside the binary, which the app copies into Chromium's profile
 # (PRIVACY.md: spell check works offline).
-for f in doc/gitbolt/{copyright,LICENSE,THIRD-PARTY-NOTICES-rust.txt,THIRD-PARTY-NOTICES-ui.txt,CEF-LICENSE.txt,CHROMIUM-CREDITS.html.gz,DICTIONARY-en-US-LICENSE.txt} \
-  GitBolt/dictionaries/en-US-10-1.bdic; do
+for f in doc/gitvolt/{copyright,LICENSE,THIRD-PARTY-NOTICES-rust.txt,THIRD-PARTY-NOTICES-ui.txt,CEF-LICENSE.txt,CHROMIUM-CREDITS.html.gz,DICTIONARY-en-US-LICENSE.txt} \
+  GitVolt/dictionaries/en-US-10-1.bdic; do
   size=$(awk -v p="usr/share/$f" '$1 ~ /^-/ && ($NF == p || $NF == "./" p) { print $3 }' <<<"$contents")
   [ -n "$size" ] || fail "no /usr/share/$f"
   [ "$size" -gt 0 ] || fail "/usr/share/$f is empty"
 done
 # How the package was installed, beside the binary: the update check picks the .deb by it.
-kind=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO --wildcards '*usr/share/GitBolt/install-kind' 2>/dev/null) || true
-[ "$kind" = deb ] || fail "/usr/share/GitBolt/install-kind isn't 'deb': '$kind'"
+kind=$(dpkg-deb --fsys-tarfile "$deb" | tar -xO --wildcards '*usr/share/GitVolt/install-kind' 2>/dev/null) || true
+[ "$kind" = deb ] || fail "/usr/share/GitVolt/install-kind isn't 'deb': '$kind'"
 
 # The desktop entry, the AppStream metainfo and the copyright file, unpacked once.
 meta=$(mktemp -d); trap 'rm -rf "$meta"' EXIT
 dpkg-deb --fsys-tarfile "$deb" | tar -x -C "$meta" --wildcards \
-  '*usr/share/applications/*' '*usr/share/metainfo/*' '*usr/share/doc/gitbolt/copyright' 2>/dev/null || true
-head -1 "$meta/usr/share/doc/gitbolt/copyright" | grep -qx 'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/' ||
-  fail "/usr/share/doc/gitbolt/copyright isn't in the machine-readable (DEP-5) format"
+  '*usr/share/applications/*' '*usr/share/metainfo/*' '*usr/share/doc/gitvolt/copyright' 2>/dev/null || true
+head -1 "$meta/usr/share/doc/gitvolt/copyright" | grep -qx 'Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/' ||
+  fail "/usr/share/doc/gitvolt/copyright isn't in the machine-readable (DEP-5) format"
 shopt -s nullglob
 desktops=("$meta"/usr/share/applications/*.desktop)
 [ ${#desktops[@]} = 1 ] || fail "expected one .desktop entry, found ${#desktops[@]}"
@@ -52,7 +57,7 @@ grep -E '^(Name|Categories|Icon|StartupWMClass)=' <<<"$desktop"
 # A desktop entry matching the window's WM_CLASS, so the dock groups it and shows the icon
 # (consistent with `just install-desktop`).
 grep -Eq '^Categories=.*Development;' <<<"$desktop" || fail "desktop entry lacks Categories=Development;"
-grep -qx 'StartupWMClass=gitbolt' <<<"$desktop" || fail "desktop entry lacks StartupWMClass=gitbolt"
+grep -qx 'StartupWMClass=gitvolt' <<<"$desktop" || fail "desktop entry lacks StartupWMClass=gitvolt"
 desktop-file-validate "${desktops[0]}" || fail "desktop-file-validate rejects ${desktops[0]##*/}"
 
 # The AppStream metainfo (software centres, once installed): valid, and consistent with the
@@ -60,13 +65,13 @@ desktop-file-validate "${desktops[0]}" || fail "desktop-file-validate rejects ${
 metas=("$meta"/usr/share/metainfo/*.metainfo.xml)
 [ ${#metas[@]} = 1 ] || fail "expected one AppStream file in /usr/share/metainfo, found ${#metas[@]}"
 appstreamcli validate --pedantic --no-net "${metas[0]}" || fail "appstreamcli rejects ${metas[0]##*/}"
-IFS=$'\t' read -r id launchable icon pkgname license release < <(python3 - "${metas[0]}" <<'EOF'
+IFS=$'\t' read -r id launchable icon pkgname license release replaces < <(python3 - "${metas[0]}" <<'EOF'
 import sys, xml.etree.ElementTree as ET
 c = ET.parse(sys.argv[1]).getroot()
 t = lambda path: (c.findtext(path) or "").strip() or "-"
 r = c.find("releases/release")
 print("\t".join([t("id"), t("launchable[@type='desktop-id']"), t("icon[@type='stock']"), t("pkgname"),
-                 t("project_license"), r.get("version") if r is not None else "-"]))
+                 t("project_license"), r.get("version") if r is not None else "-", t("replaces/id")]))
 EOF
 )
 eq() { [ "$2" = "$3" ] || fail "$1: '$2', expected '$3'"; }
@@ -75,6 +80,7 @@ eq "metainfo launchable" "$launchable" "${desktops[0]##*/}"
 eq "metainfo icon" "$icon" "$(sed -n 's/^Icon=//p' <<<"$desktop")"
 eq "metainfo pkgname" "$pkgname" "$(dpkg-deb -f "$deb" Package)"
 eq "metainfo project_license" "$license" "$(dpkg-deb -f "$deb" License)"
+eq "metainfo replaces" "$replaces" "dev.gitbolt.desktop"
 # The newest release is this package's version (without the build stamp; '~' is SemVer's '-').
 version=$(dpkg-deb -f "$deb" Version)
 version=${version%%+*}

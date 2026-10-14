@@ -78,7 +78,7 @@ describe('AppShell: tabs inside <Activity> (spec §4.4, Review Focus 1)', () => 
     expect(api.openRepo).toHaveBeenCalledTimes(1); // restored tabs load when first shown
     // The shown tab's listener, plus the app's one for op and auth events (`useGlobalEvents`).
     expect(listeners.size).toBe(2);
-    expect(document.title).toBe('GitBolt — a');
+    expect(document.title).toBe('GitVolt — a');
 
     activate('b');
     expect(await screen.findByText('commit r2c1')).toBeInTheDocument();

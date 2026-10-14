@@ -117,7 +117,7 @@ const polling = new Map<string, Promise<PollOutcome>>();
  * One poll per tab at a time: a call while one runs joins it (a new poller after a quick tab
  * switch), except a `write`, which runs after it. An `activate` within ACTIVATE_GAP_MS of the
  * last full one asks nothing (unless the last poll failed). An answer to a request that started
- * before a GitBolt write's answer (`writeEpoch`) is dropped: it may predate the write.
+ * before a GitVolt write's answer (`writeEpoch`) is dropped: it may predate the write.
  */
 export function pollForge(tabId: string, reason: PollReason): Promise<PollOutcome> {
   const busy = polling.get(tabId);

@@ -14,7 +14,7 @@ const { useUpdates, resetUpdatesForTest } = await import('./store');
 const { useAppInfo } = await import('../app/appInfo');
 const { useAppState, DEFAULT_SETTINGS } = await import('../app/state');
 
-const release: UpdateRelease = { version: '0.3.0', name: 'GitBolt 0.3.0', notes: '', url: 'https://github.example/r', prerelease: false, publishedAt: null, asset: { name: 'GitBolt_0.3.0_amd64.deb', size: 1000 } };
+const release: UpdateRelease = { version: '0.3.0', name: 'GitVolt 0.3.0', notes: '', url: 'https://github.example/r', prerelease: false, publishedAt: null, asset: { name: 'GitVolt_0.3.0_amd64.deb', size: 1000 } };
 const set = (state: UpdateState) => act(() => useUpdates.getState().setState(state));
 const pill = () => document.querySelector<HTMLButtonElement>('.sb-update');
 
@@ -22,7 +22,7 @@ describe('UpdatePill', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     resetUpdatesForTest();
-    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'deb', home: null } });
+    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'deb', home: null, legacyBundle: null } });
     useAppState.setState({ settings: { ...DEFAULT_SETTINGS } });
   });
 
@@ -45,13 +45,13 @@ describe('UpdatePill', () => {
   });
 
   it('a build from source, or an AUR install, opens the dialog instead', () => {
-    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'none', home: null } });
+    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'none', home: null, legacyBundle: null } });
     render(<UpdatePill />);
     set({ state: 'available', release: { ...release, asset: null } });
     fireEvent.click(pill()!);
     expect(useUpdates.getState().dialogOpen).toBe(true);
     act(() => useUpdates.getState().closeDialog());
-    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'arch', home: null } });
+    useAppInfo.setState({ info: { appVersion: '0.2.0', build: null, gitVersion: '2.47.1', installKind: 'arch', home: null, legacyBundle: null } });
     act(() => useAppState.setState({ settings: { ...DEFAULT_SETTINGS, updateArchMethod: 'aur' } }));
     set({ state: 'available', release });
     fireEvent.click(pill()!);
@@ -64,9 +64,9 @@ describe('UpdatePill', () => {
     set({ state: 'downloading', release, received: 420, total: 1000 });
     const bar = screen.getByRole('progressbar');
     expect(bar).toHaveAttribute('aria-valuenow', '42');
-    expect(pill()).toHaveAccessibleName('Downloading GitBolt 0.3.0, 42%');
+    expect(pill()).toHaveAccessibleName('Downloading GitVolt 0.3.0, 42%');
     fireEvent.mouseEnter(pill()!);
-    expect(screen.getByText('Downloading GitBolt 0.3.0: 42%')).toBeInTheDocument();
+    expect(screen.getByText('Downloading GitVolt 0.3.0: 42%')).toBeInTheDocument();
     fireEvent.click(pill()!);
     expect(useUpdates.getState().dialogOpen).toBe(true);
   });

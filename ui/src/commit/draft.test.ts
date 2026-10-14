@@ -49,13 +49,13 @@ describe('the WIP draft (spec #2 §8.2)', () => {
     vi.useRealTimers();
   });
 
-  it('migrates the v1 summary and gitbolt.wipBody.v1, then drops the old keys', () => {
-    localStorage.setItem('gitbolt.wipDraft.v1:/r\u0000/r', 'Old summary');
-    localStorage.setItem('gitbolt.wipBody.v1:/r\u0000/r', '\r\nOld body');
+  it('migrates the v1 summary and gitvolt.wipBody.v1, then drops the old keys', () => {
+    localStorage.setItem('gitvolt.wipDraft.v1:/r\u0000/r', 'Old summary');
+    localStorage.setItem('gitvolt.wipBody.v1:/r\u0000/r', '\r\nOld body');
     reloadDrafts();
     expect(readWipDraft('/r', '/r')).toEqual({ summary: 'Old summary', description: 'Old body' });
-    expect(localStorage.getItem('gitbolt.wipDraft.v1:/r\u0000/r')).toBeNull();
-    expect(localStorage.getItem('gitbolt.wipBody.v1:/r\u0000/r')).toBeNull();
+    expect(localStorage.getItem('gitvolt.wipDraft.v1:/r\u0000/r')).toBeNull();
+    expect(localStorage.getItem('gitvolt.wipBody.v1:/r\u0000/r')).toBeNull();
   });
 
   it('prunes the drafts of worktrees that no longer exist, for that repo only', () => {
@@ -85,11 +85,11 @@ describe('the WIP draft (spec #2 §8.2)', () => {
   });
 
   it('keeps the v1 keys when the v2 write fails', () => {
-    localStorage.setItem('gitbolt.wipDraft.v1:/r\u0000/r', 'Old');
+    localStorage.setItem('gitvolt.wipDraft.v1:/r\u0000/r', 'Old');
     const spy = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota'); });
     reloadDrafts();
     spy.mockRestore();
-    expect(localStorage.getItem('gitbolt.wipDraft.v1:/r\u0000/r')).toBe('Old');
+    expect(localStorage.getItem('gitvolt.wipDraft.v1:/r\u0000/r')).toBe('Old');
   });
 
   it('does not prune with an empty list, and never drops the main worktree', () => {

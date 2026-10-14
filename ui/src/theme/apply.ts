@@ -35,7 +35,7 @@ export function applyTheme(root: HTMLElement, def: ThemeDef, colors: ResolvedCol
  * the theme's `kind` and `app-bg0` (`bg`) for index.html's inline script, which paints them
  * before any CSS or module script runs (no dark flash for a light theme, review I1).
  */
-export const THEME_STORAGE_KEY = 'gitbolt.theme.v1';
+export const THEME_STORAGE_KEY = 'gitvolt.theme.v1';
 export interface ThemeMirror { id: ThemeId; graph?: (string | null)[] }
 
 export function readThemeMirror(): ThemeMirror | null {
