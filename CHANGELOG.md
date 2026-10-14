@@ -5,6 +5,8 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-14
+
 ### Changed
 
 - **New name: GitVolt.** GitBolt is now GitVolt, at github.com/GitVoltApp/gitvolt and
