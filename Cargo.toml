@@ -3,7 +3,7 @@ resolver = "3"
 members = ["crates/gitvolt-graph", "crates/gitvolt-graph-wasm", "crates/gitvolt-core", "crates/gitvolt-forge", "crates/gitvolt-app", "crates/gitvolt-harness"]
 
 [workspace.package]
-version = "0.7.0"
+version = "0.7.1"
 edition = "2024"
 publish = false
 license = "MIT"

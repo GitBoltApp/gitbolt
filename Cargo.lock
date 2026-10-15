@@ -2036,7 +2036,7 @@ dependencies = [
 
 [[package]]
 name = "gitvolt-app"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "gitvolt-core",
  "gitvolt-forge",
@@ -2054,7 +2054,7 @@ dependencies = [
 
 [[package]]
 name = "gitvolt-core"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "base64 0.23.1",
  "dirs 7.0.0",
@@ -2087,7 +2087,7 @@ dependencies = [
 
 [[package]]
 name = "gitvolt-forge"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "base64 0.23.1",
  "gitvolt-core",
@@ -2105,7 +2105,7 @@ dependencies = [
 
 [[package]]
 name = "gitvolt-graph"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "gitvolt-graph-wasm"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "gitvolt-graph",
  "serde_json",
@@ -2123,7 +2123,7 @@ dependencies = [
 
 [[package]]
 name = "gitvolt-harness"
-version = "0.7.0"
+version = "0.7.1"
 dependencies = [
  "axum",
  "base64 0.23.1",

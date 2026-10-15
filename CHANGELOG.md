@@ -5,6 +5,8 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-15
+
 ### Added
 
 - **Mark a folder resolved:** right-click a folder in **Conflicted** (Tree view) and pick **Mark N
