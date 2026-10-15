@@ -1,7 +1,8 @@
 //! The staging undo log (spec #2 §7.6): stage and unstage get their own undo stack, separate from
 //! the journal, so a misstaged hunk can be undone without pushing real operations out of the
 //! journal's 50-entry window. Per worktree, the last 100 steps, in memory only: a restart clears it.
-//! A conflict resolution is a step too (ux round 2): one path's stages and file, byte for byte.
+//! A conflict resolution is a step too (ux round 2): its path's stages and file, byte for byte
+//! (a folder's Mark resolved: each of its paths', in one step).
 
 use crate::api::Api;
 use crate::error::{gix_err, GbError};
@@ -37,9 +38,25 @@ pub(crate) enum Change {
     /// A stage or unstage: the index as a tree before and after it, and its intent-to-add
     /// paths, which trees don't carry.
     Tree { before: String, after: String, ita_before: Vec<String>, ita_after: Vec<String> },
-    /// A conflict resolution: the path's stages 1/2/3 and file before, its stage 0 (or nothing)
-    /// and file after, under the operation stop it was made in (`resolve_step::operation`).
-    Resolve { path: String, before: PathState, after: PathState, op: Option<String> },
+    /// A conflict resolution: each path's stages 1/2/3 and file before, its stage 0 (or nothing)
+    /// and file after, under the operation stop it was made in (`resolve_step::operation`). One
+    /// path, or a folder's files marked resolved at once (one step for them all).
+    Resolve { paths: Vec<ResolvedPath>, op: Option<String> },
+}
+
+/// One path of a `Change::Resolve`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ResolvedPath {
+    pub path: String,
+    pub before: PathState,
+    pub after: PathState,
+}
+
+impl ResolvedPath {
+    /// A step worth keeping: the path was conflicted, changed, and can be put back.
+    pub(crate) fn recordable(&self) -> bool {
+        self.before.conflicted() && !self.before.same(&self.after) && resolve_step::restorable(&self.before, &self.after)
+    }
 }
 
 impl StagingStep {
@@ -179,13 +196,20 @@ pub(crate) fn state(api: &Api, root: &Path, conflicted: bool) -> StagingUndoStat
 /// recorded, and redo goes as for any new action. The stage steps go too: they're from before
 /// the conflict.
 pub(crate) fn record_resolve(cx: &WriteCx<'_>, label: String, path: &str, before: PathState, after: PathState) {
+    record_resolves(cx, label, vec![ResolvedPath { path: path.to_string(), before, after }]);
+}
+
+/// Several paths resolved by one action (a folder's Mark resolved): one step for them all, of the
+/// paths that are recordable. None is: not recorded, as above.
+pub(crate) fn record_resolves(cx: &WriteCx<'_>, label: String, paths: Vec<ResolvedPath>) {
     let op = resolve_step::operation(cx.root);
+    let paths: Vec<ResolvedPath> = paths.into_iter().filter(ResolvedPath::recordable).collect();
     cx.api.staging.with(cx.root, |log| {
         log.keep_resolves();
-        if before.conflicted() && !before.same(&after) && resolve_step::restorable(&before, &after) {
-            log.record(StagingStep { label, head: cx.before.head.oid.clone(), change: Change::Resolve { path: path.to_string(), before, after, op } });
-        } else {
+        if paths.is_empty() {
             log.redo.clear();
+        } else {
+            log.record(StagingStep { label, head: cx.before.head.oid.clone(), change: Change::Resolve { paths, op } });
         }
     });
 }
@@ -249,13 +273,7 @@ impl WriteIntent for StagingUndo {
                 };
                 self.tree(cx, &step, want, to, ita).await?;
             }
-            Change::Resolve { path, before, after, op } => {
-                let (want, to) = match self.dir {
-                    Dir::Undo => (after, before),
-                    Dir::Redo => (before, after),
-                };
-                self.resolve(cx, &step, path, want, to, op).await?;
-            }
+            Change::Resolve { paths, op } => self.resolve(cx, &step, paths, op).await?,
         }
         cx.api.staging.with(&root, |l| l.shift(self.dir == Dir::Undo));
         Ok(())
@@ -282,11 +300,11 @@ impl StagingUndo {
         Ok(())
     }
 
-    /// A resolution's undo (or redo): the path must still be as the step left it, under the same
+    /// A resolution's undo (or redo): each path must still be as the step left it, under the same
     /// HEAD and operation stop, or nothing is touched and the log is cleared (as an outside
-    /// `git add` clears it). Then its entries go back (`update-index --index-info`, every stage
-    /// out first), then its file, byte for byte, with its permission bits.
-    async fn resolve(&self, cx: &mut WriteCx<'_>, step: &StagingStep, path: &str, want: &PathState, to: &PathState, op: &Option<String>) -> Result<(), GbError> {
+    /// `git add` clears it). Then the files go back, byte for byte, with their permission bits,
+    /// then their entries (one `update-index --index-info`, every stage of each out first).
+    async fn resolve(&self, cx: &mut WriteCx<'_>, step: &StagingStep, paths: &[ResolvedPath], op: &Option<String>) -> Result<(), GbError> {
         let root = cx.root.to_path_buf();
         let refuse = |why: String| {
             cx.api.staging.with(&root, StagingLog::clear);
@@ -295,37 +313,60 @@ impl StagingUndo {
         if cx.before.head.oid != step.head || resolve_step::operation(&root) != *op {
             return refuse(RESOLVE_ENDED.to_string());
         }
-        let now = resolve_step::read(&root, path).await?;
-        if !now.same(want) {
-            let since = if self.dir == Dir::Undo { "it was resolved" } else { "its resolution was undone" };
-            return refuse(format!("{path} changed since {since}; staging history was cleared."));
-        }
-        // Nothing is touched until both sides' bytes are loaded and the folders checked: a pruned
-        // blob or a symlink in the way fails here, with the index and the file as they were.
-        let kind = resolve_step::hash_kind(&root)?;
-        let write = !now.disk.same(&to.disk);
-        let ready = if write {
-            let (r, p, d, b) = (root.clone(), path.to_string(), to.disk.clone(), now.disk.clone());
-            Some(crate::api::blocking(move || Ok((resolve_step::prepare(&r, &p, &d)?, resolve_step::prepare(&r, &p, &b)?))).await?)
-        } else {
-            None
+        let side = |p: &ResolvedPath| match self.dir {
+            Dir::Undo => (p.after.clone(), p.before.clone()),
+            Dir::Redo => (p.before.clone(), p.after.clone()),
         };
-        // The file first (temp file, then one rename, over the bytes just checked), then the index.
-        if let Some((forward, _)) = &ready {
-            let (r, p, f, over) = (root.clone(), path.to_string(), forward.clone(), now.disk.clone());
-            crate::api::blocking(move || resolve_step::write_disk(kind, &r, &p, &f, &over)).await?;
-            cx.touch(ChangeKind::Worktree);
+        // Nothing is touched until every path is checked and both sides' bytes are loaded: a
+        // changed file, a pruned blob or a symlink in the way fails here, all as they were.
+        let kind = resolve_step::hash_kind(&root)?;
+        let mut plan = Vec::new();
+        for p in paths {
+            let (want, to) = side(p);
+            let now = resolve_step::read(&root, &p.path).await?;
+            if !now.same(&want) {
+                let since = if self.dir == Dir::Undo { "it was resolved" } else { "its resolution was undone" };
+                return refuse(format!("{} changed since {since}; staging history was cleared.", p.path));
+            }
+            let ready = if now.disk.same(&to.disk) {
+                None
+            } else {
+                let (r, path, d, b) = (root.clone(), p.path.clone(), to.disk.clone(), now.disk.clone());
+                Some(crate::api::blocking(move || Ok((resolve_step::prepare(&r, &path, &d)?, resolve_step::prepare(&r, &path, &b)?))).await?)
+            };
+            plan.push((p.path.clone(), want, to, now, ready));
         }
-        let oid_len = to.entries.iter().chain(&want.entries).map(|e| e.oid.len()).next().unwrap_or(40);
-        let inv = cx.git(["update-index", "-z", "--index-info"]).stdin(resolve_step::index_info(path, &to.entries, oid_len));
-        if let Err(e) = cx.run_git(inv).await {
-            // The index is as it was: the file goes back too.
-            if let Some((_, back)) = ready {
-                let (r, p, over) = (root.clone(), path.to_string(), to.disk.clone());
+        // The files first (each a temp file, then one rename, over the bytes just checked), then
+        // the index; a failure puts back the files already written.
+        let mut written: Vec<(String, resolve_step::Ready, resolve_step::Disk)> = Vec::new();
+        let put_back = |written: Vec<(String, resolve_step::Ready, resolve_step::Disk)>, root: std::path::PathBuf, e: String| async move {
+            for (path, back, over) in written {
+                let (r, p) = (root.clone(), path.clone());
                 if let Err(re) = crate::api::blocking(move || resolve_step::write_disk(kind, &r, &p, &back, &over)).await {
-                    tracing::error!(target: "gitvolt_core::write", "{path}: the index update failed ({e}) and the file couldn't be put back: {re}");
+                    tracing::error!(target: "gitvolt_core::write", "{path}: the undo failed ({e}) and the file couldn't be put back: {re}");
                 }
             }
+        };
+        for (path, _, to, now, ready) in &plan {
+            if let Some((forward, back)) = ready {
+                let (r, p, f, over) = (root.clone(), path.clone(), forward.clone(), now.disk.clone());
+                if let Err(e) = crate::api::blocking(move || resolve_step::write_disk(kind, &r, &p, &f, &over)).await {
+                    put_back(written, root.clone(), e.to_string()).await;
+                    return Err(e);
+                }
+                written.push((path.clone(), back.clone(), to.disk.clone()));
+                cx.touch(ChangeKind::Worktree);
+            }
+        }
+        let mut info = Vec::new();
+        for (path, want, to, _, _) in &plan {
+            let oid_len = to.entries.iter().chain(&want.entries).map(|e| e.oid.len()).next().unwrap_or(40);
+            info.extend(resolve_step::index_info(path, &to.entries, oid_len));
+        }
+        let inv = cx.git(["update-index", "-z", "--index-info"]).stdin(info);
+        if let Err(e) = cx.run_git(inv).await {
+            // The index is as it was: the files go back too.
+            put_back(written, root.clone(), e.to_string()).await;
             return Err(e);
         }
         cx.touch(ChangeKind::Index);
@@ -584,6 +625,74 @@ mod tests {
         staging(&api, "stagingUndo", id, &r).await.unwrap();
         assert_eq!(path_state(&r, "a.txt"), edited);
         assert!(unmerged(&r).lines().any(|l| l == "a.txt"));
+    }
+
+    /// A folder's Mark resolved (`markResolved`): one question names every file with markers
+    /// left, and nothing is staged until it's answered; then one undo step takes them all back
+    /// (and one redo puts them back). A path no longer conflicted is left alone.
+    #[tokio::test]
+    async fn mark_resolved_on_several_files_asks_once_then_is_one_undo_step() {
+        let (r, api, id, _data) = merging().await;
+        let paths = json!(["a.txt", "gone.txt", "logo.bin", "clean.txt"]);
+        let before: Vec<_> = ["a.txt", "gone.txt", "logo.bin"].iter().map(|p| path_state(&r, p)).collect();
+        let err = call(&api, "markResolved", json!({ "repo": id, "worktree": wt(r.path()), "paths": paths })).await.unwrap_err();
+        assert_eq!(err.kind, crate::error::GbErrorKind::Conflict);
+        assert_eq!(err.message, "a.txt still has conflict markers");
+        assert_eq!(serde_json::to_value(&err.detail).unwrap(), json!({ "kind": "markersRemainIn", "paths": ["a.txt"] }));
+        assert_eq!(unmerged(&r), "a.txt\ngone.txt\nlogo.bin", "nothing staged");
+        let res = call(&api, "markResolved", json!({ "repo": id, "worktree": wt(r.path()), "paths": paths, "confirmMarkers": true })).await.unwrap();
+        assert_eq!(unmerged(&r), "");
+        assert!(String::from_utf8_lossy(&path_state(&r, "a.txt").1.unwrap().0).contains("<<<<<<<"), "as it was, markers and all");
+        assert_eq!(res["staging"]["undo"], "mark 3 files resolved");
+        let after: Vec<_> = ["a.txt", "gone.txt", "logo.bin"].iter().map(|p| path_state(&r, p)).collect();
+        let res = staging(&api, "stagingUndo", id, &r).await.unwrap();
+        assert_eq!(unmerged(&r), "a.txt\ngone.txt\nlogo.bin");
+        assert_eq!(["a.txt", "gone.txt", "logo.bin"].iter().map(|p| path_state(&r, p)).collect::<Vec<_>>(), before);
+        assert!(res["staging"]["undo"].is_null(), "{res}");
+        assert_eq!(res["staging"]["redo"], "mark 3 files resolved");
+        staging(&api, "stagingRedo", id, &r).await.unwrap();
+        assert_eq!(["a.txt", "gone.txt", "logo.bin"].iter().map(|p| path_state(&r, p)).collect::<Vec<_>>(), after);
+        staging(&api, "stagingUndo", id, &r).await.unwrap();
+        // Without markers, no question.
+        call(&api, "markResolved", json!({ "repo": id, "worktree": wt(r.path()), "paths": ["gone.txt", "logo.bin"] })).await.unwrap();
+        assert_eq!(unmerged(&r), "a.txt");
+        let err = call(&api, "markResolved", json!({ "repo": id, "worktree": wt(r.path()), "paths": ["gone.txt", "logo.bin"] })).await.unwrap_err();
+        assert_eq!(err.kind, crate::error::GbErrorKind::Stale);
+    }
+
+    /// A folder's files: the step names their folder; one changed since refuses the whole undo,
+    /// touching none of them.
+    #[tokio::test]
+    async fn a_folders_resolve_is_named_by_it_and_undone_whole_or_not_at_all() {
+        let r = TestRepo::new();
+        r.commit("Base");
+        r.switch_new("feature/x");
+        for f in ["one", "two"] {
+            r.write(&format!("gen/{f}.ts"), &format!("{f} incoming\n"));
+        }
+        r.git(&["add", "gen"]);
+        r.git(&["commit", "-q", "-m", "Generated, incoming"]);
+        r.switch("main");
+        for f in ["one", "two"] {
+            r.write(&format!("gen/{f}.ts"), &format!("{f} current\n"));
+        }
+        r.git(&["add", "gen"]);
+        r.git(&["commit", "-q", "-m", "Generated, current"]);
+        let data = tempfile::tempdir().unwrap();
+        let api = api(data.path());
+        let id = open(&api, &r).await;
+        test_intents::run(&api, id, &wt(r.path()), Expect::default(), TestIntent::MergeStop { target: "feature/x".into() }).await.unwrap();
+        for f in ["one", "two"] {
+            r.write(&format!("gen/{f}.ts"), &format!("{f} regenerated\n"));
+        }
+        let res = call(&api, "markResolved", json!({ "repo": id, "worktree": wt(r.path()), "paths": ["gen/one.ts", "gen/two.ts"] })).await.unwrap();
+        assert_eq!(res["staging"]["undo"], "mark gen/ resolved (2 files)");
+        r.write("gen/two.ts", "edited after\n");
+        let one = path_state(&r, "gen/one.ts");
+        let err = staging(&api, "stagingUndo", id, &r).await.unwrap_err();
+        assert_eq!(err.message, "gen/two.ts changed since it was resolved; staging history was cleared.");
+        assert_eq!(path_state(&r, "gen/one.ts"), one, "nothing was touched");
+        assert_eq!(unmerged(&r), "");
     }
 
     /// A delete/modify conflict resolved by deleting the file, then Undo: the file and its

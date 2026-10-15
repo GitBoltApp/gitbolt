@@ -62,6 +62,13 @@ function question(err: GbError, asked: Confirmed): { req: ConfirmRequest; flag: 
   if (d?.kind === 'markersRemain' && !asked.markers) {
     return { flag: 'markers', req: { title: 'Conflict markers remain', body: `${d.path} still has conflict markers. Mark it resolved anyway?`, confirmLabel: 'Mark resolved', arm: 'Click again to mark it resolved with its conflict markers', caption: `${d.path} still has conflict markers.`, tone: 'warn' } };
   }
+  // A folder's Mark resolved: one question for all its files that still have markers.
+  if (d?.kind === 'markersRemainIn' && !asked.markers) {
+    const n = d.paths.length;
+    const which = n === 1 ? `${d.paths[0]} still has` : `${n} files still have`;
+    const names = n <= 3 ? d.paths.join(', ') : `${d.paths.slice(0, 3).join(', ')} and ${n - 3} more`;
+    return { flag: 'markers', req: { title: 'Conflict markers remain', body: `${which} conflict markers (${names}). Mark them resolved anyway?`, confirmLabel: 'Mark resolved', arm: `Click again: ${which} conflict markers`, caption: `With markers: ${names}.`, tone: 'warn' } };
+  }
   // Take current / Take incoming over the user's edits: `confirmDiscard`, sent with the
   // destructive `discard` flag (a Retry never re-sends it).
   if (d?.kind === 'discardEdits' && !asked.discard) {

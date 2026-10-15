@@ -431,7 +431,9 @@ export function FileList({ list, spec, label, allFilesCommit: commitOf = null, a
     if (row.kind === 'file') return fileMenu(store, spec, row.target, row.change !== null);
     const inside = `${row.path}/`;
     const child = list.files.find((f) => f.path.startsWith(inside))?.path ?? unchanged?.paths.find((p) => p.startsWith(inside)) ?? `${inside}${row.name}`;
-    return folderMenu(store, spec, row.path, child);
+    // Mark resolved takes the conflicted files the folder shows (the filter's, when one is on).
+    const conflicted = filteredFiles.filter((f) => f.status === 'U' && f.path.startsWith(inside)).map((f) => f.path);
+    return folderMenu(store, spec, row.path, child, conflicted);
   };
   // UX round 3 O.1 (follow-up): Create file… ends every row's menu too, so a list its rows fill
   // (no empty space to right-click) still offers it; its input opens at the top of this list.

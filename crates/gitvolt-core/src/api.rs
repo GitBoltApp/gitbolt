@@ -415,6 +415,17 @@ pub enum Request {
         #[ts(optional)]
         confirm_discard: Option<bool>,
     },
+    /// Marks the conflicted files among `paths` resolved, each as it is (`git add`), at once: a
+    /// folder's Mark resolved. Fails `MarkersRemainIn` for the files that still have conflict
+    /// markers, unless `confirmMarkers`; nothing is staged then.
+    MarkResolved {
+        repo: u32,
+        worktree: String,
+        paths: Vec<String>,
+        #[serde(default)]
+        #[ts(optional)]
+        confirm_markers: Option<bool>,
+    },
     // --- end 2D T15 ---
     /// A test-only write (spec #2 §18 2A): tests and the harness only; the app doesn't know it.
     #[cfg(any(test, feature = "testing"))]
@@ -1243,7 +1254,7 @@ impl Request {
             Request::LfsFetch { .. } | Request::LfsPull { .. } | Request::LfsDownload { .. } | Request::LfsTrack { .. } | Request::LfsUntrack { .. } => true,
             // --- end 2D T12 ---
             // --- 2D T15 ---
-            Request::ResolveFile { .. } => true,
+            Request::ResolveFile { .. } | Request::MarkResolved { .. } => true,
             // --- end 2D T15 ---
             // --- 2B T5 ---
             Request::Commit { .. } | Request::EditHeadMessage { .. } => true,
@@ -3040,6 +3051,15 @@ impl Api {
             Request::ResolveFile { repo, worktree, path, resolution, base, confirm_markers, confirm_discard } => {
                 crate::blob::check_relative(&path)?;
                 to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::conflict::ResolveIntent { path, resolution, base, confirm_markers: confirm_markers.unwrap_or(false), confirm_discard: confirm_discard.unwrap_or(false) }).await?)
+            }
+            Request::MarkResolved { repo, worktree, paths, confirm_markers } => {
+                if paths.is_empty() {
+                    return Err(GbError::new(GbErrorKind::InvalidInput, "no files to mark resolved"));
+                }
+                for p in &paths {
+                    crate::blob::check_relative(p)?;
+                }
+                to_json(crate::write::run_write(self, repo, &worktree, Default::default(), crate::write::conflict::MarkResolvedIntent { paths, confirm_markers: confirm_markers.unwrap_or(false) }).await?)
             }
             // --- end 2D T15 ---
             // --- end 2D T12 ---
@@ -5134,6 +5154,7 @@ mod tests {
         // --- end 2D T14 ---
         // --- 2D T15 ---
         "resolveFile",
+        "markResolved",
         // --- end 2D T15 ---
         // ux round 1: a cherry-pick or revert's Continue / Skip / Abort
         "pickControl",
@@ -5241,6 +5262,7 @@ mod tests {
             // --- end 2C T6 ---
             // --- 2D T15 ---
             json!({"method": "resolveFile", "params": {"repo": id, "worktree": wt, "path": "a.txt", "resolution": {"kind": "asIs"}}}),
+            json!({"method": "markResolved", "params": {"repo": id, "worktree": wt, "paths": ["a.txt"]}}),
             // --- end 2D T15 ---
             // --- 3A T3 ---
             json!({"method": "restoreFile", "params": {"repo": id, "worktree": wt, "sha": "0000000000000000000000000000000000000000", "path": "file_1.txt"}}),

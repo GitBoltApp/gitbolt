@@ -5,7 +5,21 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
 
 ## [Unreleased]
 
+### Added
+
+- **Mark a folder resolved:** right-click a folder in **Conflicted** (Tree view) and pick **Mark N
+  files resolved** to stage each conflicted file in it as it is, after regenerating them, say. If
+  some still have conflict markers, the row arms first and says how many. One Undo puts them all
+  back.
+
 ### Changed
+
+- **Merge tool, pick order:** a conflict's output holds the ticked lines of the side you ticked
+  first, then the other's, so ticking Incoming then Current puts Incoming's lines first. Unticking
+  a side and ticking it again moves it to the end.
+- **Merge tool, first conflict:** a file opens in the merge tool at its first conflict, or with
+  saved work, at the first one still to resolve. Coming back to it (another file, or its tab shown
+  again) keeps your place.
 
 - **Interactive rebase, bottom row:** Squash and Fixup are greyed out on the commit replayed first
   ("Nothing below to fold into"), and S and F refuse it. Squashing a selection that includes it

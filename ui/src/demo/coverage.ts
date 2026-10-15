@@ -82,6 +82,7 @@ export const COVERAGE = {
   settlePaused: 'real',
   conflictFile: 'real',
   resolveFile: 'real',
+  markResolved: 'real',
   testWrite: 'notInDemo',
   removeIndexLock: 'notInDemo',
   writeWorktreeFile: 'real',

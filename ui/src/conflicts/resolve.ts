@@ -30,3 +30,11 @@ export async function resolveFile(ctx: WriteCtx, path: string, resolution: Resol
 
 /** Mark resolved: the file as it is (`git add`); asks first when markers remain. */
 export const markResolved = (ctx: WriteCtx, path: string) => resolveFile(ctx, path, { kind: 'asIs' });
+
+/** Mark resolved on several files at once (a folder's), each as it is: one write, one question
+ * for those that still have markers, asked before any is staged. `true` once it succeeded. */
+export async function markAllResolved(ctx: WriteCtx, paths: string[]): Promise<boolean> {
+  let done = false;
+  await runWrite(ctx, (_, asked) => api.markResolved(ctx.repoId, ctx.worktree, paths, asked.markers), { onSuccess: () => { done = true; } });
+  return done;
+}

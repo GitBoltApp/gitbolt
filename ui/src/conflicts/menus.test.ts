@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const resolveFile = vi.hoisted(() => vi.fn(async () => true));
 const markResolved = vi.hoisted(() => vi.fn(async () => true));
-vi.mock('./resolve', () => ({ resolveFile, markResolved }));
+const markAllResolved = vi.hoisted(() => vi.fn(async () => true));
+vi.mock('./resolve', () => ({ resolveFile, markResolved, markAllResolved }));
 vi.mock('../app/actions', async (orig) => ({ ...(await orig<typeof import('../app/actions')>()), activeTab: () => ({ id: 't' }) }));
 vi.mock('../write/ctx', () => ({ writeCtx: (tabId: string, worktree?: string) => ({ tabId, repoId: 1, worktree: worktree ?? '/r' }) }));
 vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: vi.fn(async () => true), chooseAction: vi.fn(async () => null) }));
@@ -47,5 +48,37 @@ describe("a Conflicted row's resolutions while the merge tool holds work (2D fin
     expect(conflictRows().map((r) => r.disabledReason)).toEqual([undefined, undefined, undefined]);
     conflictRows()[0].run();
     expect(resolveFile).toHaveBeenCalledWith({ tabId: 't', repoId: 1, worktree: '/r' }, 'a.txt', { kind: 'current' });
+  });
+});
+
+describe("a Conflicted folder's Mark resolved (tree mode)", () => {
+  const folder = (conflicted: string[] | null) => ({ path: 'gen', root: '/r', openIn: {}, wip: conflicted ? { worktree: '/r', conflicted } : null });
+  const folderRows = (conflicted: string[] | null) => (buildMenu('folder', folder(conflicted) as never, {} as never).filter((r) => r.kind === 'action') as unknown as Array<Row & { label: string; tooltip: string }>).filter((r) => r.id === 'folder.markResolved');
+  beforeEach(() => {
+    markAllResolved.mockClear();
+    useMergeDrafts.setState({ drafts: {} });
+  });
+
+  it('offers "Mark N files resolved" for the conflicted files under it, first in the menu, and resolves them all in one write', () => {
+    const rows = buildMenu('folder', folder(['gen/a.ts', 'gen/b.ts']) as never, {} as never);
+    expect(rows[0]).toMatchObject({ kind: 'action', id: 'folder.markResolved', label: 'Mark 2 files resolved', tooltip: 'Mark the 2 files conflicted in gen/ resolved as they are now' });
+    expect(folderRows(['gen/a.ts'])[0].label).toBe('Mark 1 file resolved');
+    folderRows(['gen/a.ts', 'gen/b.ts'])[0].run();
+    expect(markAllResolved).toHaveBeenCalledWith({ tabId: 't', repoId: 1, worktree: '/r' }, ['gen/a.ts', 'gen/b.ts']);
+  });
+
+  it('has no row outside a WIP list or with nothing conflicted under it', () => {
+    expect(folderRows(null)).toEqual([]);
+    expect(folderRows([])).toEqual([]);
+  });
+
+  it('is greyed out while one of its files has unsaved merge-tool work, and a run anyway leaves the work', () => {
+    const [row] = folderRows(['gen/a.ts', 'a.txt']);
+    useMergeDrafts.setState({ drafts: { [draftKey('t', '/r', 'a.txt')]: draft(true) } });
+    expect(folderRows(['gen/a.ts', 'a.txt'])[0].disabledReason).toBe(MERGE_SAVE_FIRST);
+    const show = vi.spyOn(useToast.getState(), 'show');
+    row.run();
+    expect(markAllResolved).not.toHaveBeenCalled();
+    expect(show).toHaveBeenCalledWith(`${MERGE_SAVE_FIRST}: a.txt has unsaved merge-tool edits`, expect.anything());
   });
 });

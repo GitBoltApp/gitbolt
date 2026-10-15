@@ -420,6 +420,9 @@ export const api = {
   /** Resolve a conflicted file (spec #2 §13.3). `base`: `conflictFile`'s hash, for a text save. */
   resolveFile: (repo: number, worktree: string, path: string, resolution: Resolution, base: string | undefined, confirmMarkers: boolean, confirmDiscard: boolean) =>
     call<WriteResult<SubmoduleBehind | null>>({ method: 'resolveFile', params: { repo, worktree, path, resolution, base, confirmMarkers, confirmDiscard } }),
+  /** Mark several conflicted files resolved as they are, at once (a folder's Mark resolved). */
+  markResolved: (repo: number, worktree: string, paths: string[], confirmMarkers: boolean) =>
+    call<WriteResult<null>>({ method: 'markResolved', params: { repo, worktree, paths, confirmMarkers } }),
   // --- end 2D T15 ---
   // --- 2D T16 ---
   /** Continue, skip or abort a paused rebase. `message`: Continue commits the stopped pick with it. */

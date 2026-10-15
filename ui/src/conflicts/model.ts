@@ -1,7 +1,8 @@
 /**
  * The merge tool's model (spec #2 §13.3), pure. The output is the merged text: the common parts
- * as they are, each conflict region filled with its ticked lines, Current's first, then
- * Incoming's, each in file order. The tool starts with nothing ticked (plan 2D Deviation 14).
+ * as they are, each conflict region filled with its ticked lines: the side ticked first, then
+ * the other, each side's lines in file order (`Pick.first`). The tool starts with nothing ticked
+ * (plan 2D Deviation 14).
  *
  * Line endings (the 2D EOL ruling): every conflict line carries its own terminator, `\n`,
  * `\r\n`, or none on a file's last line, so the output is the lines joined as they are. The
@@ -12,7 +13,13 @@ export type Segment =
   | { kind: 'common'; text: string }
   | { kind: 'conflict'; id: number; base: string[]; current: string[]; incoming: string[] };
 export type ConflictSegment = Extract<Segment, { kind: 'conflict' }>;
-export interface Pick { current: boolean[]; incoming: boolean[] }
+/**
+ * A region's ticks. `first`: whose lines go first in the output, the side that got a tick first,
+ * so ticking Incoming then Current gives Incoming's lines, then Current's. A side whose last tick
+ * goes and that is ticked again comes after the other. Absent (nothing ticked, or a draft kept
+ * before the order was), Current's go first. "Take all from this side" takes that side alone.
+ */
+export interface Pick { current: boolean[]; incoming: boolean[]; first?: Side }
 export type Picks = Record<number, Pick>;
 /** A region's place in the output: its 1-based first line and its line count. */
 export interface OutRegion { id: number; start: number; lines: number }
@@ -41,8 +48,11 @@ export function emptyPicks(segs: Segment[]): Picks {
   return p;
 }
 
+/** The sides in a region's output order (`Pick.first`). */
+export const sideOrder = (pick: Pick | undefined): [Side, Side] => (pick?.first === 'incoming' ? ['incoming', 'current'] : ['current', 'incoming']);
+
 export function regionLines(seg: ConflictSegment, pick: Pick): string[] {
-  return [...seg.current.filter((_, i) => pick.current[i]), ...seg.incoming.filter((_, i) => pick.incoming[i])];
+  return sideOrder(pick).flatMap((side) => seg[side].filter((_, i) => pick[side][i]));
 }
 
 /** `eol`: the file's (`eolText`), put after a ticked line with no terminator of its own. */
@@ -79,7 +89,20 @@ export function sideState(segs: Segment[], picks: Picks, side: Side): CheckState
   return states.every((s) => s === 'none') ? 'none' : 'some';
 }
 
-const withSide = (picks: Picks, id: number, side: Side, flags: boolean[]): Picks => ({ ...picks, [id]: { ...picks[id], [side]: flags } });
+/** `side`'s ticks in region `id` become `flags`; a side ticked from none goes after one already
+ * ticked, and a side left with none gives the other the lead (`Pick.first`). */
+function withSide(picks: Picks, id: number, side: Side, flags: boolean[]): Picks {
+  const prev: Pick = picks[id] ?? { current: [], incoming: [] };
+  const had = prev[side].some(Boolean);
+  const has = flags.some(Boolean);
+  const otherHas = prev[other(side)].some(Boolean);
+  let first = prev.first;
+  if (has && !had) first = otherHas ? other(side) : side;
+  else if (!has && had) first = otherHas ? other(side) : undefined;
+  const next: Pick = { current: prev.current, incoming: prev.incoming, [side]: flags };
+  if (first) next.first = first;
+  return { ...picks, [id]: next };
+}
 
 export function toggleHunk(picks: Picks, seg: ConflictSegment, side: Side): Picks {
   const all = hunkState(seg, picks[seg.id], side) === 'all' && seg[side].length > 0;
@@ -102,6 +125,14 @@ export function takeAll(picks: Picks, segs: Segment[], side: Side, on: boolean):
 
 export function unpickedCount(segs: Segment[], picks: Picks, edited: ReadonlySet<number>): number {
   return regions(segs).filter((s) => !edited.has(s.id) && regionLines(s, picks[s.id]).length === 0).length;
+}
+
+/** Where the tool opens: the first region with nothing ticked or typed in it (a draft's), else
+ * the first region. `null`: there's none. */
+export function openingRegion(segs: Segment[], picks: Picks, edited: ReadonlySet<number>): number | null {
+  const all = regions(segs);
+  const open = all.find((s) => !edited.has(s.id) && regionLines(s, picks[s.id] ?? { current: [], incoming: [] }).length === 0);
+  return (open ?? all[0])?.id ?? null;
 }
 
 export function nextRegion(rs: OutRegion[], line: number, dir: 1 | -1): OutRegion | null {

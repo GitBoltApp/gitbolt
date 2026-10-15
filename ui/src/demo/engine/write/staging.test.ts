@@ -10,7 +10,7 @@ const enc = (s: string) => new TextEncoder().encode(s);
 const step = (label: string, kind: 'tree' | 'resolve' = 'tree'): StagingStep => ({
   label,
   head: null,
-  change: kind === 'tree' ? { kind, before: { entries: [], ita: [] }, after: { entries: [], ita: [] } } : { kind, path: 'p', before: { entries: [], disk: null }, after: { entries: [], disk: null }, op: null },
+  change: kind === 'tree' ? { kind, before: { entries: [], ita: [] }, after: { entries: [], ita: [] } } : { kind, paths: [{ path: 'p', before: { entries: [], disk: null }, after: { entries: [], disk: null } }], op: null },
 });
 
 describe('the staging log', () => {

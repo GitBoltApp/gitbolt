@@ -1,6 +1,6 @@
 // The merge tool (write/conflict.rs): a conflicted file's stages as segments and panes (the core runs
 // `git merge-file --diff3`; here Task 13's merge in diff3 style builds the segments directly), and its
-// resolutions, each a staging step of its own (§7.6).
+// resolutions, each a staging step of its own (§7.6); a folder's Mark resolved is one step.
 import type { ConflictFilePayload } from '../../api/gen/ConflictFilePayload';
 import type { ConflictKind } from '../../api/gen/ConflictKind';
 import type { ConflictLabels } from '../../api/gen/ConflictLabels';
@@ -26,7 +26,7 @@ import { latin1Bytes } from '../engine/write/patchApply';
 import { readHead } from '../engine/write/refs';
 import { runWrite, type WriteCx, type WriteIntent } from '../engine/write/run';
 import { writeTarget, type WriteWt } from '../engine/write/seam';
-import { capturePath, restorable, samePathState, type PathState } from '../engine/write/staging';
+import { capturePath, restorable, samePathState, type PathState, type ResolvedPath } from '../engine/write/staging';
 import { declaredEncoding, encode, loadForSave } from '../engine/write/textFile';
 import { NO_EXPECT } from './stage';
 
@@ -299,14 +299,80 @@ function resolveFile(path: string, resolution: Resolution, base: string | null, 
       log.keepResolves();
       const conflicted = before.entries.some((e) => e.stage !== 0);
       if (conflicted && !samePathState(before, after) && restorable(before, after)) {
-        log.record({ label: UNDO_LABEL[resolution.kind](path), head: cx.before.head.oid, change: { kind: 'resolve', path, before, after, op: operationKey(wt.fs, wt.gitdir) } });
+        log.record({ label: UNDO_LABEL[resolution.kind](path), head: cx.before.head.oid, change: { kind: 'resolve', paths: [{ path, before, after }], op: operationKey(wt.fs, wt.gitdir) } });
       } else log.redo = [];
       return behind;
     },
   };
 }
 
-export const conflictHandlers: Pick<HandlerTable, 'conflictFile' | 'resolveFile'> = {
+/** A regular file's text with markers left (the core's `disk_text` and `has_markers`). */
+async function markersLeft(wt: WriteWt, path: string): Promise<boolean> {
+  const f = readFileState(wt, path);
+  if (f === null || f.mode === MODE_LINK) return false;
+  const d = decodeBlob(f.bytes, await declaredEncoding(wt, path));
+  return !d.binary && d.text !== null && hasMarkers(d.text, await markerSize(wt, path));
+}
+
+/** `MarkResolvedIntent::undo_label`: "mark a.txt resolved", "mark gen/ resolved (2 files)" (their
+ * common folder), "mark 3 files resolved". */
+function markLabel(paths: string[]): string {
+  if (paths.length === 1) return `mark ${paths[0]} resolved`;
+  const dir = (p: string) => (p.includes('/') ? `${p.slice(0, p.lastIndexOf('/'))}/` : '');
+  let common = dir(paths[0]);
+  for (const p of paths.slice(1)) while (!p.startsWith(common)) common = dir(common.slice(0, -1));
+  return common ? `mark ${common} resolved (${paths.length} files)` : `mark ${paths.length} files resolved`;
+}
+
+/** `MarkResolvedIntent`: the conflicted ones of `paths` marked resolved as they are, in one `git
+ * add`, after one markers check across them all; one staging step for them all. */
+function markResolved(paths: string[], confirmMarkers: boolean): WriteIntent<null> {
+  return {
+    kind: 'resolve',
+    label: () => (paths.length === 1 ? `resolve ${paths[0]}` : `resolve ${paths.length} files`),
+    class: 'immediate',
+    undo: () => null,
+    allowedInProgress: true,
+    staging: 'own',
+    run: async (cx) => {
+      const wt = cx.wt;
+      const live: string[] = [];
+      for (const p of paths) if ((await stagesOf(wt, p)).some((e) => e !== null)) live.push(p);
+      if (live.length === 0) throw gbError('Stale', paths.length === 1 ? `${paths[0]} isn't conflicted anymore` : "These files aren't conflicted anymore");
+      if (!confirmMarkers) {
+        const marked: string[] = [];
+        for (const p of live) if (await markersLeft(wt, p)) marked.push(p);
+        if (marked.length > 0) {
+          const what = marked.length === 1 ? `${marked[0]} still has` : `${marked.length} files still have`;
+          throw { ...gbError('Conflict', `${what} conflict markers`), detail: { kind: 'markersRemainIn', paths: marked } };
+        }
+      }
+      const before: PathState[] = [];
+      for (const p of live) before.push(await capturePath(wt, p));
+      for (const p of live) {
+        refuseBeyondLink(wt, p);
+        const e = await entryOfFile(wt, p);
+        await saveIndex(wt, withEntry(await loadIndex(wt), p, e));
+      }
+      cx.command('add', '--pathspec-from-file=-', '--pathspec-file-nul');
+      cx.touch('index');
+      cx.touch('worktree');
+      // One staging step for them all (`record_resolves`).
+      const steps: ResolvedPath[] = [];
+      for (const [i, p] of live.entries()) {
+        const after = await capturePath(wt, p);
+        if (!samePathState(before[i], after) && restorable(before[i], after)) steps.push({ path: p, before: before[i], after });
+      }
+      const log = cx.ctx.writes.staging(wt.root);
+      log.keepResolves();
+      if (steps.length > 0) log.record({ label: markLabel(live), head: cx.before.head.oid, change: { kind: 'resolve', paths: steps, op: operationKey(wt.fs, wt.gitdir) } });
+      else log.redo = [];
+      return null;
+    },
+  };
+}
+
+export const conflictHandlers: Pick<HandlerTable, 'conflictFile' | 'resolveFile' | 'markResolved'> = {
   conflictFile: async ({ repo, worktree, path }, ctx) => {
     checkRelative(path);
     const wt = await writeTarget(ctx, repo, worktree);
@@ -315,5 +381,10 @@ export const conflictHandlers: Pick<HandlerTable, 'conflictFile' | 'resolveFile'
   resolveFile: async ({ repo, worktree, path, resolution, base, confirmMarkers, confirmDiscard }, ctx) => {
     checkRelative(path);
     return runWrite(ctx, repo, worktree, NO_EXPECT, resolveFile(path, resolution, base ?? null, confirmMarkers === true, confirmDiscard === true));
+  },
+  markResolved: async ({ repo, worktree, paths, confirmMarkers }, ctx) => {
+    if (paths.length === 0) fail('InvalidInput', 'no files to mark resolved');
+    for (const p of paths) checkRelative(p);
+    return runWrite(ctx, repo, worktree, NO_EXPECT, markResolved(paths, confirmMarkers === true));
   },
 };

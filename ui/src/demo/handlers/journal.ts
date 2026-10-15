@@ -108,12 +108,13 @@ function stagingStep(dir: Dir, label: string): WriteIntent<null> {
         cx.touch('index');
         cx.command('read-tree', '--reset', '<tree>');
       } else {
-        const { path, before, after, op } = step.change;
-        const want = dir === 'undo' ? after : before;
-        const to = dir === 'undo' ? before : after;
+        const { paths, op } = step.change;
         if (cx.before.head.oid !== step.head || operationKey(cx.wt.fs, cx.wt.gitdir) !== op) refuse(RESOLVE_ENDED);
-        if (!samePathState(await capturePath(cx.wt, path), want)) refuse(`${path} changed since ${dir === 'undo' ? 'it was resolved' : 'its resolution was undone'}; staging history was cleared.`);
-        await restorePath(cx.wt, path, to);
+        // Every path checked before any is touched.
+        for (const { path, before, after } of paths) {
+          if (!samePathState(await capturePath(cx.wt, path), dir === 'undo' ? after : before)) refuse(`${path} changed since ${dir === 'undo' ? 'it was resolved' : 'its resolution was undone'}; staging history was cleared.`);
+        }
+        for (const { path, before, after } of paths) await restorePath(cx.wt, path, dir === 'undo' ? before : after);
         cx.touch('worktree');
         cx.touch('index');
         cx.command('update-index', '-z', '--index-info');

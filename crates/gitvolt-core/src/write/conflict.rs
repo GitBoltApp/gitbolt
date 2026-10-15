@@ -715,6 +715,109 @@ impl ResolveIntent {
 }
 // --- end 2D T15 ---
 
+/// Mark resolved on several files at once (a folder's in the Conflicted section): each as it is,
+/// as `Resolution::AsIs` does one. The markers are checked across them all before anything is
+/// staged, so one question covers the lot, and they're one staging undo step ("mark gen/
+/// resolved (2 files)"): one Undo puts them all back.
+pub(crate) struct MarkResolvedIntent {
+    pub paths: Vec<String>,
+    pub confirm_markers: bool,
+}
+
+impl MarkResolvedIntent {
+    /// The staging undo step's label: "mark a.txt resolved", "mark gen/ resolved (2 files)" (their
+    /// common folder), "mark 3 files resolved".
+    fn undo_label(&self, paths: &[String]) -> String {
+        if let [p] = paths {
+            return format!("mark {p} resolved");
+        }
+        let dir = |p: &str| p.rsplit_once('/').map_or(String::new(), |(d, _)| format!("{d}/"));
+        let mut common = dir(&paths[0]);
+        for p in &paths[1..] {
+            while !p.starts_with(&common) {
+                common = dir(common.trim_end_matches('/'));
+            }
+        }
+        if common.is_empty() { format!("mark {} files resolved", paths.len()) } else { format!("mark {common} resolved ({} files)", paths.len()) }
+    }
+}
+
+impl WriteIntent for MarkResolvedIntent {
+    type Outcome = ();
+    fn kind(&self) -> OpKind {
+        OpKind::Resolve
+    }
+    fn label(&self) -> String {
+        match self.paths.as_slice() {
+            [p] => format!("resolve {p}"),
+            ps => format!("resolve {} files", ps.len()),
+        }
+    }
+    fn class(&self) -> WriteClass {
+        WriteClass::Immediate
+    }
+    /// Not journaled (§5.3), as `ResolveIntent`: the merge's Abort undoes it.
+    fn undo(&self) -> Option<UndoKind> {
+        None
+    }
+    fn allowed_in_progress(&self) -> bool {
+        true
+    }
+    fn staging(&self) -> Staging {
+        Staging::Own
+    }
+    async fn run(&self, cx: &mut WriteCx<'_>) -> Result<(), GbError> {
+        // Under the lock: the paths still conflicted (one resolved since the menu opened is left).
+        let mut paths = Vec::new();
+        for p in &self.paths {
+            let (r, path) = (cx.root.to_path_buf(), p.clone());
+            if blocking(move || read_stages(&r, &path)).await?.iter().any(Option::is_some) {
+                paths.push(p.clone());
+            }
+        }
+        if paths.is_empty() {
+            return Err(GbError::stale(match self.paths.as_slice() {
+                [p] => format!("{p} isn't conflicted anymore"),
+                _ => "These files aren't conflicted anymore".to_string(),
+            }));
+        }
+        if !self.confirm_markers {
+            let mut marked = Vec::new();
+            for p in &paths {
+                let (text, size) = disk_text(cx, p).await?;
+                if text.is_some_and(|t| has_markers(&t, size)) {
+                    marked.push(p.clone());
+                }
+            }
+            if !marked.is_empty() {
+                let n = marked.len();
+                let what = if n == 1 { format!("{} still has", marked[0]) } else { format!("{n} files still have") };
+                return Err(GbError::new(GbErrorKind::Conflict, format!("{what} conflict markers")).with_detail(ErrorDetail::MarkersRemainIn { paths: marked }));
+            }
+        }
+        // The staging undo steps: each path's stages and file, kept before anything changes (best
+        // effort, as `ResolveIntent::run`).
+        let mut before = Vec::new();
+        for p in &paths {
+            before.push(resolve_step::capture(cx, p).await.inspect_err(|e| tracing::warn!(target: "gitvolt_core::write", "resolve {p}: not undoable: {e}")).ok());
+        }
+        let inv = literal(cx.git(["add", "--pathspec-from-file=-", "--pathspec-file-nul"])).stdin(crate::write::stage::nul_list(&paths));
+        cx.run_git(inv).await?;
+        cx.touch(ChangeKind::Index);
+        cx.touch(ChangeKind::Worktree);
+        // One undo step for them all; a path that couldn't be kept is resolved, just not in it.
+        let mut steps = Vec::new();
+        for (p, before) in paths.iter().zip(before) {
+            let Some(before) = before else { continue };
+            if let Ok(after) = resolve_step::capture(cx, p).await.inspect_err(|e| tracing::warn!(target: "gitvolt_core::write", "resolve {p}: not undoable: {e}")) {
+                steps.push(crate::journal::staging::ResolvedPath { path: p.clone(), before, after });
+            }
+        }
+        crate::journal::staging::record_resolves(cx, self.undo_label(&paths), steps);
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

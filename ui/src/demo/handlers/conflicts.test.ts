@@ -92,6 +92,26 @@ describe('resolveFile', () => {
   });
 });
 
+describe('markResolved (a folder\'s Mark resolved)', () => {
+  it('asks once for every file with markers, staging nothing; then marks each as it is, each a staging step', async () => {
+    const { t, ctx } = await conflicted();
+    const mark = (confirmMarkers?: boolean) => conflictHandlers.markResolved({ repo: 1, worktree: t.dir, paths: ['a.txt', 'gone.txt', 'nope.txt'], confirmMarkers }, ctx);
+    const stages = async () => (await loadIndex(mainWt(t.repo))).map((e) => [e.path, e.stage]);
+    const before = await stages();
+    await expect(mark()).rejects.toMatchObject({ kind: 'Conflict', message: 'a.txt still has conflict markers', detail: { kind: 'markersRemainIn', paths: ['a.txt'] } });
+    expect(await stages()).toEqual(before);
+    const r = await mark(true);
+    expect([await stages(), r.staging.undo]).toEqual([[['a.txt', 0], ['gone.txt', 0]], 'mark 2 files resolved']);
+    expect(t.memfs.readFileSync(`${t.dir}/a.txt`, 'utf8')).toContain('<<<<<<<');
+    // One step for them all.
+    const undone = await journalHandlers.stagingUndo({ repo: 1, worktree: t.dir }, ctx);
+    expect([await stages(), undone.staging.undo, undone.staging.redo]).toEqual([before, null, 'mark 2 files resolved']);
+    await journalHandlers.stagingRedo({ repo: 1, worktree: t.dir }, ctx);
+    expect(await stages()).toEqual([['a.txt', 0], ['gone.txt', 0]]);
+    await expect(conflictHandlers.markResolved({ repo: 1, worktree: t.dir, paths: ['a.txt'] }, ctx)).rejects.toMatchObject({ kind: 'Stale', message: "a.txt isn't conflicted anymore" });
+  });
+});
+
 /** One file `name` at base, feature and main (in that order of commits); merged: stopped. */
 async function mergedFile(name: string, base: string | Uint8Array | null, theirs: string | Uint8Array, ours: string | Uint8Array) {
   const t = await makeTestRepo();

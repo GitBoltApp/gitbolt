@@ -181,7 +181,7 @@ describe('the file menu (spec §7; plan 1C Task 15, file kind)', () => {
 
   it('the folder menu: Copy path | Rel | Abs |, and Open in ▸ with the file managers only', () => {
     const env = envOf();
-    const t = { path: 'src/lib', root: '/wt', openIn: { worktree: '/wt', path: 'src/lib/a.php', line: null, source: null, fallback: null } };
+    const t = { path: 'src/lib', root: '/wt', openIn: { worktree: '/wt', path: 'src/lib/a.php', line: null, source: null, fallback: null }, wip: null };
     const rows = buildMenu<FolderTarget, MenuEnv>('folder', t, env);
     expect(labels(rows)).toEqual(['Copy path', '---', 'Open in']);
     variant(find(rows, 'Copy path'), 'abs').run();

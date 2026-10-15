@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { anyPicked, buildOutput, changeHits, emptyPicks, eolText, hasMarkers, regionText, hunkState, nextRegion, regionLines, sideHasLines, sideState, takeAll, toggleHunk, toggleLine, unpickedCount, type ConflictSegment, type Segment } from './model';
+import { anyPicked, buildOutput, changeHits, emptyPicks, eolText, hasMarkers, regionText, hunkState, nextRegion, openingRegion, regionLines, sideHasLines, sideState, takeAll, toggleHunk, toggleLine, unpickedCount, type ConflictSegment, type Segment } from './model';
 
 const segs: Segment[] = [
   { kind: 'common', text: 'one\ntwo\n' },
@@ -19,14 +19,64 @@ describe('the merge tool model (spec #2 §13.3)', () => {
     expect(unpickedCount(segs, emptyPicks(segs), new Set())).toBe(2);
   });
 
-  it("fills a region with the ticked lines, Current's first, then Incoming's, in file order", () => {
+  it('fills a region with the ticked lines, the side ticked first leading, each side in file order', () => {
     let p = emptyPicks(segs);
-    p = toggleLine(p, 0, 'incoming', 0);
     p = toggleLine(p, 0, 'current', 1);
-    expect(regionLines(c0, p[0])).toEqual(['current extra\n', 'incoming three\n']);
+    p = toggleLine(p, 0, 'incoming', 0);
+    p = toggleLine(p, 0, 'current', 0);
+    expect(regionLines(c0, p[0])).toEqual(['current three\n', 'current extra\n', 'incoming three\n']);
     const out = buildOutput(segs, p);
-    expect(out.text).toBe('one\ntwo\ncurrent extra\nincoming three\nfour\nfive');
-    expect(out.regions).toEqual([{ id: 0, start: 3, lines: 2 }, { id: 1, start: 6, lines: 0 }]);
+    expect(out.text).toBe('one\ntwo\ncurrent three\ncurrent extra\nincoming three\nfour\nfive');
+    expect(out.regions).toEqual([{ id: 0, start: 3, lines: 3 }, { id: 1, start: 7, lines: 0 }]);
+  });
+
+  it('Incoming ticked before Current: its lines come first, by line or by hunk', () => {
+    let p = toggleLine(emptyPicks(segs), 0, 'incoming', 0);
+    p = toggleLine(p, 0, 'current', 1);
+    expect(regionLines(c0, p[0])).toEqual(['incoming three\n', 'current extra\n']);
+    expect(buildOutput(segs, p).text).toBe('one\ntwo\nincoming three\ncurrent extra\nfour\nfive');
+    p = toggleHunk(toggleHunk(emptyPicks(segs), c0, 'incoming'), c0, 'current');
+    expect(regionLines(c0, p[0])).toEqual(['incoming three\n', 'current three\n', 'current extra\n']);
+  });
+
+  it('a side unticked and ticked again moves to the end; a partial untick keeps its place', () => {
+    let p = toggleHunk(emptyPicks(segs), c0, 'current');
+    p = toggleHunk(p, c0, 'incoming');
+    p = toggleLine(p, 0, 'current', 0);
+    expect(regionLines(c0, p[0])).toEqual(['current extra\n', 'incoming three\n']);
+    p = toggleHunk(p, c0, 'current');
+    p = toggleHunk(p, c0, 'current');
+    expect(hunkState(c0, p[0], 'current')).toBe('none');
+    expect(regionLines(c0, p[0])).toEqual(['incoming three\n']);
+    p = toggleLine(p, 0, 'current', 1);
+    expect(regionLines(c0, p[0])).toEqual(['incoming three\n', 'current extra\n']);
+    // The order is in the picks, so it's kept with them (a draft's JSON).
+    expect(regionLines(c0, JSON.parse(JSON.stringify(p))[0])).toEqual(['incoming three\n', 'current extra\n']);
+  });
+
+  it("each region keeps its own order; a draft's picks from before the order lead with Current", () => {
+    let p = toggleLine(emptyPicks(segs), 0, 'incoming', 0);
+    p = toggleLine(p, 0, 'current', 0);
+    p = toggleHunk(p, c1, 'incoming');
+    expect(buildOutput(segs, p).text).toBe('one\ntwo\nincoming three\ncurrent three\nfour\nincoming only\nfive');
+    expect(regionLines(c0, { current: [true, false], incoming: [true] })).toEqual(['current three\n', 'incoming three\n']);
+  });
+
+  it('take all from a side takes that side alone, so the order is just its own', () => {
+    let p = toggleLine(emptyPicks(segs), 0, 'incoming', 0);
+    p = takeAll(p, segs, 'current', true);
+    expect(regionLines(c0, p[0])).toEqual(['current three\n', 'current extra\n']);
+    p = toggleLine(p, 0, 'incoming', 0);
+    expect(regionLines(c0, p[0])).toEqual(['current three\n', 'current extra\n', 'incoming three\n']);
+  });
+
+  it('opens at the first region with nothing ticked or typed, else the first', () => {
+    expect(openingRegion(segs, emptyPicks(segs), new Set())).toBe(0);
+    const p = toggleLine(emptyPicks(segs), 0, 'incoming', 0);
+    expect(openingRegion(segs, p, new Set())).toBe(1);
+    expect(openingRegion(segs, emptyPicks(segs), new Set([0]))).toBe(1);
+    expect(openingRegion(segs, toggleHunk(p, c1, 'incoming'), new Set())).toBe(0);
+    expect(openingRegion([{ kind: 'common', text: 'x\n' }], {}, new Set())).toBeNull();
   });
 
   it("a hunk's checkbox ticks its side's lines, or unticks them all when all were ticked", () => {

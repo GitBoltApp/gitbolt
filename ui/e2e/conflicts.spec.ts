@@ -1,8 +1,8 @@
-import { writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { freshFixture, git, openUrl } from './fixtures';
 import { expect, test, confirmArmed, armedOverlay } from './test';
-import { fileRow } from './wip';
+import { fileRow, section } from './wip';
 
 const stop = (repo: string, ...args: string[]) => {
   try {
@@ -61,6 +61,18 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     await expect(tool.getByText('Incoming: feature/x')).toBeVisible();
     const current = tool.getByRole('region', { name: 'Current' });
     const incoming = tool.getByRole('region', { name: 'Incoming' });
+    // It opens at the first conflict: the output's cursor is in it.
+    await expect(tool.locator('.merge-count')).toHaveText('Conflict 1 of 2');
+    // Another file and back: the tool opens where the reader was (conflict 2), not at the first
+    // conflict. Shift+F7 goes back to conflict 1.
+    await page.keyboard.press('F7');
+    await expect(tool.locator('.merge-count')).toHaveText('Conflict 2 of 2');
+    await fileRow(page, 'conflicted', 'gone.txt').click();
+    await expect(tool.getByText('Deleted in main (current), modified in feature/x (incoming)')).toBeVisible();
+    await fileRow(page, 'conflicted', 'a.txt').click();
+    await expect(tool.locator('.merge-count')).toHaveText('Conflict 2 of 2');
+    await page.keyboard.press('Shift+F7');
+    await expect(tool.locator('.merge-count')).toHaveText('Conflict 1 of 2');
     // The output's rendered lines in line order (Monaco reuses line nodes out of DOM order, and
     // paints spaces as no-break spaces).
     const outputText = () => tool.getByRole('region', { name: 'Output' }).locator('.view-lines').evaluate((el) =>
@@ -78,17 +90,18 @@ test.describe('conflicts (spec #2 §13.2)', () => {
     await expect(ask.getByRole('button', { name: 'Mark resolved anyway' })).toBeVisible();
     await ask.getByRole('button', { name: 'Cancel' }).click();
     await expect(ask).toBeHidden();
-    // A line's green + in the gutter: conflict 1's Current line joins it, before Incoming's.
+    // A line's green + in the gutter: conflict 1's Current line joins it, after Incoming's, ticked
+    // first.
     await current.locator('.merge-line-btn.take').first().click();
-    await expect.poll(outputText).toMatch(/current three\s+incoming three/);
+    await expect.poll(outputText).toMatch(/incoming three\s+current three/);
     // The region is rebuilt: unticking Incoming's hunk leaves Current's line alone.
     await incoming.getByRole('checkbox', { name: 'Take conflict 1 from Incoming' }).click();
     await expect.poll(outputText).not.toContain('incoming three');
     await expect.poll(outputText).toContain('current three');
-    // F7 steps from the output's cursor (still on line 1): conflict 1, then conflict 2, which
+    // F7 steps from the output's cursor (at conflict 1 since it opened) to conflict 2, which
     // comes into view; take it from Current.
     await page.keyboard.press('F7');
-    await page.keyboard.press('F7');
+    await expect(tool.locator('.merge-count')).toHaveText('Conflict 2 of 2');
     await current.getByRole('checkbox', { name: 'Take conflict 2 from Current' }).click();
     await expect.poll(outputText).toContain('current fifteen');
     await expect(tool.getByRole('checkbox', { name: 'Take all from this side' }).first()).toBeChecked();
@@ -144,6 +157,27 @@ test.describe('conflicts (spec #2 §13.2)', () => {
       await current.locator('.overflow-guard').hover();
       await page.mouse.wheel(300, 0);
       await expect.poll(async () => { const [c, i, o] = await lefts(); return c > 0 && i === c && o === c; }).toBe(true);
+    });
+    await test.step('a Conflicted folder\'s menu marks its files resolved as they are, arming first while one still has markers', async () => {
+      git(repo, 'merge', '--abort');
+      for (const [branch, side] of [['feature/x', 'incoming'], ['main', 'current']]) {
+        git(repo, 'switch', '-q', branch);
+        mkdirSync(join(repo, 'gen'), { recursive: true });
+        for (const f of ['one', 'two']) writeFileSync(join(repo, `gen/${f}.ts`), `export const ${f} = '${side}';\n`);
+        git(repo, 'add', 'gen');
+        git(repo, 'commit', '-qm', `Generated, ${side}`);
+      }
+      stop(repo, 'merge', '--no-edit', 'feature/x');
+      await expect(fileRow(page, 'conflicted', 'gen/two.ts')).toBeVisible({ timeout: 15_000 });
+      // Regenerated: one.ts has no markers left; two.ts still has.
+      writeFileSync(join(repo, 'gen/one.ts'), "export const one = 'regenerated';\n");
+      await page.getByRole('button', { name: 'Tree', exact: true }).click();
+      await section(page, 'conflicted').locator('.file-row[data-kind="folder"][data-path="gen"]').click({ button: 'right' });
+      await page.getByRole('menu').getByRole('menuitem', { name: 'Mark 2 files resolved' }).click();
+      await confirmArmed(page.getByRole('menu').getByRole('menuitem', { name: 'Click again: gen/two.ts still has conflict markers' }));
+      await expect(section(page, 'conflicted').locator('.file-row[data-path^="gen"]')).toHaveCount(0);
+      expect(git(repo, 'diff', '--name-only', '--diff-filter=U')).not.toContain('gen/');
+      expect(git(repo, 'show', ':0:gen/one.ts')).toBe("export const one = 'regenerated';");
     });
   });
   // --- end 2D T20 ---

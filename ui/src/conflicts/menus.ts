@@ -1,7 +1,7 @@
 import { ArrowLeftToLine, ArrowRightToLine, CheckCheck } from 'lucide-react';
 import { activeTab } from '../app/actions';
 import { tabStore } from '../app/tabStores';
-import type { FileTarget, MenuEnv } from '../menu/menuEnv';
+import type { FileTarget, FolderTarget, MenuEnv } from '../menu/menuEnv';
 import { registerMenu } from '../menu/registry';
 import type { MenuRow } from '../menu/types';
 import { journalKey, useJournal } from '../undo/store';
@@ -10,7 +10,7 @@ import { useToast } from '../ui/toastStore';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { isMergeDirty, MERGE_SAVE_FIRST } from './mergeDrafts';
-import { markResolved, resolveFile } from './resolve';
+import { markAllResolved, markResolved, resolveFile } from './resolve';
 import { sidesIn } from './sides';
 
 const row = (r: Omit<Extract<MenuRow, { kind: 'action' }>, 'kind'>): MenuRow => ({ kind: 'action', ...r });
@@ -46,4 +46,34 @@ const off = registerMenu<FileTarget, MenuEnv>({
     ];
   },
 });
-import.meta.hot?.dispose(off);
+
+/** A folder in Conflicted (tree mode): Mark its conflicted files resolved, each as it is, in one
+ * write. Files that still have markers make the row arm in place first (`markersRemainIn`). */
+const offFolder = registerMenu<FolderTarget, MenuEnv>({
+  id: 'folder.conflict', kind: 'folder', group: 'conflict', order: 0,
+  rows: (t): MenuRow[] => {
+    const paths = t.wip?.conflicted ?? [];
+    if (!t.wip || paths.length === 0) return [];
+    const root = t.wip.worktree;
+    const tab = activeTab();
+    const ctx = tab ? writeCtx(tab.id, root) : null;
+    const dirty = (c: WriteCtx) => paths.find((p) => isMergeDirty(c.tabId, c.worktree, p));
+    const queued = ctx && useStaging.getState().committing[stagingKey(ctx.repoId, ctx.worktree)] ? COMMIT_QUEUED
+      : ctx && dirty(ctx) ? MERGE_SAVE_FIRST : undefined;
+    const n = paths.length;
+    const files = `${n} ${n === 1 ? 'file' : 'files'}`;
+    const run = () => {
+      const at = activeTab();
+      const c = at ? writeCtx(at.id, root) : null;
+      const open = c && dirty(c);
+      if (open) useToast.getState().show(`${MERGE_SAVE_FIRST}: ${open} has unsaved merge-tool edits`, { error: true });
+      else if (c) void markAllResolved(c, paths);
+      else useToast.getState().show(`Couldn't resolve the files in ${t.path}: its repository's tab isn't open`, { error: true });
+    };
+    return [row({ id: 'folder.markResolved', label: `Mark ${files} resolved`, icon: CheckCheck, tooltip: `Mark the ${files} conflicted in ${t.path}/ resolved as they are now`, run, disabledReason: queued })];
+  },
+});
+import.meta.hot?.dispose(() => {
+  off();
+  offFolder();
+});

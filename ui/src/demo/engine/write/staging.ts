@@ -78,7 +78,10 @@ export async function restorePath(wt: WriteWt, path: string, to: PathState): Pro
   await saveIndex(wt, entries);
 }
 
-export type StagingChange = { kind: 'tree'; before: IndexCapture; after: IndexCapture } | { kind: 'resolve'; path: string; before: PathState; after: PathState; op: string | null };
+/** One path of a resolve step (`ResolvedPath`). */
+export interface ResolvedPath { path: string; before: PathState; after: PathState }
+/** A resolve step holds one path, or a folder's files marked resolved at once. */
+export type StagingChange = { kind: 'tree'; before: IndexCapture; after: IndexCapture } | { kind: 'resolve'; paths: ResolvedPath[]; op: string | null };
 
 export interface StagingStep {
   label: string;

@@ -5,7 +5,7 @@ import { api } from '../api/client';
 
 type Toggle = (id: number, side: 'current' | 'incoming', line: number | 'hunk') => void;
 const out = { text: 'one\ni\ntwo\n', edited: new Set<number>(), typed: false };
-const calls = { create: vi.fn(), setRegions: vi.fn(), reveal: vi.fn(), dispose: vi.fn(), toggleAtCursor: vi.fn((_t: unknown) => false) };
+const calls = { create: vi.fn(), setRegions: vi.fn(), reveal: vi.fn(), restoreView: vi.fn(), dispose: vi.fn(), toggleAtCursor: vi.fn((_t: unknown) => false) };
 const cbs = { toggle: [] as Toggle[], restored: [] as Array<(p: unknown) => void>, edit: [] as Array<() => void> };
 vi.mock('./editors', () => ({
   createMergeEditors: (...a: unknown[]) => {
@@ -24,6 +24,8 @@ vi.mock('./editors', () => ({
       toggleAtCursor: (t: unknown) => calls.toggleAtCursor(t),
       setChecks: vi.fn(),
       reveal: (...x: unknown[]) => calls.reveal(...x),
+      viewState: () => ['view'],
+      restoreView: (...x: unknown[]) => calls.restoreView(...x),
       dispose: () => calls.dispose(),
     };
   },
@@ -34,7 +36,7 @@ vi.mock('../ui/ConfirmDialog', () => ({ confirmAction: (...a: unknown[]) => conf
 const resolve = vi.fn(async (..._a: unknown[]) => true);
 vi.mock('./resolve', () => ({ resolveFile: (...a: unknown[]) => resolve(...a) }));
 
-import { MergeTool, SWITCH_WAIT_MS, useShownConflict } from './MergeTool';
+import { forgetMergeViews, MergeTool, SWITCH_WAIT_MS, useShownConflict } from './MergeTool';
 import { draftKey, useMergeDrafts } from './mergeDrafts';
 import { useToast } from '../ui/toastStore';
 
@@ -72,6 +74,7 @@ describe('the merge tool (spec #2 §13.3)', () => {
     out.edited = new Set();
     out.typed = false;
     useMergeDrafts.setState({ drafts: {} });
+    forgetMergeViews();
   });
 
   it('labels the panes for the user, takes a side, and saves the output', async () => {
@@ -146,12 +149,46 @@ describe('the merge tool (spec #2 §13.3)', () => {
     render(<MergeTool ctx={ctx} path="a.txt" />);
     await ready();
     expect(await screen.findByText('1 conflict')).toBeInTheDocument();
+    calls.reveal.mockClear();
     fireEvent.keyDown(window, { key: 'F7' });
     expect(calls.reveal).toHaveBeenLastCalledWith(0);
     fireEvent.keyDown(window, { key: 'F7', shiftKey: true });
     fireEvent.click(screen.getByRole('button', { name: 'Next conflict' }));
     fireEvent.click(screen.getByRole('button', { name: 'Previous conflict' }));
     expect(calls.reveal).toHaveBeenCalledTimes(4);
+  });
+
+  it('opens at the first conflict, the focus left where it was; with kept work, at the first still to resolve', async () => {
+    const two = { ...payload, segments: [...payload.segments, { kind: 'conflict', id: 1, base: [], current: ['x\n'], incoming: [] }] };
+    loadPayload(two);
+    const view = render(<MergeTool key="a1" ctx={ctx} path="a.txt" />);
+    await ready();
+    expect(calls.reveal).toHaveBeenCalledExactlyOnceWith(0, false);
+    view.unmount();
+    calls.reveal.mockClear();
+    useMergeDrafts.setState({ drafts: { [key]: { tabId: 't', repo: 1, worktree: '/r', path: 'a.txt', base: 'h1', segments: two.segments as never, eol: 'lf', picks: { 0: { current: [true], incoming: [false] }, 1: { current: [false], incoming: [] } }, text: null, spans: null, edited: [], typed: false } } });
+    forgetMergeViews(); // as after a reload: only the draft is left
+    render(<MergeTool key="a2" ctx={ctx} path="a.txt" />);
+    await ready(2);
+    expect(calls.reveal).toHaveBeenCalledExactlyOnceWith(1, false);
+  });
+
+  it('rebuilt (a hidden tab shown again, another file and back), it opens where the reader was, not at the first conflict', async () => {
+    loadPayload();
+    const view = render(<MergeTool key="a1" ctx={ctx} path="a.txt" />);
+    await ready();
+    expect(calls.reveal).toHaveBeenCalledExactlyOnceWith(0, false);
+    view.unmount();
+    calls.reveal.mockClear();
+    const again = render(<MergeTool key="a2" ctx={ctx} path="a.txt" />);
+    await ready(2);
+    expect(calls.restoreView).toHaveBeenCalledExactlyOnceWith(['view']);
+    expect(calls.reveal).not.toHaveBeenCalled();
+    // Another tab's tool on the same file has its own place.
+    again.unmount();
+    render(<MergeTool key="a3" ctx={{ ...ctx, tabId: 't2' }} path="a.txt" />);
+    await ready(3);
+    expect(calls.reveal).toHaveBeenCalledExactlyOnceWith(0, false);
   });
 
   it('a hunk tick rebuilds that region; a second unticks it; Space ticks the pane cursor line (M2)', async () => {

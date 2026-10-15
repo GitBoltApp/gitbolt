@@ -67,6 +67,9 @@ pub enum ErrorDetail {
     /// Mark resolved on a file that still has conflict markers (spec #2 §13.3): ask first, then
     /// send again with `confirmMarkers`.
     MarkersRemain { path: Box<str> },
+    /// The same for several files marked resolved at once (`MarkResolved`): those that still have
+    /// markers. Confirmed by sending again with `confirmMarkers`.
+    MarkersRemainIn { paths: Vec<String> },
     /// Take current / Take incoming over a file the user edited (review M4): "Discard your edits
     /// to <path>?", then send again with `confirmDiscard`.
     DiscardEdits { path: Box<str> },

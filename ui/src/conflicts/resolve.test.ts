@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api } from '../api/client';
 import { buildMenu } from '../menu/registry';
 import { confirmAction } from '../ui/ConfirmDialog';
-import { markResolved, resolveFile } from './resolve';
+import { markAllResolved, markResolved, resolveFile } from './resolve';
 import './menus';
 import { useToast } from '../ui/toastStore';
 
@@ -27,6 +27,30 @@ describe('resolving conflicted files (spec #2 §13.3)', () => {
     expect(send).toHaveBeenNthCalledWith(1, 3, '/r', 'a.txt', { kind: 'asIs' }, undefined, false, false);
     expect(send).toHaveBeenNthCalledWith(2, 3, '/r', 'a.txt', { kind: 'asIs' }, undefined, true, false);
     expect(vi.mocked(confirmAction).mock.calls[0][0]).toMatchObject({ title: 'Conflict markers remain', confirmLabel: 'Mark resolved' });
+  });
+
+  it("a folder's Mark resolved without markers left resolves them all in one write, no question", async () => {
+    const send = vi.spyOn(api, 'markResolved').mockResolvedValueOnce(ok as never);
+    expect(await markAllResolved(ctx, ['gen/a.ts', 'gen/b.ts'])).toBe(true);
+    expect(send).toHaveBeenCalledExactlyOnceWith(3, '/r', ['gen/a.ts', 'gen/b.ts'], false);
+    expect(confirmAction).not.toHaveBeenCalled();
+  });
+
+  it("a folder's Mark resolved with markers left arms in place, naming how many, then sends it confirmed", async () => {
+    const remain = (paths: string[]) => ({ kind: 'Conflict', message: 'markers', commandId: null, stderr: null, detail: { kind: 'markersRemainIn', paths } });
+    const send = vi.spyOn(api, 'markResolved')
+      .mockRejectedValueOnce(remain(['gen/a.ts', 'gen/c.ts']))
+      .mockResolvedValueOnce(ok as never);
+    expect(await markAllResolved(ctx, ['gen/a.ts', 'gen/b.ts', 'gen/c.ts'])).toBe(true);
+    expect(send).toHaveBeenNthCalledWith(1, 3, '/r', ['gen/a.ts', 'gen/b.ts', 'gen/c.ts'], false);
+    expect(send).toHaveBeenNthCalledWith(2, 3, '/r', ['gen/a.ts', 'gen/b.ts', 'gen/c.ts'], true);
+    expect(vi.mocked(confirmAction).mock.calls[0][0]).toMatchObject({ arm: 'Click again: 2 files still have conflict markers', caption: 'With markers: gen/a.ts, gen/c.ts.', tone: 'warn' });
+    // One file: by name. A "no" sends nothing more.
+    vi.mocked(confirmAction).mockResolvedValueOnce(false);
+    send.mockClear().mockRejectedValueOnce(remain(['gen/a.ts']));
+    expect(await markAllResolved(ctx, ['gen/a.ts', 'gen/b.ts'])).toBe(false);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(confirmAction).mock.calls[1][0]).toMatchObject({ arm: 'Click again: gen/a.ts still has conflict markers' });
   });
 
   it('a "no" to the question sends nothing more', async () => {

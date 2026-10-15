@@ -18,9 +18,9 @@ import { useToast } from '../ui/toastStore';
 import type { WriteCtx } from '../write/client';
 import { writeCtx } from '../write/ctx';
 import { ariaChecked, CHECK_GLYPH } from './checkBox';
-import { createMergeEditors, type MergeEditors } from './editors';
+import { createMergeEditors, type MergeEditors, type MergeView } from './editors';
 import { dropDraft, draftKey, getDraft, isPristine, patchDraft, putDraft, registerLive, sameSegments, saveMerge } from './mergeDrafts';
-import { emptyPicks, nextRegion, regionLines, sideHasLines, sideState, takeAll, toggleHunk, toggleLine, type CheckState, type ConflictSegment, type Picks, type Side } from './model';
+import { emptyPicks, nextRegion, openingRegion, regionLines, sideHasLines, sideState, takeAll, toggleHunk, toggleLine, type CheckState, type ConflictSegment, type Picks, type Side } from './model';
 import { leaveResolved } from './leaveResolved';
 import { NonTextConflict } from './NonTextConflict';
 import './mergeTool.css';
@@ -28,6 +28,12 @@ import { displayChord, resolveChord } from '../ui/platformKeys';
 
 const sameLines = (a: string[], b: string[]) => a.length === b.length && a.every((l, i) => l === b[i]);
 const toast = (m: string) => useToast.getState().show(m, { error: true });
+/** Where the reader was in each file's tool (`draftKey`: per tab and file), in memory: its
+ * editors rebuilt (a hidden tab shown again, another file and back) open there, not at the first
+ * conflict. Gone once the file is resolved or its conflict changed. */
+const views = new Map<string, MergeView>();
+/** Tests: forget every kept place. */
+export const forgetMergeViews = () => views.clear();
 /** How long after the last keystroke the output is written into the draft. */
 const PERSIST_MS = 300;
 
@@ -43,8 +49,8 @@ type Loaded = { status: 'loading' } | { status: 'error'; message: string } | { s
  *   too); hand edits elsewhere stay.
  * - The work (ticks and output) is kept per (tab, path) in `mergeDrafts`, across a hidden tab,
  *   another file and a reload; leaving it unsaved asks (2B T11's guards).
- * - Ctrl+S or the button saves and marks the file resolved (`saveMerge`). F7 / Shift+F7 and the
- *   arrows step the regions.
+ * - Ctrl+S or the button saves and marks the file resolved (`saveMerge`). It opens at the first
+ *   region still to resolve; F7 / Shift+F7 and the arrows step the regions.
  * - A conflict that isn't text on both sides gets the buttons instead (`NonTextConflict`).
  */
 export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; path: string; onResolved?: () => void; initial?: ConflictFilePayload | null }) {
@@ -88,6 +94,7 @@ export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; p
         p = d.picks;
         if (d.base === undefined) patchDraft(key, { base: f.base });
       } else if (d) {
+        views.delete(key);
         dropDraft(key);
         if (!isPristine(d)) toast(f ? `The conflict in ${path} changed: your merge of it was dropped` : `${path} isn't conflicted any more: your merge of it was dropped`);
       }
@@ -168,6 +175,16 @@ export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; p
       persist();
     });
     e.onCursor(setCursor);
+    // The first time the file opens (or after a reload: a draft's), at the first conflict still to
+    // resolve (nothing ticked or typed), as F7 goes to one, leaving the focus where it is (the file
+    // list, say). Rebuilt (a hidden tab shown again, another file and back): where the reader was.
+    const view = views.get(key);
+    if (view) e.restoreView(view);
+    else {
+      const opening = openingRegion(file.segments, picksRef.current, e.edited());
+      if (opening !== null) e.reveal(opening, false);
+    }
+    setCursor(e.cursorLine());
     // The count and arrows read the editors: render once they exist.
     rendered((n) => n + 1);
     const offLive = registerLive(key, {
@@ -184,6 +201,8 @@ export function MergeTool({ ctx, path, onResolved, initial }: { ctx: WriteCtx; p
       clearTimeout(timer);
       // Going out of view (a hidden tab, another file): the work stays in the draft.
       persist(); // N1: a first edit still waiting on its debounce is kept too
+      if (done.current) views.delete(key);
+      else views.set(key, e.viewState());
       offLive();
       e.dispose();
       eds.current = null;

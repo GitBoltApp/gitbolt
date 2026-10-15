@@ -15,7 +15,7 @@ import { useTheme } from '../theme/store';
 import { createCheckBox } from './checkBox';
 import { createHoverTracker, regionMarks, resolveMarkColors } from './lineMarks';
 import type { Span } from './mergeDrafts';
-import { buildOutput, changeHits, emptyPicks, eolText, hunkState, regionText, type CheckState, type ConflictSegment, type OutRegion, type Picks, type Side } from './model';
+import { buildOutput, changeHits, emptyPicks, eolText, hunkState, regionLines, regionText, sideOrder, type CheckState, type ConflictSegment, type OutRegion, type Picks, type Side } from './model';
 
 type Editor = MonacoNs.editor.IStandaloneCodeEditor;
 type Model = MonacoNs.editor.ITextModel;
@@ -23,6 +23,10 @@ export type ToggleCb = (id: number, side: Side, line: number | 'hunk') => void;
 
 /** The output as it is now: what the merge tool keeps across a hidden tab or another file. */
 export interface OutputState { text: string; spans: Span[]; edited: number[]; typed: boolean }
+
+/** Where the reader was in the three editors (scroll, cursor, selection), Monaco's own view
+ * states: kept while the editors are rebuilt (a hidden tab, another file), never stored. */
+export type MergeView = Array<MonacoNs.editor.ICodeEditorViewState | null>;
 
 /** Where the editors start: the ticks, and the output as it was left (else built from them). */
 export interface MergeStart { picks: Picks; output?: OutputState }
@@ -57,8 +61,12 @@ export interface MergeEditors {
   toggleAtCursor(target: EventTarget | null): boolean;
   /** The panes' checkboxes, line buttons and tints, as `picks` says. */
   setChecks(picks: Picks): void;
-  /** Brings region `id` into view in all three, with the output's cursor at its start. */
-  reveal(id: number): void;
+  /** Brings region `id` into view in all three, with the output's cursor at its start; `focus`
+   * (F7, the arrows) puts the focus in the output too. Opening the tool leaves it where it is. */
+  reveal(id: number, focus?: boolean): void;
+  /** Where the reader is, and back there (`MergeView`). */
+  viewState(): MergeView;
+  restoreView(view: MergeView): void;
   dispose(): void;
 }
 
@@ -326,7 +334,7 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
     const seg = byId.get(id);
     const p = lastPicks[id];
     if (!seg || !p) return [];
-    return [...seg.current.filter((_, i) => p.current[i]), ...seg.incoming.filter((_, i) => p.incoming[i])];
+    return regionLines(seg, p);
   }
   const edited = new Set<number>(start?.output?.edited ?? []);
   let typed = start?.output?.typed ?? false;
@@ -365,9 +373,11 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
         else line(1, 'merge-output-gap-above');
         continue;
       }
-      const cur = p ? p.current.filter(Boolean).length : 0;
-      const exact = !edited.has(r.id) && p && r.lines === cur + p.incoming.filter(Boolean).length;
-      for (let i = 0; i < r.lines; i++) line(r.start + i, !exact ? 'merge-output-edited' : i < cur ? 'merge-output-current' : 'merge-output-incoming');
+      // The side ticked first comes first (`Pick.first`).
+      const [lead, then] = sideOrder(p);
+      const led = p ? p[lead].filter(Boolean).length : 0;
+      const exact = !edited.has(r.id) && p && r.lines === led + p[then].filter(Boolean).length;
+      for (let i = 0; i < r.lines; i++) line(r.start + i, !exact ? 'merge-output-edited' : `merge-output-${i < led ? lead : then}`);
     }
     tints.set(decos);
   };
@@ -455,7 +465,7 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
   const sync = syncScroll(editors);
   subs.push(...sync.subs);
 
-  const reveal = (id: number) => sync.quiet(() => {
+  const reveal = (id: number, focus = true) => sync.quiet(() => {
     for (const side of ['current', 'incoming'] as const) {
       const r = panes[side].regions.find((g) => g.id === id);
       if (r) paneEd[side].revealLineInCenter(Math.max(1, r.start), SCROLL_IMMEDIATE);
@@ -465,7 +475,7 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
     if (r) {
       out.setPosition(r.getStartPosition());
       out.revealLineInCenter(r.startLineNumber, SCROLL_IMMEDIATE);
-      out.focus();
+      if (focus) out.focus();
     }
   });
 
@@ -498,6 +508,8 @@ export function createMergeEditors(host: { current: HTMLElement; incoming: HTMLE
     },
     setChecks,
     reveal,
+    viewState: () => editors.map((ed) => ed.saveViewState()),
+    restoreView: (view) => sync.quiet(() => editors.forEach((ed, i) => { const v = view[i]; if (v) ed.restoreViewState(v); })),
     dispose: () => {
       if (disposed) return;
       disposed = true;

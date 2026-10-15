@@ -148,6 +148,9 @@ export interface FolderTarget {
   /** What Open in ▸ Files opens: a path inside the folder (a file manager shows the folder of
    * the path it's given). */
   openIn: OpenInTarget;
+  /** A WIP list's folder: its worktree and the conflicted files under it (as the list shows
+   * them), for Mark resolved. `null` for every other list. */
+  wip: { worktree: string; conflicted: string[] } | null;
 }
 
 /** A commit's branch, as the graph knows it (spec §7 "Copy branch name", "Forge link"). */
@@ -492,16 +495,17 @@ export function fileMenu(store: RepoViewStore, spec: DiffSpec, t: DiffTarget, ch
   return () => buildMenu<FileTarget, MenuEnv>('file', fileTargetOf(store.getState(), spec, t, changed), fileMenuEnv(store));
 }
 
-/** The folder menu's target: `inside`, a path in the folder, is what Open in ▸ Files opens. */
-export function folderTargetOf(s: RepoViewState, spec: DiffSpec, path: string, inside: string): FolderTarget {
+/** The folder menu's target: `inside`, a path in the folder, is what Open in ▸ Files opens;
+ * `conflicted`, the conflicted files the list shows under it. */
+export function folderTargetOf(s: RepoViewState, spec: DiffSpec, path: string, inside: string, conflicted: string[] = []): FolderTarget {
   const root = rootOfSpec(s, spec);
-  return { path, root, openIn: { worktree: root, path: inside, line: null, source: null, fallback: null } };
+  return { path, root, openIn: { worktree: root, path: inside, line: null, source: null, fallback: null }, wip: spec.kind === 'wip' ? { worktree: spec.worktree, conflicted } : null };
 }
 
 /** A right-click on a folder row (tree mode). */
-export function folderMenu(store: RepoViewStore, spec: DiffSpec, path: string, inside: string): () => MenuRow[] {
+export function folderMenu(store: RepoViewStore, spec: DiffSpec, path: string, inside: string, conflicted: string[] = []): () => MenuRow[] {
   afterOpening(store);
-  return () => buildMenu<FolderTarget, MenuEnv>('folder', folderTargetOf(store.getState(), spec, path, inside), fileMenuEnv(store));
+  return () => buildMenu<FolderTarget, MenuEnv>('folder', folderTargetOf(store.getState(), spec, path, inside, conflicted), fileMenuEnv(store));
 }
 
 /** The row's primary branch: its first branch chip (HEAD's sorts first), as a right-click on that

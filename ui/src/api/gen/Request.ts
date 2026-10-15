@@ -86,7 +86,7 @@ confirmAutostash?: boolean, } } | { "method": "journalHistory", "params": { repo
 /**
  * A recovery Restore's clean-restore warning (§6.2) was confirmed.
  */
-confirmAutostash?: boolean, } } | { "method": "dismissBanner", "params": { repo: number, worktree: string, entry: number, dropStash?: boolean, } } | { "method": "settlePaused", "params": { repo: number, worktree: string, } } | { "method": "conflictFile", "params": { repo: number, worktree: string, path: string, } } | { "method": "resolveFile", "params": { repo: number, worktree: string, path: string, resolution: Resolution, base?: string, confirmMarkers?: boolean, confirmDiscard?: boolean, } } | { "method": "testWrite", "params": { repo: number, worktree: string, expect: Expect, intent: TestIntent, } } | { "method": "removeIndexLock", "params": { repo: number, path: string, mtimeMs: number, 
+confirmAutostash?: boolean, } } | { "method": "dismissBanner", "params": { repo: number, worktree: string, entry: number, dropStash?: boolean, } } | { "method": "settlePaused", "params": { repo: number, worktree: string, } } | { "method": "conflictFile", "params": { repo: number, worktree: string, path: string, } } | { "method": "resolveFile", "params": { repo: number, worktree: string, path: string, resolution: Resolution, base?: string, confirmMarkers?: boolean, confirmDiscard?: boolean, } } | { "method": "markResolved", "params": { repo: number, worktree: string, paths: Array<string>, confirmMarkers?: boolean, } } | { "method": "testWrite", "params": { repo: number, worktree: string, expect: Expect, intent: TestIntent, } } | { "method": "removeIndexLock", "params": { repo: number, path: string, mtimeMs: number, 
 /**
  * The lock's inode and device when the error saw it.
  */

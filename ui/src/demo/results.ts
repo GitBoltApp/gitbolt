@@ -205,6 +205,7 @@ export interface DemoResults {
   removeRemote: WriteResult<null>;
   conflictFile: ConflictFilePayload | null;
   resolveFile: WriteResult<SubmoduleBehind | null>;
+  markResolved: WriteResult<null>;
   forgeAccounts: ForgeAccountView[];
   forgeRepoProjects: RepoProjects;
   forgeProjectSettings: ForgeProjectSettings;
