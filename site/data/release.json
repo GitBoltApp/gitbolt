@@ -1,66 +1,66 @@
 {
   "schema": 1,
   "release": {
-    "version": "0.7.0",
-    "tag": "v0.7.0",
+    "version": "0.7.1",
+    "tag": "v0.7.1",
     "prerelease": false,
-    "published": "2026-10-14T19:34:31Z",
-    "url": "https://github.com/GitVoltApp/gitvolt/releases/tag/v0.7.0",
-    "sums": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/SHA256SUMS",
+    "published": "2026-10-15T13:21:41Z",
+    "url": "https://github.com/GitVoltApp/gitvolt/releases/tag/v0.7.1",
+    "sums": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/SHA256SUMS",
     "downloads": [
       {
         "os": "linux",
         "kind": "deb",
         "arch": "x86_64",
-        "file": "GitVolt_0.7.0_amd64.deb",
-        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/GitVolt_0.7.0_amd64.deb",
-        "bytes": 165885718,
-        "sha256": "752b125c3ca399d19e2e1330ed50617eb720185459f61ad6dc310c5c878e55b8"
+        "file": "GitVolt_0.7.1_amd64.deb",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/GitVolt_0.7.1_amd64.deb",
+        "bytes": 165960712,
+        "sha256": "ca2690787baa896152dc29ffc115b8367219bf7eda2360c04a3d2b7209170140"
       },
       {
         "os": "linux",
         "kind": "rpm",
         "arch": "x86_64",
-        "file": "GitVolt-0.7.0-1.x86_64.rpm",
-        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/GitVolt-0.7.0-1.x86_64.rpm",
-        "bytes": 129142736,
-        "sha256": "a8d42b0f29880da3468df25ae2c37f71e914b5c2139ff11897eaf79d2a9981dc"
+        "file": "GitVolt-0.7.1-1.x86_64.rpm",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/GitVolt-0.7.1-1.x86_64.rpm",
+        "bytes": 129161089,
+        "sha256": "48a9d7950de1da0a1cf8923d066c319b9dd9df9cc3a4508b6edd0e1ac6883e31"
       },
       {
         "os": "linux",
         "kind": "arch",
         "arch": "x86_64",
-        "file": "GitVolt-0.7.0-1-x86_64.pkg.tar.zst",
-        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/GitVolt-0.7.0-1-x86_64.pkg.tar.zst",
-        "bytes": 129147389,
-        "sha256": "03456bc7e4c957a9d920e95756e6d1ef6f25aebd0fc0e9a5face345c0ba40285"
+        "file": "GitVolt-0.7.1-1-x86_64.pkg.tar.zst",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/GitVolt-0.7.1-1-x86_64.pkg.tar.zst",
+        "bytes": 129179174,
+        "sha256": "e6c46e6920f6dd494d77bb27ad4df1a79c2803980293793f960b45bcf6676dc7"
       },
       {
         "os": "macos",
         "kind": "dmg",
         "arch": "aarch64",
-        "file": "GitVolt_0.7.0_aarch64.dmg",
-        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/GitVolt_0.7.0_aarch64.dmg",
-        "bytes": 166777062,
-        "sha256": "f27ead7b4d495e904ce322514b03f4bc30a30ac329ab0e984c97bef95a09b83e"
+        "file": "GitVolt_0.7.1_aarch64.dmg",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/GitVolt_0.7.1_aarch64.dmg",
+        "bytes": 166804603,
+        "sha256": "bf2286f2f1c0894b60ef560b517847516ff657f154f911e554818b90b4ff77db"
       },
       {
         "os": "windows",
         "kind": "nsis",
         "arch": "x86_64",
-        "file": "GitVolt_0.7.0_x64-setup.exe",
-        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/GitVolt_0.7.0_x64-setup.exe",
-        "bytes": 189813709,
-        "sha256": "e25a4388d97a5645e9fac071c4bca7964b760d05205b369c27c70bbf29380e20"
+        "file": "GitVolt_0.7.1_x64-setup.exe",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/GitVolt_0.7.1_x64-setup.exe",
+        "bytes": 189722826,
+        "sha256": "8e5cd3313472f1fd6e192d45dcdcaf777192d4114058da8d9de62f0af38a48b3"
       },
       {
         "os": "windows",
         "kind": "msi",
         "arch": "x86_64",
-        "file": "GitVolt_0.7.0_x64.msi",
-        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.0/GitVolt_0.7.0_x64.msi",
-        "bytes": 169156608,
-        "sha256": "5762a0599efae4b37fea135388b3aa84051e5ae553840e0f690452737c19a745"
+        "file": "GitVolt_0.7.1_x64.msi",
+        "url": "https://github.com/GitVoltApp/gitvolt/releases/download/v0.7.1/GitVolt_0.7.1_x64.msi",
+        "bytes": 169250816,
+        "sha256": "bba85f4c76302b32aa252ee59dde4075ce28ab1a3054364062ab1e3ff317aa79"
       }
     ]
   }
