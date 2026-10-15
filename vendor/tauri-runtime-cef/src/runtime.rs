@@ -3042,6 +3042,18 @@ impl<T: UserEvent> CefRuntime<T> {
       let decision = crate::sandbox::resolve_sandbox_decision(sandbox_policy);
       match decision {
         crate::sandbox::SandboxDecision::Keep => false,
+        // GitVolt patch: browser-only, as the probe it skips runs in the browser's zygote
+        // host, and appended before the application's switches like every runtime default.
+        crate::sandbox::SandboxDecision::KeepSetuidOnly => {
+          log::info!(
+            "AppArmor restricts unprivileged user namespaces: using the setuid sandbox helper"
+          );
+          browser_command_line_args.push((
+            format!("--{}", crate::switches::DISABLE_NAMESPACE_SANDBOX),
+            None,
+          ));
+          false
+        }
         crate::sandbox::SandboxDecision::Disable(reason) => {
           log::warn!(
             "running Chromium without a sandbox: {}. A compromised renderer process runs with the full privileges of the current user.",

@@ -38,7 +38,9 @@ current code; each point names where to look.
   run unsandboxed.
 - The `.deb`, `.rpm` and Arch packages ship Chromium's `chrome-sandbox` helper owned by root with
   the setuid bit (mode 4755). The packaging checks fail the build otherwise (`scripts/check-deb.sh`,
-  `scripts/package-arch.sh`, `scripts/package-rpm.sh`). For development builds, see [docs/dev-setup.md](docs/dev-setup.md).
+  `scripts/package-arch.sh`, `scripts/package-rpm.sh`). Where AppArmor restricts unprivileged user
+  namespaces, Chromium is sent straight to that helper (`--disable-namespace-sandbox`); the
+  sandbox stays on. For development builds, see [docs/dev-setup.md](docs/dev-setup.md).
 - Release builds ignore Chromium switches given on the command line, so the installed binary
   can't be started with `--remote-debugging-port` or `--disable-web-security`. DevTools are off
   in release builds (`vendor/tauri-runtime-cef`).

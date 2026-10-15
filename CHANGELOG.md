@@ -26,6 +26,12 @@ All notable changes to GitVolt (called GitBolt before 0.7.0) are listed here, ne
   makes it a Reword with the combined message, and fixing it up leaves it a Pick, so squashing the
   whole branch works.
 
+### Fixed
+
+- GitVolt no longer crashes at startup on Ubuntu systems where AppArmor denies user namespaces
+  outright ("credentials.cc:131] Check failed: . : Permission denied (13)"). It uses the setuid
+  sandbox helper directly there; the sandbox stays on.
+
 ### Removed
 
 - **GitBolt's paused rebases:** a rebase GitBolt left paused can no longer be continued in GitVolt;

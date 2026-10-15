@@ -13,7 +13,7 @@
 //!
 //! Chromium's zygote host picks, in order, the namespace sandbox when unprivileged user
 //! namespaces work, then the root-owned setuid `chrome-sandbox` helper found next to the
-//! executable (or at `CHROME_DEVEL_SANDBOX`). When neither is available it calls
+//! executable (or, when there is none there, at `CHROME_DEVEL_SANDBOX`). When neither is available it calls
 //! `LOG(FATAL) << "No usable sandbox!"` and the process dies before a window is ever
 //! shown.
 //!
@@ -29,6 +29,20 @@
 //! the file is stat'ed against the same conditions Chromium's zygote host applies —
 //! owned by root, setuid, executable by others — because Chromium treats a helper that
 //! fails them as a fatal error rather than falling back to another sandbox.
+//!
+//! GitVolt patch: AppArmor's restriction also breaks installs that *do* have the helper.
+//! Chromium probes for the namespace sandbox by cloning into a new user namespace and
+//! `PCHECK`s the errno when that fails, accepting only the ones it expects, which `EACCES`
+//! is not. Where Ubuntu's `unprivileged_userns` AppArmor profile is
+//! loaded the clone succeeds, stripped of capabilities, and the probe falls back to the
+//! helper; where it is not, AppArmor denies `userns_create` with `EACCES` and the browser
+//! dies at `sandbox/linux/services/credentials.cc` ("Check failed: . : Permission denied
+//! (13)") before it ever considers the helper. So with a usable helper outside an
+//! AppImage and the restriction on, the runtime passes `--disable-namespace-sandbox`
+//! ([`SandboxDecision::KeepSetuidOnly`]): Chromium skips the probe and uses the helper,
+//! which is what it settles on anyway where the probe survives: unless an AppArmor profile
+//! grants this executable user namespaces, the restriction leaves them without the
+//! capabilities the namespace sandbox needs.
 //!
 //! # The Windows case
 //!
@@ -140,6 +154,10 @@ impl SandboxDisableReason {
 pub(crate) enum SandboxDecision {
   /// Leave the sandbox alone.
   Keep,
+  /// GitVolt patch: keep the sandbox, but append `--disable-namespace-sandbox` so Chromium
+  /// goes straight to the setuid helper without probing user namespaces, a probe that
+  /// aborts the browser when AppArmor denies them outright (see the module docs).
+  KeepSetuidOnly,
   /// Append `--no-sandbox`, logging `reason`.
   Disable(SandboxDisableReason),
   /// [`SandboxPolicy::Required`] asked for a sandbox this platform cannot provide, so
@@ -181,6 +199,17 @@ pub(crate) fn sandbox_decision(
       }
       _ => SandboxDecision::Disable(SandboxDisableReason::WindowsBrokerUnavailable),
     };
+  }
+
+  // GitVolt patch: the namespace sandbox cannot work under the AppArmor restriction, and
+  // probing for it can abort the browser, so a usable helper is taken directly. Inside an
+  // AppImage the helper Chromium finds is the inert one next to the executable, so the
+  // AppImage cases below stay as they were.
+  if !running_from_appimage
+    && sandbox_helper_available
+    && apparmor_restrict_unprivileged_userns == Some(1)
+  {
+    return SandboxDecision::KeepSetuidOnly;
   }
 
   match policy {
@@ -293,13 +322,13 @@ fn running_from_appimage() -> bool {
 
 /// Whether Chromium can find *and use* the setuid `chrome-sandbox` helper.
 ///
+/// GitVolt patch: asks about the helper Chromium itself picks
+/// ([`chromium_helper_candidate`]), so a `CHROME_DEVEL_SANDBOX` exported by the user's
+/// shell can't hide a good helper next to a packaged executable, or stand in for a bad one.
+///
 /// The helper next to the executable is disregarded entirely when running from an
 /// AppImage: the bundler always copies `chrome-sandbox` there, and the AppImage runtime
 /// mounts the payload `nosuid`, so the setuid bit `stat` still reports has no effect.
-///
-/// `CHROME_DEVEL_SANDBOX` is somebody deliberately pointing at a helper outside the
-/// application, so it is honoured on every layout, but it is stat'ed like any other
-/// candidate.
 #[cfg(any(
   target_os = "linux",
   target_os = "dragonfly",
@@ -308,18 +337,78 @@ fn running_from_appimage() -> bool {
   target_os = "openbsd"
 ))]
 fn sandbox_helper_available(running_from_appimage: bool) -> bool {
-  if let Some(path) = std::env::var_os("CHROME_DEVEL_SANDBOX").filter(|path| !path.is_empty()) {
-    return helper_path_is_usable(std::path::Path::new(&path));
-  }
+  use std::os::unix::fs::MetadataExt;
 
-  if running_from_appimage {
-    return false;
-  }
+  let exe = std::env::current_exe().ok();
+  let next_to_exe = exe
+    .as_deref()
+    .and_then(std::path::Path::parent)
+    .map(|dir| dir.join("chrome-sandbox"))
+    .filter(|helper| helper.exists());
+  // SAFETY: `getuid` has no preconditions and cannot fail.
+  let uid = unsafe { libc::getuid() };
+  let exe_owned_by_current_user = exe
+    .and_then(|exe| std::fs::metadata(exe).ok())
+    .is_some_and(|metadata| metadata.uid() == uid);
 
-  std::env::current_exe()
-    .ok()
-    .and_then(|exe| exe.parent().map(|dir| dir.join("chrome-sandbox")))
-    .is_some_and(|helper| helper_path_is_usable(&helper))
+  match chromium_helper_candidate(
+    next_to_exe,
+    exe_owned_by_current_user,
+    std::env::var_os("CHROME_DEVEL_SANDBOX"),
+  ) {
+    None => false,
+    Some(HelperCandidate::NextToExe(_)) if running_from_appimage => false,
+    Some(HelperCandidate::NextToExe(helper) | HelperCandidate::Devel(helper)) => {
+      helper_path_is_usable(&helper)
+    }
+  }
+}
+
+/// Where the setuid helper Chromium will use was found.
+#[cfg(any(
+  target_os = "linux",
+  target_os = "dragonfly",
+  target_os = "freebsd",
+  target_os = "netbsd",
+  target_os = "openbsd"
+))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum HelperCandidate {
+  /// `chrome-sandbox` in the executable's directory.
+  NextToExe(std::path::PathBuf),
+  /// The path in `CHROME_DEVEL_SANDBOX`.
+  Devel(std::path::PathBuf),
+}
+
+/// GitVolt patch: the helper path Chromium's `SetuidSandboxHost::GetSandboxBinaryPath`
+/// settles on. A `chrome-sandbox` that exists next to the executable always wins, usable
+/// or not. Only when there is none is `CHROME_DEVEL_SANDBOX` read, and only when the
+/// executable belongs to the user running it (a "user-managed build"), so a root-owned
+/// packaged install never consults it. An empty value names no helper.
+///
+/// `next_to_exe` is the candidate next to the executable when it exists. Kept free of I/O
+/// so both orders can be unit tested.
+#[cfg(any(
+  target_os = "linux",
+  target_os = "dragonfly",
+  target_os = "freebsd",
+  target_os = "netbsd",
+  target_os = "openbsd"
+))]
+fn chromium_helper_candidate(
+  next_to_exe: Option<std::path::PathBuf>,
+  exe_owned_by_current_user: bool,
+  devel_sandbox: Option<std::ffi::OsString>,
+) -> Option<HelperCandidate> {
+  if let Some(helper) = next_to_exe {
+    return Some(HelperCandidate::NextToExe(helper));
+  }
+  if !exe_owned_by_current_user {
+    return None;
+  }
+  devel_sandbox
+    .filter(|path| !path.is_empty())
+    .map(|path| HelperCandidate::Devel(path.into()))
 }
 
 /// Stats `path` and hands what it reports to [`helper_stat_is_usable`].
@@ -396,16 +485,18 @@ mod tests {
           ),
           SandboxDecision::Disable(SandboxDisableReason::Policy)
         );
-        assert_eq!(
-          sandbox_decision(
-            SandboxPolicy::Required,
-            false,
-            appimage,
-            helper,
-            Some(1),
-            Some(0)
+        assert!(
+          matches!(
+            sandbox_decision(
+              SandboxPolicy::Required,
+              false,
+              appimage,
+              helper,
+              Some(1),
+              Some(0)
+            ),
+            SandboxDecision::Keep | SandboxDecision::KeepSetuidOnly
           ),
-          SandboxDecision::Keep,
           "Required must keep the sandbox even when Chromium will abort"
         );
       }
@@ -448,6 +539,63 @@ mod tests {
     // fail loudly rather than silently run unsandboxed.
     assert_eq!(auto(false, false, Some(1), Some(0)), SandboxDecision::Keep);
     assert_eq!(auto(false, true, None, None), SandboxDecision::Keep);
+  }
+
+  #[test]
+  fn a_usable_helper_under_the_apparmor_restriction_skips_the_namespace_probe() {
+    // The packaged install on a system without Ubuntu's `unprivileged_userns` profile:
+    // the probe would abort on EACCES, so Chromium is sent straight to the helper.
+    for policy in [SandboxPolicy::Auto, SandboxPolicy::Required] {
+      for max_user_namespaces in [None, Some(0), Some(47801)] {
+        assert_eq!(
+          sandbox_decision(policy, false, false, true, Some(1), max_user_namespaces),
+          SandboxDecision::KeepSetuidOnly,
+          "{policy:?}, max_user_namespaces {max_user_namespaces:?}"
+        );
+      }
+    }
+  }
+
+  #[test]
+  fn without_the_apparmor_restriction_the_namespace_sandbox_is_left_to_chromium() {
+    for apparmor in [None, Some(0)] {
+      assert_eq!(auto(false, true, apparmor, Some(47801)), SandboxDecision::Keep);
+      assert_eq!(
+        sandbox_decision(SandboxPolicy::Required, false, false, true, apparmor, Some(47801)),
+        SandboxDecision::Keep
+      );
+    }
+  }
+
+  #[test]
+  fn the_restriction_without_a_usable_helper_changes_nothing() {
+    // Chromium aborts with "No usable sandbox!" without the namespace sandbox or the
+    // helper, so the switch is only passed when the helper is there to fall back on.
+    assert_eq!(auto(false, false, Some(1), Some(47801)), SandboxDecision::Keep);
+    assert_eq!(
+      sandbox_decision(SandboxPolicy::Required, false, false, false, Some(1), Some(47801)),
+      SandboxDecision::Keep
+    );
+  }
+
+  #[test]
+  fn an_appimage_keeps_its_own_decisions_under_the_restriction() {
+    // Tauri's bundler puts an inert helper next to the executable, so a usable one can
+    // only come from `CHROME_DEVEL_SANDBOX` in an image without it; the AppImage table is
+    // kept as it was either way.
+    assert_eq!(auto(true, true, Some(1), Some(47801)), SandboxDecision::Keep);
+    assert_eq!(
+      auto(true, false, Some(1), Some(47801)),
+      SandboxDecision::Disable(SandboxDisableReason::AppImageUserNamespacesRestricted)
+    );
+  }
+
+  #[test]
+  fn disabled_wins_over_the_setuid_only_choice() {
+    assert_eq!(
+      sandbox_decision(SandboxPolicy::Disabled, false, false, true, Some(1), None),
+      SandboxDecision::Disable(SandboxDisableReason::Policy)
+    );
   }
 
   #[test]
@@ -539,6 +687,47 @@ mod tests {
       unsafe { set_windows_sandbox_info(std::ptr::null_mut()) };
       assert!(windows_sandbox_unavailable());
     }
+  }
+
+  #[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+  ))]
+  #[test]
+  fn the_helper_next_to_the_executable_wins_over_chrome_devel_sandbox() {
+    // A packaged install whose user's shell exports CHROME_DEVEL_SANDBOX: Chromium still
+    // uses the helper it ships, so that is the one to stat.
+    let packaged = std::path::PathBuf::from("/usr/share/App/chrome-sandbox");
+    for owned in [false, true] {
+      assert_eq!(
+        chromium_helper_candidate(Some(packaged.clone()), owned, Some("/opt/dev/chrome-sandbox".into())),
+        Some(HelperCandidate::NextToExe(packaged.clone()))
+      );
+    }
+  }
+
+  #[cfg(any(
+    target_os = "linux",
+    target_os = "dragonfly",
+    target_os = "freebsd",
+    target_os = "netbsd",
+    target_os = "openbsd"
+  ))]
+  #[test]
+  fn chrome_devel_sandbox_is_read_only_for_a_user_owned_executable_without_a_helper() {
+    let devel = || Some(std::ffi::OsString::from("/usr/local/lib/app/chrome-sandbox"));
+    // `just run-app`: the build's copy deleted, the binary the developer's own.
+    assert_eq!(
+      chromium_helper_candidate(None, true, devel()),
+      Some(HelperCandidate::Devel("/usr/local/lib/app/chrome-sandbox".into()))
+    );
+    // A root-owned install never consults the variable.
+    assert_eq!(chromium_helper_candidate(None, false, devel()), None);
+    assert_eq!(chromium_helper_candidate(None, true, None), None);
+    assert_eq!(chromium_helper_candidate(None, true, Some("".into())), None);
   }
 
   #[cfg(any(

@@ -40,6 +40,11 @@ pub(crate) const REPLACING_SWITCHES: &[(&str, &str)] = &[
   ("js-flags", "Cef::javascript_flags"),
 ];
 
+/// GitVolt patch: sends Chromium's zygote host straight to the setuid `chrome-sandbox`
+/// helper, skipping its user-namespace probe. The runtime appends it itself under
+/// AppArmor's user-namespace restriction (`crate::sandbox::SandboxDecision::KeepSetuidOnly`).
+pub(crate) const DISABLE_NAMESPACE_SANDBOX: &str = "disable-namespace-sandbox";
+
 /// Chromium switches that turn off a security boundary, mirroring the list Chrome warns
 /// about in `chrome/browser/ui/startup/bad_flags_prompt.cc`.
 ///
@@ -65,7 +70,9 @@ const DANGEROUS_SWITCHES: &[&str] = &[
   "disable-gpu-sandbox",
   "disable-setuid-sandbox",
   "disable-seccomp-filter-sandbox",
-  "disable-namespace-sandbox",
+  // GitVolt patch: not `disable-namespace-sandbox`. It picks the setuid sandbox over the
+  // namespace one, and without the helper Chromium aborts ("No usable sandbox!") rather
+  // than run unsandboxed.
   "disable-landlock-sandbox",
   "disable-webnn-compiler-sandbox",
   "allow-sandbox-debugging",
@@ -204,6 +211,15 @@ mod tests {
     assert!(!only_blocks_resolution("host-resolver-rules", Some("")));
     assert!(!only_blocks_resolution("host-resolver-rules", None));
     assert!(!only_blocks_resolution("host-rules", Some("MAP * ~NOTFOUND")));
+  }
+
+  #[test]
+  fn choosing_the_setuid_sandbox_is_not_a_dangerous_switch() {
+    assert!(!DANGEROUS_SWITCHES.contains(&DISABLE_NAMESPACE_SANDBOX));
+    // The switches that do drop a sandbox layer stay listed.
+    for switch in ["no-sandbox", "disable-setuid-sandbox", "disable-seccomp-filter-sandbox"] {
+      assert!(DANGEROUS_SWITCHES.contains(&switch), "{switch}");
+    }
   }
 
   #[test]

@@ -15,6 +15,18 @@ The only message is Chromium's `FATAL:...] No usable sandbox!`, and GitVolt itse
 more useful. **Fix:** install the helper once (see "Recommended" below), or fix the copy next to the
 binary (see "Fallback").
 
+**Symptom:** the app dies at once with `FATAL:sandbox/linux/services/credentials.cc:131] Check
+failed: . : Permission denied (13)` and "Trace/breakpoint trap", and the kernel log has an
+AppArmor `DENIED operation="userns_create"` ("failed to find unprivileged_userns profile").
+**Cause:** with `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` at 1 but Ubuntu's
+`unprivileged_userns` AppArmor profile not loaded, creating a user namespace fails with `EACCES`,
+an errno Chromium's namespace-sandbox probe aborts on instead of falling back to the setuid helper
+(where the profile is loaded, the probe fails gracefully). GitVolt now passes
+`--disable-namespace-sandbox` whenever that restriction is on and the helper Chromium will use (next to
+the binary, else `CHROME_DEVEL_SANDBOX`, as below) is usable, so Chromium goes straight to the helper; it logs
+"AppArmor restricts unprivileged user namespaces: using the setuid sandbox helper". The sandbox
+stays on.
+
 A local dev build is different: **every time the CEF build script runs (first build, clean
 build, CEF upgrade) it copies a fresh, non-setuid `chrome-sandbox` from the CEF distribution next
 to the binary** (`target/debug/` or `target/release/`). There are two ways to deal with that.

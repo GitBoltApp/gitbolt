@@ -142,6 +142,13 @@ says.
   for the chord table, the Shift rules and the ownership scoping.
 - `src/switches.rs` (resolver rules, below): `only_blocks_resolution()`, checked first in
   `warn_about_dangerous_switches`, and its unit test.
+- AppArmor's user-namespace restriction with the setuid helper (below): `src/sandbox.rs` gains
+  `SandboxDecision::KeepSetuidOnly`, its check at the top of `sandbox_decision` (after
+  `Disabled` and the Windows broker), module docs and unit tests; `src/switches.rs` gains
+  `DISABLE_NAMESPACE_SANDBOX`, drops that name from `DANGEROUS_SWITCHES` and tests it;
+  `sandbox_helper_available` follows Chromium's lookup order (`HelperCandidate`,
+  `chromium_helper_candidate()` and their tests);
+  `src/runtime.rs` handles the new decision (an info log and the browser-only switch).
 - `src/cef_impl/client/context_menu.rs` (context menu, below): more IDC names in
   `BROWSER_ONLY_COMMANDS`, and the file's first unit tests.
 - `src/cef_impl/client/mod.rs`: `keyboard_handler()` passes `frame_navigation_state` (above),
@@ -313,6 +320,34 @@ No other files differ from the published 3.0.0-alpha.5 crate (its `Cargo.lock` i
 that only blocks name resolution and can't redirect traffic, which is what the warning is about.
 **Fix:** a value made only of `MAP * ~NOTFOUND` and `EXCLUDE …` rules is logged at debug instead;
 any other rule (a real redirect) still warns. Test: `resolver_rules_that_only_block_are_not_a_redirect`.
+
+## AppArmor denying user namespaces outright (Linux)
+
+With `/proc/sys/kernel/apparmor_restrict_unprivileged_userns` at 1 and Ubuntu's
+`unprivileged_userns` AppArmor profile not loaded, AppArmor denies `userns_create` with `EACCES`.
+Chromium's zygote host probes for the namespace sandbox before the setuid one, and that probe
+`PCHECK`s the clone's errno against the ones it expects, which `EACCES` is not, so the browser died at
+`sandbox/linux/services/credentials.cc:131` ("Check failed: . : Permission denied (13)") even
+with a root-owned setuid `chrome-sandbox` installed. Where the profile is loaded, the clone
+succeeds without capabilities and the probe falls back to the helper, so the same package ran.
+**Fix:** outside an AppImage, with a usable helper (the one Chromium picks, stat'ed as before)
+and the sysctl at 1, `sandbox_decision` returns
+`KeepSetuidOnly` under `Auto` and `Required`, and the runtime appends `--disable-namespace-sandbox`
+to the browser process's switches and logs the choice at info. The sandbox stays on: Chromium
+uses the helper it would have fallen back to. The sysctl at 0 or unreadable, no usable helper,
+and every AppImage case decide as before. `disable-namespace-sandbox` is off the dangerous-switch
+list: without the helper Chromium aborts rather than run unsandboxed. Tests:
+`sandbox::tests::a_usable_helper_under_the_apparmor_restriction_skips_the_namespace_probe` and its
+neighbours, `switches::tests::choosing_the_setuid_sandbox_is_not_a_dangerous_switch`.
+
+`sandbox_helper_available` now looks the helper up in Chromium's own order
+(`SetuidSandboxHost::GetSandboxBinaryPath`, mirrored by the pure `chromium_helper_candidate`): a
+`chrome-sandbox` next to the executable always wins; `CHROME_DEVEL_SANDBOX` is read only when
+there is none there and the executable is owned by the current user. Upstream read the variable
+first, so one exported by the user's shell could hide a packaged install's good helper and skip
+the switch, and it was honoured inside an AppImage, where Chromium uses the image's inert copy
+instead. Tests: `the_helper_next_to_the_executable_wins_over_chrome_devel_sandbox`,
+`chrome_devel_sandbox_is_read_only_for_a_user_owned_executable_without_a_helper`.
 
 ## The Windows sandbox, through CEF's bootstrap
 
