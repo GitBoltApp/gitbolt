@@ -1,8 +1,8 @@
 //! "Other…" (feedback H32): the system's Open With chooser for one file. On Linux it's
 //! xdg-desktop-portal's `org.freedesktop.portal.OpenURI.OpenFile` with `ask: true`, which takes
 //! the file as a read-only descriptor; without the portal, `xdg-open` (logged). On Windows it's
-//! the shell's own Open With dialog (`win32.rs`). macOS plugs into `system_chooser` later
-//! (spec §4).
+//! the shell's own Open With dialog (`win32.rs`). On macOS it's an `NSOpenPanel` of apps, then
+//! `open -a` (`macos.rs`).
 
 use crate::error::GbError;
 use std::path::Path;
@@ -131,7 +131,11 @@ pub fn system_chooser(hook: super::ChildEnvHook) -> Option<Chooser> {
         let _ = hook;
         Some(Arc::new(super::win32::open_with_dialog))
     }
-    #[cfg(not(any(target_os = "linux", windows)))]
+    #[cfg(target_os = "macos")]
+    {
+        Some(Arc::new(move |f: &Path| super::macos::open_with_chosen_app(f, &*hook)))
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         let _ = hook;
         None
@@ -351,5 +355,11 @@ mod tests {
         let fell_back = RefCell::new(false);
         open_with(Path::new("/w/a.php"), |_| Err(PortalError::TimedOut), |_| { *fell_back.borrow_mut() = true; Ok(()) }).unwrap();
         assert!(!fell_back.into_inner(), "a timeout must not trigger the xdg-open fallback");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_has_an_other_chooser() {
+        assert!(system_chooser(Arc::new(|_: &mut std::process::Command| {})).is_some());
     }
 }

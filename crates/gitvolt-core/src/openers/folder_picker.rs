@@ -3,7 +3,8 @@
 //! same session-bus connection the "Other…" chooser uses (`chooser::linux::shared_bus`). Unlike
 //! `OpenURI.OpenFile`, this call's result matters (the folder the user picked), so the request has
 //! to be followed through the portal's `Request`/`Response` round trip. On Windows it's the
-//! shell's folder dialog (`IFileOpenDialog`, `win32.rs`).
+//! shell's folder dialog (`IFileOpenDialog`, `win32.rs`), and on macOS an `NSOpenPanel` sheet
+//! (`macos.rs`).
 
 use super::chooser::PortalError;
 use std::path::{Path, PathBuf};
@@ -36,7 +37,13 @@ pub fn system_folder_picker(parent_window: impl Fn() -> String + Send + Sync + '
     return Some(Arc::new(move |start: Option<&Path>| {
         pick_folder(start, |s| super::win32::pick_folder(s, win32_parent(&parent_window())).map_err(|e| PortalError::Failed(e.message)))
     }));
-    #[cfg(not(any(target_os = "linux", windows)))]
+    // AppKit hands the panel its window (`macos.rs`), so no parent token.
+    #[cfg(target_os = "macos")]
+    {
+        let _ = parent_window;
+        Some(Arc::new(super::macos::pick_folder))
+    }
+    #[cfg(not(any(target_os = "linux", windows, target_os = "macos")))]
     {
         let _ = parent_window;
         None
@@ -230,5 +237,11 @@ mod tests {
         assert_eq!(percent_decode("no-escapes"), "no-escapes");
         assert_eq!(percent_decode("bad%zz escape"), "bad%zz escape");
         assert_eq!(percent_decode("trailing%2"), "trailing%2");
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_has_a_folder_picker() {
+        assert!(system_folder_picker(String::new).is_some());
     }
 }

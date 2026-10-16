@@ -14,8 +14,8 @@
 //! Windows, launchers on `PATH` (with `PATHEXT`) and in their install folders, the JetBrains
 //! Toolbox, and File Explorer (`win_detect.rs`); the shell's own dialogs and URL handler are in
 //! `win32.rs`. On macOS, launchers on `PATH` and inside app bundles, the Toolbox, and Finder
-//! (`mac_detect.rs`); links open with `open`. Its Open With chooser and folder picker are still
-//! to come (`None`).
+//! (`mac_detect.rs`); links open with `open`. Its Open With chooser and folder picker are
+//! `NSOpenPanel`s (`macos.rs`).
 
 use crate::error::{GbError, GbErrorKind};
 use crate::links::UrlOpener;
@@ -32,6 +32,8 @@ mod desktop;
 pub mod folder_picker;
 #[cfg(any(target_os = "macos", all(unix, test)))]
 mod mac_detect;
+#[cfg(any(target_os = "macos", all(unix, test)))]
+mod macos;
 #[cfg(windows)]
 mod win32;
 #[cfg(any(windows, test))]

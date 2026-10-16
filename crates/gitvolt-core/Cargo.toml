@@ -39,6 +39,11 @@ tokio = { workspace = true, features = ["test-util"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2-foundation.workspace = true
+objc2.workspace = true
+objc2-app-kit = { workspace = true, features = ["std", "block2", "objc2-uniform-type-identifiers", "NSApplication", "NSOpenPanel", "NSPanel", "NSResponder", "NSSavePanel", "NSWindow"] }
+block2.workspace = true
+dispatch2.workspace = true
+objc2-uniform-type-identifiers.workspace = true
 
 [target.'cfg(unix)'.dependencies]
 nix.workspace = true
